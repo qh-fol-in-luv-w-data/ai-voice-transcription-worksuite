@@ -1,0 +1,96 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:MEETING-{####}",
+ "creation": "2026-05-18 10:28:57.586411",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "date",
+  "status",
+  "audio_file",
+  "transcript",
+  "raw_results",
+  "minute_docx",
+  "task_xlsx"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Date"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nAnalyzed\nSynced"
+  },
+  {
+   "fieldname": "audio_file",
+   "fieldtype": "Attach",
+   "label": "Audio File"
+  },
+  {
+   "fieldname": "transcript",
+   "fieldtype": "Text Editor",
+   "label": "Transcript"
+  },
+  {
+   "fieldname": "raw_results",
+   "fieldtype": "Code",
+   "label": "Raw AI Results (JSON)",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "minute_docx",
+   "fieldtype": "Attach",
+   "label": "Minute Docx"
+  },
+  {
+   "fieldname": "task_xlsx",
+   "fieldtype": "Attach",
+   "label": "Task Excel"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-18 10:28:57.586411",
+ "modified_by": "Administrator",
+ "module": "Voice App",
+ "name": "Voice Meeting",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
