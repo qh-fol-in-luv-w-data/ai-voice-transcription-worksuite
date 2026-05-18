@@ -1,33 +1,98 @@
-### Voice App
+# 2AS WorkSuite - AI Voice Transcription & Task Automation
 
-AI Voice Transcription
+Ứng dụng **AI Voice Transcription** là một phân hệ (App) được xây dựng trên nền tảng **Frappe Framework** kết hợp với **Vue.js 3**. Ứng dụng giúp chuyển đổi âm thanh cuộc họp thành văn bản (Speech-to-Text), tự động nhận diện người nói (Diarization), ứng dụng AI để tóm tắt/lọc hội thoại và tự động trích xuất các công việc (Tasks) để đồng bộ vào hệ thống CTERP (WorkSuite).
 
-### Installation
+## 🚀 Tính năng nổi bật
 
-You can install this app using the [bench](https://github.com/frappe/bench) CLI:
+- **Chuyển đổi Giọng nói thành Văn bản (STT)**: Hỗ trợ tiếng Việt và nhiều ngôn ngữ khác.
+- **Phân tách người nói (Diarization)**: Tự động nhận diện và gán tên người phát biểu dựa trên mẫu giọng nói (Voice Enrollment).
+- **Trích xuất công việc tự động (Task Extraction)**: Dùng LLM (GPT-4o) để phân tích cuộc họp, phân công người thực hiện, thời hạn và đồng bộ lên ERP.
+- **Xuất Biên bản họp**: Tạo file Word và Excel biên bản họp hoàn chỉnh dựa theo biểu mẫu.
+- **Lọc hội thoại bằng AI**: Xóa bỏ các từ ậm ừ, lấp liếm để biên bản họp trở nên gọn gàng, súc tích.
+
+---
+
+## 🛠 Yêu cầu hệ thống
+
+- **Backend**: Python 3.10+, Frappe Framework (Bench)
+- **Frontend**: Node.js 18+, npm
+- **API Keys**: OpenAI, ElevenLabs, HuggingFace (nếu cần)
+
+---
+
+## ⚙️ Hướng dẫn cài đặt và chạy ứng dụng
+
+### 1. Cài đặt Backend (Frappe)
+
+Ứng dụng này là một Frappe App. Bạn cần có sẵn một môi trường Frappe Bench.
 
 ```bash
-cd $PATH_TO_YOUR_BENCH
-bench get-app $URL_OF_THIS_REPO --branch develop
-bench install-app voice_app
+# 1. Di chuyển vào thư mục bench của bạn
+cd path/to/your/frappe-bench
+
+# 2. Tải app về từ Github
+bench get-app https://github.com/ctg-ai-data/2as-worksuite.git --branch main
+
+# 3. Cài đặt app vào site hiện tại của bạn
+bench --site [tên_site_của_bạn] install-app voice_app
 ```
 
-### Contributing
+### 2. Cấu hình Biến môi trường (.env)
 
-This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
+Tạo một file `.env` trong thư mục gốc của app (`apps/voice_app/voice_app/.env`) hoặc thiết lập các biến môi trường trên hệ thống với các giá trị sau:
+
+```env
+OPENAI_API_KEY=sk-your-openai-api-key
+ELEVENLABS_API_KEY=your-elevenlabs-api-key
+WHISPER_URL=http://localhost:8080/inference # (Tùy chọn, nếu dùng local Whisper)
+HF_TOKEN=your-huggingface-token # (Tùy chọn, dùng cho Diarization model)
+```
+
+### 3. Cài đặt và Chạy Frontend (Vue.js)
+
+Giao diện người dùng được xây dựng hoàn toàn độc lập bằng Vue.js + Vite và nằm trong thư mục `frontend`.
 
 ```bash
-cd apps/voice_app
-pre-commit install
+# 1. Di chuyển vào thư mục frontend
+cd apps/voice_app/frontend
+
+# 2. Cài đặt các gói thư viện Node.js
+npm install
+
+# 3. Khởi động server Frontend
+npm run dev -- --host
 ```
 
-Pre-commit is configured to use the following tools for checking and formatting your code:
+Sau khi chạy lệnh trên, giao diện web sẽ chạy tại: `http://localhost:5174` (hoặc cổng tương ứng hiển thị trên terminal).
 
-- ruff
-- eslint
-- prettier
-- pyupgrade
+### 4. Khởi động hệ thống (Chạy Backend)
 
-### License
+Mở một terminal mới (giữ terminal frontend vẫn chạy), di chuyển vào thư mục bench và khởi động các dịch vụ Frappe:
 
-mit
+```bash
+cd path/to/your/frappe-bench
+bench start
+```
+
+Backend Frappe thường sẽ chạy tại `http://localhost:8000`. Frontend sẽ tự động gọi API tới cổng 8000 này.
+
+---
+
+## 📖 Cấu trúc thư mục
+
+- `voice_app/`: Chứa mã nguồn Python, API endpoints (`api.py`), cấu trúc DocType của Frappe.
+- `voice_app/task_extractor.py`: Xử lý Logic AI, LangGraph, prompt OpenAI.
+- `voice_app/docx_utils.py`: Logic xuất file Word (Biên bản họp).
+- `frontend/`: Toàn bộ mã nguồn giao diện Vue 3 (Sử dụng Vite, Tailwind CSS, Shadcn-Vue).
+- `public/files/template_v2.docx`: Biểu mẫu xuất file Word chuẩn.
+
+---
+
+## 🐛 Troubleshooting (Sửa lỗi thường gặp)
+
+1. **Lỗi không kết nối được Backend**: Đảm bảo bạn đang mở cả `bench start` và `npm run dev`. Hãy kiểm tra URL gọi API trong `frontend/src/api.js`.
+2. **Lỗi không có quyền (CORS)**: Nếu bạn chạy Frontend và Backend ở hai cổng khác nhau mà bị chặn CORS, hãy thêm cấu hình cho phép tên miền localhost trong file `site_config.json` của Frappe.
+3. **Lỗi AI không phản hồi**: Kiểm tra lại file `.env` xem `OPENAI_API_KEY` đã được thiết lập đúng hay chưa.
+
+## 📄 License
+MIT
