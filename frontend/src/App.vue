@@ -223,6 +223,9 @@ const toggleRecording = async () => {
   }
   
   try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Trình duyệt không hỗ trợ hoặc bạn đang truy cập bằng HTTP. Vui lòng sử dụng HTTPS để cấp quyền Micro.");
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     mediaRecorder.value = new MediaRecorder(stream)
     audioChunks.value = []
@@ -242,7 +245,7 @@ const toggleRecording = async () => {
     mediaRecorder.value.start()
     isRecording.value = true
   } catch(e) {
-    alert("Lỗi truy cập Micro: " + e)
+    alert("Lỗi truy cập Micro: " + e.message)
   }
 }
 

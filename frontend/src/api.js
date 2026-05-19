@@ -5,14 +5,15 @@ const api = axios.create({
   withCredentials: true
 })
 
-// Lấy CSRF Token từ cookie
-function getCookie(name) {
-  let r = document.cookie.match("\\b" + name + "=([^;]*)\\b");
-  return r ? r[1] : undefined;
-}
+import { getCsrfToken, getSessionId } from './utils/session'
 
 api.interceptors.request.use(config => {
-  const csrfToken = getCookie('sid');
+  const csrf = getCsrfToken()
+  if (csrf) config.headers['X-Frappe-CSRF-Token'] = csrf
+
+  const sid = getSessionId()
+  if (sid) config.headers['X-App-Session-Id'] = sid
+  
   return config;
 })
 
