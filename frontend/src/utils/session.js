@@ -51,11 +51,13 @@ export async function initSession(contextUrl) {
 
     if (res.status === 403) {
       authState.value = 'denied'
+      removeSplash()
       return
     }
 
     // Frappe redirects to login if unauthenticated (allow_guest=False)
     if (res.status === 401 || res.status === 307 || res.redirected || res.url.includes('/login')) {
+      removeSplash()
       window.location.href = '/login'
       return
     }
@@ -77,12 +79,22 @@ export async function initSession(contextUrl) {
     authState.value = 'authorized'
     console.debug('[CT Session] OK', { sessionId: _sessionId.value })
 
+    // Hide the hardcoded splash screen if it exists
+    const splash = document.getElementById('ct-splash')
+    if (splash) splash.remove()
+
   } catch (err) {
     // FAIL-CLOSED: Khong cho phep fail-open trong context xac thuc
     _done = true
     authState.value = 'denied'
+    removeSplash()
     console.error('[CT Session] initSession error (fail-closed):', err)
   }
+}
+
+function removeSplash() {
+  const splash = document.getElementById('ct-splash')
+  if (splash) splash.remove()
 }
 
 /** Lay CSRF token hien tai (dung cho X-Frappe-CSRF-Token header) */
