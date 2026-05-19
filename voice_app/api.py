@@ -4,6 +4,8 @@ import json
 import traceback
 import pandas as pd
 import requests
+import urllib.parse
+from voice_app.utils.activity_logger import ActivityLogger
 from frappe.utils.file_manager import save_file
 from voice_app.elevenlabs_client import call_elevenlabs_stt, check_elevenlabs_balance
 from voice_app.task_extractor import extract_tasks_only, create_tasks_to_erp, clean_transcript_llm
@@ -397,3 +399,50 @@ def get_meeting_history():
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Get Meeting History Error")
         return {"status": "error", "message": str(e), "meetings": []}
+_logger = ActivityLogger(prefix="VOICE", module="voice_app")
+
+@frappe.whitelist(allow_guest=False)
+def get_context():
+    import uuid
+    dept = ""
+    role = ""
+    try:
+        from ct_agent_hub.api import check_app_access
+        agents_data = check_app_access("voice_app")
+        user_depts = agents_data.get("user_departments", [])
+        dept = ",".join(user_depts) if user_depts else ""
+        role = agents_data.get("user_role", "")
+    except ImportError:
+        pass
+
+    session_id = str(uuid.uuid4())
+    session_name = _logger.create_session(session_id, dept=dept, role=role)
+
+    return {
+        "csrf_token": frappe.sessions.get_csrf_token(),
+        "session_id": session_id,
+        "session_name": session_name,
+    }
+
+def _resolve_session(session_id: str) -> str:
+    if not session_id:
+        return ""
+    try:
+        rows = frappe.db.get_all(
+            "VOICE Session",
+            filters={"session_id": session_id},
+            fields=["name"],
+            limit=1,
+            ignore_permissions=True,
+        )
+        return rows[0].name if rows else ""
+    except Exception:
+        return ""
+
+def _log_action(session_id: str, action: str, details: dict):
+    if not session_id:
+        return
+    s_name = _resolve_session(session_id)
+    if s_name:
+        _logger.log_action(s_name, action, details)
+
