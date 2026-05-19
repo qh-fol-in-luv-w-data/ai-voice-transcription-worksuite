@@ -1,7 +1,7 @@
 import os
 from typing import List, Dict, Any, Tuple
 from elevenlabs.client import ElevenLabs
-from .constants import ELEVENLABS_API_KEY
+from .constants import get_elevenlabs_api_key
 
 def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> Tuple[List[Dict[str, Any]], str, str | None]:
     """
@@ -15,10 +15,11 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> Tuple[List[Dict[
         "text": str
     }
     """
-    if not ELEVENLABS_API_KEY:
-        return [], "", "Thiếu ELEVENLABS_API_KEY trong .env"
+    api_key = get_elevenlabs_api_key()
+    if not api_key:
+        return [], "", "Thiếu ELEVENLABS_API_KEY trong cấu hình"
 
-    client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+    client = ElevenLabs(api_key=api_key)
     
     try:
         with open(wav_path, "rb") as f:
@@ -64,10 +65,11 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> Tuple[List[Dict[
         return [], "", f"Lỗi ElevenLabs: {str(e)}"
 
 def check_elevenlabs_balance() -> str:
-    if not ELEVENLABS_API_KEY:
+    api_key = get_elevenlabs_api_key()
+    if not api_key:
         return "Thiếu ELEVENLABS_API_KEY"
     try:
-        client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        client = ElevenLabs(api_key=api_key)
         sub = client.user.subscription.get()
         used = sub.character_count
         total = sub.character_limit

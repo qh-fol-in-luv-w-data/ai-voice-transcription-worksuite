@@ -39,7 +39,7 @@ def _patched_hf_hub_download(*args, **kwargs):
 huggingface_hub.hf_hub_download = _patched_hf_hub_download
 
 from scipy.spatial.distance import cosine
-from .constants import HF_TOKEN, SPEAKER_DB_PATH, SIMILARITY_THRESHOLD
+from .constants import get_hf_token, SPEAKER_DB_PATH, SIMILARITY_THRESHOLD
 
 # ── PIPELINE & MODELS (Lazy Load) ──────────────────────────────────────────
 _pipeline = None
@@ -55,7 +55,7 @@ def get_pipeline():
         torch.load = lambda *args, **kwargs: _orig_load(*args, **{**kwargs, "weights_only": False})
         try:
             # Quay lại bản 3.1 để đạt độ chính xác tối đa
-            _pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=HF_TOKEN or None)
+            _pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=get_hf_token() or None)
             device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
             _pipeline = _pipeline.to(device)
             print(f"✅ Đã tải Diarization Pipeline (3.1) trên {device}")
@@ -72,7 +72,7 @@ def get_embedding_model():
         _orig_load = torch.load
         torch.load = lambda *args, **kwargs: _orig_load(*args, **{**kwargs, "weights_only": False})
         try:
-            model = Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN or None)
+            model = Model.from_pretrained("pyannote/embedding", use_auth_token=get_hf_token() or None)
             if model is None:
                 print("❌ Không thể tải model 'pyannote/embedding'.")
                 return None

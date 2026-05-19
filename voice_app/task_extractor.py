@@ -11,7 +11,7 @@ import requests
 from docx import Document
 from openai import OpenAI
 from langgraph.graph import StateGraph, END
-from .constants import OPENAI_API_KEY
+from .constants import get_openai_api_key
 
 # Cấu hình ERPNext
 BASE_URL    = os.getenv("WORKSUITE_URL",      "https://deverp.ctgroupvietnam.com")
@@ -148,10 +148,11 @@ def node_extract_tasks(state: AgentState) -> dict:
     if not state.get("doc_text"):
         return {"errors": ["Không có nội dung để phân tích"], "extracted_data": {}}
 
-    if not OPENAI_API_KEY:
-        return {"errors": ["Thiếu OPENAI_API_KEY trong config.py"]}
+    api_key = get_openai_api_key()
+    if not api_key:
+        return {"errors": ["Thiếu OPENAI_API_KEY trong config"]}
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=api_key)
 
     prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất danh sách Task và Noti.
 
@@ -804,10 +805,11 @@ def clean_transcript_llm(results, model_type="gpt-4o-mini"):
     Dùng LLM lọc các câu hội thoại rác, không mang thông tin, đứt đoạn.
     Trả về list of kết quả đã được lọc giữ nguyên định dạng: (start, end, spk_label, text)
     """
-    if not OPENAI_API_KEY:
-        return results, "Thiếu OPENAI_API_KEY trong config.py"
+    api_key = get_openai_api_key()
+    if not api_key:
+        return results, "Thiếu OPENAI_API_KEY trong config"
         
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=api_key)
     
     lines = []
     for i, seg in enumerate(results):
