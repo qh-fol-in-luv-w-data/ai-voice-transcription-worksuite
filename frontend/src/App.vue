@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getCurrentUser, login, logout, getEnrolledSpeakers, getMeetingHistory, cleanTranscript } from './api'
+import { initSession } from './utils/session'
 
 // Auth State
 const currentUser = ref('Guest')
@@ -511,6 +512,7 @@ const currentLocalDate = () => {
 }
 
 onMounted(async () => {
+  await initSession('/api/method/voice_app.api.voice_app_api.get_context')
   checkBalance()
   checkUser()
   try {

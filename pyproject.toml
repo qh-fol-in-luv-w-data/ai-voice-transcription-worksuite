@@ -58,3 +58,13 @@ typing-modules = ["frappe.types.DF"]
 quote-style = "double"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.ct_template]
+prefix           = "VOICE"
+module           = "voice_app"
+app_name         = "voice_app"
+app_slug         = "voice_app"
+get_context_file = "voice_app/api/voice_app_api.py"
+context_url      = "/api/method/voice_app.api.voice_app_api.get_context"
+frontend_src     = "frontend/"
+
