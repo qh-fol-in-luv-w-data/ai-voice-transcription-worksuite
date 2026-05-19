@@ -11,12 +11,7 @@ import requests
 from docx import Document
 from openai import OpenAI
 from langgraph.graph import StateGraph, END
-from .constants import get_openai_api_key
-
-# Cấu hình ERPNext
-BASE_URL    = os.getenv("WORKSUITE_URL",      "https://deverp.ctgroupvietnam.com")
-WS_EMAIL    = os.getenv("WORKSUITE_EMAIL",    "ai.worksuit.dev@ctmcorp.com.vn")
-WS_PASSWORD = os.getenv("WORKSUITE_PASSWORD", "123456")
+from .constants import get_openai_api_key, get_worksuite_url, get_worksuite_email, get_worksuite_password
 
 
 # ─────────────────────────────────────────────
@@ -223,10 +218,12 @@ Nội dung biên bản họp:
 def node_login_frappe(state: AgentState) -> dict:
     print("\n🔐 [Node 3] Đăng nhập ERPNext/Frappe...")
 
+    base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+
     session = requests.Session()
     resp = session.post(
-        f"{BASE_URL}/api/method/login",
-        json={"usr": WS_EMAIL, "pwd": WS_PASSWORD},
+        f"{base_url}/api/method/login",
+        json={"usr": ws_email, "pwd": ws_pwd},
         timeout=15,
     )
 
@@ -242,7 +239,7 @@ def node_login_frappe(state: AgentState) -> dict:
     csrf_token = None
     try:
         r = session.get(
-            f"{BASE_URL}/api/method/frappe.utils.get_csrf_token",
+            f"{base_url}/api/method/frappe.utils.get_csrf_token",
             timeout=10,
         )
         if r.status_code == 200:
@@ -257,7 +254,7 @@ def node_login_frappe(state: AgentState) -> dict:
     if csrf_token:
         session.headers.update({
             "X-Frappe-CSRF-Token": csrf_token,
-            "X-Frappe-Site-Name":  BASE_URL.replace("https://", "").replace("http://", ""),
+            "X-Frappe-Site-Name":  base_url.replace("https://", "").replace("http://", ""),
         })
         print(f"   🔑 CSRF token: {csrf_token[:20]}...")
     else:
@@ -277,8 +274,9 @@ def node_fetch_users(state: AgentState) -> dict:
     if not session:
         return {"frappe_users": []}
 
+    base_url = get_worksuite_url()
     resp = session.get(
-        f"{BASE_URL}/api/resource/Employee",
+        f"{base_url}/api/resource/Employee",
         params={
             "fields":  '["name","employee_name","user_id","department","designation","company","status"]',
             "filters": '[["status","=","Active"]]',
@@ -316,8 +314,9 @@ def node_fetch_projects(state: AgentState) -> dict:
     if not session:
         return {"frappe_projects": {}}
         
+    base_url = get_worksuite_url()
     resp = session.get(
-        f"{BASE_URL}/api/resource/Project",
+        f"{base_url}/api/resource/Project",
         params={
             "fields": '["name", "project_name", "owner"]',
             "limit": 0,
@@ -349,7 +348,7 @@ def node_fetch_projects(state: AgentState) -> dict:
                 
     # 2. Gán project từ bảng Project User (chỉ tốn 1 API call)
     resp_users = session.get(
-        f"{BASE_URL}/api/resource/Project User",
+        f"{base_url}/api/resource/Project User",
         params={
             "fields": '["user", "custom_employee", "parent"]',
             "parent": "Project",
@@ -442,8 +441,9 @@ def node_create_tasks(state: AgentState) -> dict:
         payload = {k: v for k, v in payload.items() if v is not None and v != ""}
 
         try:
+            base_url = get_worksuite_url()
             resp = session.post(
-                f"{BASE_URL}/api/resource/Task",
+                f"{base_url}/api/resource/Task",
                 json=payload,
                 timeout=15,
             )
@@ -461,7 +461,7 @@ def node_create_tasks(state: AgentState) -> dict:
             if assignee_email and task_name != "?":
                 try:
                     session.post(
-                        f"{BASE_URL}/api/method/frappe.desk.form.assign_to.add",
+                        f"{base_url}/api/method/frappe.desk.form.assign_to.add",
                         data={
                             "assign_to": json.dumps([assignee_email]),
                             "doctype": "Task",
@@ -648,10 +648,11 @@ def create_tasks_to_erp(tasks_list):
     print("\n📝 Bắt đầu tạo Tasks lên ERPNext...")
     
     # Login lại
+    base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
     session = requests.Session()
     resp = session.post(
-        f"{BASE_URL}/api/method/login",
-        json={"usr": WS_EMAIL, "pwd": WS_PASSWORD},
+        f"{base_url}/api/method/login",
+        json={"usr": ws_email, "pwd": ws_pwd},
         timeout=15,
     )
     if resp.status_code != 200:
@@ -660,7 +661,7 @@ def create_tasks_to_erp(tasks_list):
     # Get CSRF
     csrf_token = None
     try:
-        r = session.get(f"{BASE_URL}/api/method/frappe.utils.get_csrf_token", timeout=10)
+        r = session.get(f"{base_url}/api/method/frappe.utils.get_csrf_token", timeout=10)
         if r.status_code == 200:
             csrf_token = r.json().get("message") or session.cookies.get("csrf_token")
     except: pass
@@ -668,7 +669,7 @@ def create_tasks_to_erp(tasks_list):
     if csrf_token:
         session.headers.update({
             "X-Frappe-CSRF-Token": csrf_token,
-            "X-Frappe-Site-Name":  BASE_URL.replace("https://", "").replace("http://", ""),
+            "X-Frappe-Site-Name":  base_url.replace("https://", "").replace("http://", ""),
         })
 
     created, errors = [], []
@@ -704,7 +705,7 @@ def create_tasks_to_erp(tasks_list):
 
         try:
             resp = session.post(
-                f"{BASE_URL}/api/resource/Task",
+                f"{base_url}/api/resource/Task",
                 json=payload,
                 timeout=15,
             )
@@ -722,7 +723,7 @@ def create_tasks_to_erp(tasks_list):
             if item.get("assignee_email") and task_name != "?":
                 try:
                     session.post(
-                        f"{BASE_URL}/api/method/frappe.desk.form.assign_to.add",
+                        f"{base_url}/api/method/frappe.desk.form.assign_to.add",
                         data={
                             "assign_to": json.dumps([item["assignee_email"]]),
                             "doctype": "Task",

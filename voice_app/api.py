@@ -361,12 +361,13 @@ def get_enrolled_speakers():
             order_by="speaker_name asc"
         )
         # Enrich với designation từ CTERP nếu có email khớp
-        from voice_app.task_extractor import BASE_URL, WS_EMAIL, WS_PASSWORD
+        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
         try:
+            base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
             sess = requests.Session()
-            lr = sess.post(f"{BASE_URL}/api/method/login", json={"usr": WS_EMAIL, "pwd": WS_PASSWORD}, timeout=8)
+            lr = sess.post(f"{base_url}/api/method/login", json={"usr": ws_email, "pwd": ws_pwd}, timeout=8)
             if lr.status_code == 200:
-                er = sess.get(f"{BASE_URL}/api/resource/Employee",
+                er = sess.get(f"{base_url}/api/resource/Employee",
                     params={"fields": '["employee_name","designation","user_id"]', "filters": '[["status","=","Active"]]', "limit": 500},
                     timeout=8)
                 if er.status_code == 200:

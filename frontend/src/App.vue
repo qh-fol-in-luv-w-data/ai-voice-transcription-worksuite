@@ -1,7 +1,12 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getCurrentUser, login, logout, getEnrolledSpeakers, getMeetingHistory, cleanTranscript } from './api'
-import { initSession } from './utils/session'
+import { initSession, useSession } from './utils/session'
+import CTSplashScreen from './components/CTSplashScreen.vue'
+import CTAccessDenied from './components/CTAccessDenied.vue'
+
+// Session
+const { authState } = useSession()
 
 // Auth State
 const currentUser = ref('Guest')
@@ -513,6 +518,8 @@ const currentLocalDate = () => {
 
 onMounted(async () => {
   await initSession('/api/method/voice_app.api.voice_app_api.get_context')
+  if (authState.value !== 'authorized') return
+
   checkBalance()
   checkUser()
   try {
@@ -525,7 +532,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex h-screen w-full bg-background overflow-hidden text-foreground">
+  <CTSplashScreen v-if="authState === 'loading'" />
+  <CTAccessDenied v-else-if="authState === 'denied'" />
+  <div v-else class="flex h-screen w-full bg-background overflow-hidden text-foreground">
   
     <!-- SIDEBAR -->
     <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">

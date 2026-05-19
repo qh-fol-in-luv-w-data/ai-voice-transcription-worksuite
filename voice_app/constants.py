@@ -43,6 +43,31 @@ def get_elevenlabs_api_key():
     except Exception: pass
     return os.getenv("ELEVENLABS_API_KEY", "")
 
+def get_worksuite_url():
+    try:
+        if frappe.db:
+            val = frappe.db.get_single_value("Voice App Settings", "worksuite_url")
+            if val: return val
+    except Exception: pass
+    return os.getenv("WORKSUITE_URL", "https://deverp.ctgroupvietnam.com")
+
+def get_worksuite_email():
+    try:
+        if frappe.db:
+            val = frappe.db.get_single_value("Voice App Settings", "worksuite_email")
+            if val: return val
+    except Exception: pass
+    return os.getenv("WORKSUITE_EMAIL", "ai.worksuit.dev@ctmcorp.com.vn")
+
+def get_worksuite_password():
+    try:
+        if frappe.db:
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.get_password("worksuite_password")
+            if val: return val
+    except Exception: pass
+    return os.getenv("WORKSUITE_PASSWORD", "")
+
 MIN_SPEAKERS = None
 MAX_SPEAKERS = 8
 DEFAULT_LANG = "vi"
