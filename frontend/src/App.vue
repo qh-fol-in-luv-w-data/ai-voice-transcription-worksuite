@@ -517,7 +517,7 @@ const currentLocalDate = () => {
 }
 
 onMounted(async () => {
-  await initSession('/api/method/voice_app.api.voice_app_api.get_context')
+  await initSession('/api/method/voice_app.api.get_context')
   if (authState.value !== 'authorized') return
 
   checkBalance()
