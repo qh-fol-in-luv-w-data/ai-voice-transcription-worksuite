@@ -1,9 +1,5 @@
 import os
-from dotenv import load_dotenv
 import frappe
-
-# Load .env file
-load_dotenv()
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 def get_whisper_url():
