@@ -45,8 +45,17 @@ Tạo một file `.env` trong thư mục gốc của app (`apps/voice_app/voice_
 OPENAI_API_KEY=sk-your-openai-api-key
 ELEVENLABS_API_KEY=your-elevenlabs-api-key
 WHISPER_URL=http://localhost:8080/inference # (Tùy chọn, nếu dùng local Whisper)
-HF_TOKEN=your-huggingface-token # (Tùy chọn, dùng cho Diarization model)
+HF_TOKEN=hf_your-huggingface-token # (Bắt buộc để dùng AI nhận diện giọng nói)
 ```
+
+**Hướng dẫn lấy HuggingFace Token (`HF_TOKEN`) để Phân biệt & So sánh giọng nói:**
+Hệ thống sử dụng thư viện **Pyannote Audio** để tự động nhận diện và phân tách giọng nói. Quá trình tải model diễn ra tự động, nhưng bạn cần cấp quyền truy cập:
+1. Đăng ký tài khoản tại [HuggingFace](https://huggingface.co/).
+2. Truy cập vào trang của Model Diarization: [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) và nhấn **Accept Conditions**.
+3. Truy cập vào trang của Model Embedding (dùng để so sánh đặc trưng giọng nói): [pyannote/embedding](https://huggingface.co/pyannote/embedding) và nhấn **Accept Conditions**.
+4. Truy cập vào trang Model Phân đoạn: [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) và nhấn **Accept Conditions**.
+5. Vào **Settings ➔ Access Tokens**, tạo một token mới (loại `Read`) và dán vào biến `HF_TOKEN` trong file `.env` như trên.
+*(Khi khởi chạy lần đầu tiên, hệ thống sẽ tự động sử dụng token này để tải các model về máy)*.
 
 ### 3. Cài đặt và Chạy Frontend (Vue.js)
 
