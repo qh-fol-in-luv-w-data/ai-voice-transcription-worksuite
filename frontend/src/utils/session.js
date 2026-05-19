@@ -17,14 +17,16 @@ import { ref } from 'vue'
 const authState  = ref('loading')   // 'loading' | 'authorized' | 'denied'
 const _csrf      = ref('')
 const _sessionId = ref('')
+const _user      = ref('Guest')
+const _fullName  = ref('Guest')
 let   _done      = false
 
 /**
  * Composable — dung trong <script setup>:
- *   const { authState } = useSession()
+ *   const { authState, currentUser, currentFullName } = useSession()
  */
 export function useSession() {
-  return { authState, csrfToken: _csrf, sessionId: _sessionId }
+  return { authState, csrfToken: _csrf, sessionId: _sessionId, currentUser: _user, currentFullName: _fullName }
 }
 
 /**
@@ -68,6 +70,8 @@ export async function initSession(contextUrl) {
     const data  = json.message ?? json
     if (data?.csrf_token) _csrf.value      = data.csrf_token
     if (data?.session_id) _sessionId.value = data.session_id
+    if (data?.user)       _user.value      = data.user
+    if (data?.full_name)  _fullName.value  = data.full_name
 
     _done = true
     authState.value = 'authorized'
@@ -89,6 +93,6 @@ export function getSessionId()  { return _sessionId.value }
 
 /** Reset — dung khi logout hoac test */
 export function resetSession()  {
-  _csrf.value = ''; _sessionId.value = ''; _done = false
+  _csrf.value = ''; _sessionId.value = ''; _user.value = 'Guest'; _fullName.value = 'Guest'; _done = false
   authState.value = 'loading'
 }
