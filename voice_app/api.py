@@ -422,6 +422,8 @@ def get_context():
         "csrf_token": frappe.sessions.get_csrf_token(),
         "session_id": session_id,
         "session_name": session_name,
+        "user": frappe.session.user,
+        "full_name": frappe.utils.get_fullname(frappe.session.user) if frappe.session.user != "Guest" else "Guest"
     }
 
 def _resolve_session(session_id: str) -> str:

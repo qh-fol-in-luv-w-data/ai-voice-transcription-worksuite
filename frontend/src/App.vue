@@ -1,20 +1,14 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getCurrentUser, login, logout, getEnrolledSpeakers, getMeetingHistory, cleanTranscript } from './api'
+import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript } from './api'
 import { initSession, useSession } from './utils/session'
 import CTSplashScreen from './components/CTSplashScreen.vue'
 import CTAccessDenied from './components/CTAccessDenied.vue'
 
 // Session
-const { authState } = useSession()
+const { authState, currentUser, currentFullName } = useSession()
 
-// Auth State
-const currentUser = ref('Guest')
-const showLogin = ref(false)
-const loginUsr = ref('')
-const loginPwd = ref('')
-const loginErr = ref('')
-const isLoggingIn = ref(false)
+// States
 
 // States
 const audioFile = ref(null)
@@ -457,28 +451,6 @@ const syncToERP = async () => {
   }
 }
 
-const checkUser = async () => {
-  try {
-    currentUser.value = await getCurrentUser()
-  } catch(e) { console.error(e) }
-}
-
-const doLogin = async () => {
-  if (!loginUsr.value || !loginPwd.value) return
-  isLoggingIn.value = true
-  loginErr.value = ''
-  try {
-    await login(loginUsr.value, loginPwd.value)
-    await checkUser()
-    showLogin.value = false
-    loginPwd.value = ''
-  } catch(e) {
-    loginErr.value = 'Sai thông tin đăng nhập'
-  } finally {
-    isLoggingIn.value = false
-  }
-}
-
 const fetchEnrolledSpeakers = async () => {
   try {
     const res = await getEnrolledSpeakers()
@@ -501,13 +473,6 @@ const loadHistory = async () => {
   }
 }
 
-const doLogout = async () => {
-  try {
-    await logout()
-    currentUser.value = 'Guest'
-  } catch(e) { console.error(e) }
-}
-
 const currentLocalDate = () => {
   const d = new Date()
   const day = String(d.getDate()).padStart(2, '0')
@@ -521,7 +486,6 @@ onMounted(async () => {
   if (authState.value !== 'authorized') return
 
   checkBalance()
-  checkUser()
   try {
     const res = await getEnrolledSpeakers()
     if (res && res.speakers) voiceDbSpeakers.value = res.speakers
@@ -595,15 +559,18 @@ onMounted(async () => {
             {{ uiLang === 'vi' ? 'EN' : 'VI' }}
           </button>
 
-          <div v-if="currentUser === 'Guest'">
-             <button @click="showLogin = true" class="shadcn-btn shadcn-btn-outline h-10 text-sm px-4">Đăng nhập</button>
+          <div v-if="currentUser === 'Guest'" class="flex items-center gap-3 bg-muted/30 px-4 py-2 rounded-full border border-border">
+             <div class="avatar" style="width:32px; height:32px; background: hsl(var(--primary)); border-radius: 50%;"></div>
+             <span class="text-sm font-medium">Guest</span>
           </div>
           <div v-else class="flex items-center gap-3 bg-muted/30 px-4 py-2 rounded-full border border-border">
-             <div class="avatar" style="width:32px; height:32px"></div>
-             <span class="text-sm font-medium">{{ currentUser }}</span>
-             <button @click="doLogout" class="text-muted-foreground hover:text-destructive ml-2 btn-ghost-icon p-0">
-               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-             </button>
+             <div class="avatar flex items-center justify-center font-bold text-white bg-primary" style="width:32px; height:32px; border-radius: 50%;">
+                {{ currentFullName.charAt(0).toUpperCase() }}
+             </div>
+             <div class="flex flex-col">
+                <span class="text-sm font-bold leading-tight">{{ currentFullName }}</span>
+                <span class="text-xs text-muted-foreground leading-tight">{{ currentUser }}</span>
+             </div>
           </div>
         </div>
       </header>
@@ -935,27 +902,6 @@ onMounted(async () => {
       </template>
 
     </main>
-
-    <!-- Login Modal -->
-    <div v-if="showLogin" class="modal-overlay">
-      <div class="shadcn-card modal-card">
-        <div class="card-header border-b border-border bg-muted/10">
-          <h3 class="card-title">Đăng nhập</h3>
-          <p class="card-description">Đăng nhập hệ thống để sử dụng các quyền cá nhân.</p>
-        </div>
-        <div class="card-content flex flex-col gap-4 mt-6">
-          <input v-model="loginUsr" type="text" placeholder="Email / Tên đăng nhập" class="shadcn-input" @keyup.enter="doLogin" />
-          <input v-model="loginPwd" type="password" placeholder="Mật khẩu" class="shadcn-input" @keyup.enter="doLogin" />
-          <p v-if="loginErr" class="text-xs text-destructive text-center">{{ loginErr }}</p>
-        </div>
-        <div class="card-footer border-t border-border bg-muted/20 flex gap-2">
-          <button @click="showLogin = false" class="shadcn-btn shadcn-btn-ghost flex-1">Hủy</button>
-          <button @click="doLogin" :disabled="isLoggingIn" class="shadcn-btn shadcn-btn-primary flex-1">
-            {{ isLoggingIn ? '...' : 'Đăng nhập' }}
-          </button>
-        </div>
-      </div>
-    </div>
     </div>
   </div>
 </template>

@@ -70,20 +70,7 @@ export async function enrollVoice(audioBlob) {
   return res.data.message
 }
 
-export async function getCurrentUser() {
-  const res = await api.get('/api/method/voice_app.api.get_current_user')
-  return res.data.message
-}
 
-export async function login(usr, pwd) {
-  const res = await api.post('/api/method/login', { usr, pwd })
-  return res.data
-}
-
-export async function logout() {
-  const res = await api.post('/api/method/logout')
-  return res.data
-}
 
 export async function getEnrolledSpeakers() {
   const res = await api.get('/api/method/voice_app.api.get_enrolled_speakers')
