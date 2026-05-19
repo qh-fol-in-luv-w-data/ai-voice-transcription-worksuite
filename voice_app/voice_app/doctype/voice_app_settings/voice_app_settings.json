@@ -1,51 +1,68 @@
 {
- "actions": [],
- "allow_rename": 1,
- "creation": "2026-05-19 12:00:00.000000",
- "doctype": "DocType",
- "engine": "InnoDB",
- "field_order": [
-  "whisper_url",
-  "hf_token",
-  "elevenlabs_api_key"
- ],
- "fields": [
-  {
-   "default": "http://localhost:8080/inference",
-   "fieldname": "whisper_url",
-   "fieldtype": "Data",
-   "label": "Whisper URL"
-  },
-  {
-   "fieldname": "hf_token",
-   "fieldtype": "Password",
-   "label": "HuggingFace Token"
-  },
-  {
-   "fieldname": "elevenlabs_api_key",
-   "fieldtype": "Password",
-   "label": "ElevenLabs API Key"
-  }
- ],
- "issingle": 1,
- "modified": "2026-05-19 12:00:00.000000",
- "modified_by": "Administrator",
- "module": "Voice App",
- "name": "Voice App Settings",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  }
- ],
- "sort_field": "modified",
- "sort_order": "DESC",
- "states": []
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2026-05-19 12:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "whisper_url",
+        "hf_token",
+        "elevenlabs_api_key"
+    ],
+    "fields": [
+        {
+            "default": "http://localhost:8080/inference",
+            "fieldname": "whisper_url",
+            "fieldtype": "Data",
+            "label": "Whisper URL"
+        },
+        {
+            "fieldname": "hf_token",
+            "fieldtype": "Password",
+            "label": "HuggingFace Token"
+        },
+        {
+            "fieldname": "elevenlabs_api_key",
+            "fieldtype": "Password",
+            "label": "ElevenLabs API Key"
+        },
+        {
+            "default": "https://deverp.ctgroupvietnam.com",
+            "fieldname": "worksuite_url",
+            "fieldtype": "Data",
+            "label": "Worksuite URL"
+        },
+        {
+            "default": "ai.worksuit.dev@ctmcorp.com.vn",
+            "fieldname": "worksuite_email",
+            "fieldtype": "Data",
+            "label": "Worksuite Email"
+        },
+        {
+            "fieldname": "worksuite_password",
+            "fieldtype": "Password",
+            "label": "Worksuite Password"
+        }
+    ],
+    "issingle": 1,
+    "modified": "2026-05-19 12:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Voice App",
+    "name": "Voice App Settings",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
 }
