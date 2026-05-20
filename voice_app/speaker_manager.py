@@ -180,6 +180,8 @@ def get_segment_embedding(wav_path: str, start: float, end: float):
     inf = get_embedding_model()
     if inf is None: return None
     from pyannote.core import Segment
+    import torch
+    torch.set_num_threads(1)
     try:
         return inf.crop(wav_path, Segment(start, end))
     except Exception as e:
@@ -193,6 +195,8 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
     if model is None:
         raise Exception("Không thể tải mô hình trích xuất giọng nói.")
     
+    import torch
+    torch.set_num_threads(1)
     # Trích xuất embedding từ toàn bộ file (window="whole" đã được cấu hình trong Inference)
     embedding = model(wav_path)
     
