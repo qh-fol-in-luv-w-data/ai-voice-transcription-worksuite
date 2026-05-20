@@ -50,15 +50,17 @@ def get_pipeline():
     if _pipeline is None:
         import torch
         from pyannote.audio import Pipeline
-        # Vá lỗi PyTorch 2.6 cho Diarization
+        import functools
         _orig_load = torch.load
-        torch.load = lambda *args, **kwargs: _orig_load(*args, **{**kwargs, "weights_only": False})
+        torch.load = functools.partial(torch.load, weights_only=False)
         try:
             # Quay lại bản 3.1 để đạt độ chính xác tối đa
             _pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=get_hf_token() or None)
             device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
             _pipeline = _pipeline.to(device)
             print(f"✅ Đã tải Diarization Pipeline (3.1) trên {device}")
+        except Exception as e:
+            print(f"Lỗi load diarization pipeline: {e}")
         finally:
             torch.load = _orig_load
     return _pipeline
@@ -68,9 +70,9 @@ def get_embedding_model():
     if _embedding_model is None:
         import torch
         from pyannote.audio import Model, Inference
-        # Vá lỗi PyTorch 2.6 cho Embedding
+        import functools
         _orig_load = torch.load
-        torch.load = lambda *args, **kwargs: _orig_load(*args, **{**kwargs, "weights_only": False})
+        torch.load = functools.partial(torch.load, weights_only=False)
         try:
             model = Model.from_pretrained("pyannote/embedding", use_auth_token=get_hf_token() or None)
             if model is None:
