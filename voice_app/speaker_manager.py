@@ -4,6 +4,7 @@ import numpy as np
 if not hasattr(np, 'NaN'):
     np.NaN = np.nan
 import torch
+torch.set_num_threads(1)
 import torchaudio
 import soundfile as sf
 
