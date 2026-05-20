@@ -81,7 +81,15 @@ def get_embedding_model():
             device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
             _embedding_model = Inference(model, window="whole", device=device)
         except Exception as e:
-            print(f"Lỗi load embedding model: {e}")
+            import traceback
+            err_msg = traceback.format_exc()
+            try:
+                import frappe
+                frappe.log_error(title="Pyannote Load Error", message=err_msg)
+            except:
+                pass
+            print(f"Lỗi load embedding model: {err_msg}")
+            raise e
         finally:
             torch.load = _orig_load
     return _embedding_model
