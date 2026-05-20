@@ -1,9 +1,19 @@
 import os
+# Fix "could not create a primitive" error in PyTorch on CPU environments (Linux/Docker)
+os.environ["USE_NNPACK"] = "0"
+os.environ["DNNL_PRIMITIVE_CACHE_CAPACITY"] = "0"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 import json
 import numpy as np
 if not hasattr(np, 'NaN'):
     np.NaN = np.nan
 import torch
+# Disable NNPACK and MKLDNN which cause "could not create a primitive" on some CPUs
+if hasattr(torch.backends, 'nnpack'):
+    torch.backends.nnpack.enabled = False
+if hasattr(torch.backends, 'mkldnn'):
+    torch.backends.mkldnn.enabled = False
 torch.set_num_threads(1)
 import torchaudio
 import soundfile as sf
@@ -188,19 +198,48 @@ def get_segment_embedding(wav_path: str, start: float, end: float):
     except Exception as e:
         print(f"Lỗi trích xuất embedding: {e}"); return None
 
+def _extract_embedding_subprocess(wav_path: str) -> "np.ndarray":
+    """
+    Chạy trích xuất embedding trong một subprocess hoàn toàn mới.
+    Giải pháp dứt khoát cho lỗi 'could not create a primitive' của DNNL/NNPACK
+    khi PyTorch bị fork bởi Gunicorn.
+    """
+    import subprocess
+    import sys
+    import json
+    from voice_app.constants import get_hf_token
+
+    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
+    hf_token = get_hf_token() or ""
+    python_exe = sys.executable
+
+    result = subprocess.run(
+        [python_exe, script_path, wav_path, hf_token],
+        capture_output=True,
+        text=True,
+        timeout=180,  # 3 phút timeout cho lần đầu load model
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Subprocess embedding thất bại (exit={result.returncode}):\n{result.stderr[-2000:]}"
+        )
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError(f"Subprocess không trả về kết quả. stderr:\n{result.stderr[-2000:]}")
+
+    embedding_list = json.loads(stdout)
+    return np.array(embedding_list)
+
+
 def enroll_new_speaker(name, wav_path, email="", user_info=None):
     """
     Trích xuất embedding từ file âm thanh mẫu và lưu vào database.
+    Dùng subprocess riêng để tránh lỗi DNNL/NNPACK trong môi trường Gunicorn.
     """
-    model = get_embedding_model()
-    if model is None:
-        raise Exception("Không thể tải mô hình trích xuất giọng nói.")
-    
-    import torch
-    torch.set_num_threads(1)
-    # Trích xuất embedding từ toàn bộ file (window="whole" đã được cấu hình trong Inference)
-    embedding = model(wav_path)
-    
+    embedding = _extract_embedding_subprocess(wav_path)
+
     db = SpeakerDB()
     db.add_speaker(name, embedding, email=email, user_info=user_info)
     return True
