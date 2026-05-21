@@ -16,6 +16,9 @@ from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 
 @frappe.whitelist(allow_guest=True)
 def transcribe_audio(language="vi", filter_speakers=None):
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập để sử dụng tính năng này"}
+
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
         
@@ -256,13 +259,16 @@ def extract_tasks():
             if os.path.exists(excel_filename): os.remove(excel_filename)
 
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
-            frappe.db.set_value("Voice Meeting", meeting_name, "minute_docx", docx_url)
-            frappe.db.set_value("Voice Meeting", meeting_name, "task_xlsx", excel_url)
-            frappe.db.set_value("Voice Meeting", meeting_name, "status", "Analyzed")
-            # Lưu toàn bộ tasks dưới dạng JSON để xem lại sau
-            if items:
-                frappe.db.set_value("Voice Meeting", meeting_name, "tasks_json",
-                                    json.dumps(items, ensure_ascii=False))
+            # Kiểm tra chủ sở hữu trước khi cập nhật
+            meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
+            if meeting_owner == frappe.session.user:
+                frappe.db.set_value("Voice Meeting", meeting_name, "minute_docx", docx_url)
+                frappe.db.set_value("Voice Meeting", meeting_name, "task_xlsx", excel_url)
+                frappe.db.set_value("Voice Meeting", meeting_name, "status", "Analyzed")
+                # Lưu toàn bộ tasks dưới dạng JSON để xem lại sau
+                if items:
+                    frappe.db.set_value("Voice Meeting", meeting_name, "tasks_json",
+                                        json.dumps(items, ensure_ascii=False))
 
         frappe.db.commit()
 
@@ -307,9 +313,11 @@ def clean_transcript():
 
         # Cập nhật raw_results trong Meeting (kết quả sau lọc = trạng thái cuối cùng)
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
-            frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
-                                json.dumps(cleaned_results, ensure_ascii=False))
-            frappe.db.commit()
+            meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
+            if meeting_owner == frappe.session.user:
+                frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
+                                    json.dumps(cleaned_results, ensure_ascii=False))
+                frappe.db.commit()
 
         return {"status": "success", "cleaned_results": cleaned_results}
     except Exception as e:
@@ -320,6 +328,9 @@ def clean_transcript():
 @frappe.whitelist(allow_guest=True)
 def update_meeting_results():
     """Cập nhật raw_results khi user hoàn tác lọc (undo clean)"""
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
     data = frappe.request.get_data()
     payload = json.loads(data)
     meeting_name = payload.get("meeting_name")
@@ -330,6 +341,9 @@ def update_meeting_results():
 
     try:
         if frappe.db.exists("Voice Meeting", meeting_name):
+            meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
+            if meeting_owner != frappe.session.user:
+                return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
             frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
                                 json.dumps(results, ensure_ascii=False))
             frappe.db.commit()
@@ -354,6 +368,61 @@ def sync_tasks_to_erp():
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "ERP Sync Error")
         return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def download_meeting_file():
+    """
+    Endpoint tải file (docx/xlsx) từ meeting về phía client.
+    Chỉ cho phép chủ sở hữu cuộc họp tải.
+    Params: meeting_name, file_type (docx | xlsx)
+    """
+    if frappe.session.user == "Guest":
+        frappe.throw("Vui lòng đăng nhập để tải file", frappe.AuthenticationError)
+
+    meeting_name = frappe.form_dict.get("meeting_name") or frappe.local.form_dict.get("meeting_name")
+    file_type    = frappe.form_dict.get("file_type")    or frappe.local.form_dict.get("file_type", "docx")
+
+    if not meeting_name:
+        frappe.throw("Thiếu meeting_name")
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+
+    # Kiểm tra chủ sở hữu
+    if meeting.owner != frappe.session.user:
+        frappe.throw("Bạn không có quyền tải file này", frappe.PermissionError)
+
+    if file_type == "xlsx":
+        file_url = meeting.task_xlsx
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ext = "xlsx"
+    else:
+        file_url = meeting.minute_docx
+        content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ext = "docx"
+
+    if not file_url:
+        frappe.throw(f"Meeting chưa có file {ext.upper()}")
+
+    # Lấy đường dẫn tuyệt đối trên server
+    file_path = frappe.get_site_path(file_url.lstrip("/"))
+
+    if not os.path.exists(file_path):
+        frappe.throw(f"File không tồn tại trên server: {file_url}")
+
+    # Tên file tải xuống = title của meeting
+    safe_title = meeting.title.replace("/", "-").replace("\\", "-")
+    filename   = f"{safe_title}.{ext}"
+
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    frappe.local.response.filename    = filename
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type        = "download"
+    frappe.local.response["content_type"] = content_type
+
+
 
 
 @frappe.whitelist(allow_guest=True)
@@ -452,9 +521,17 @@ def get_enrolled_speakers():
 
 @frappe.whitelist()
 def get_meeting_history():
+    """
+    Chỉ trả về các meeting thuộc về user hiện tại.
+    Guest không được truy cập.
+    """
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập", "meetings": []}
+
     try:
         meetings = frappe.get_all(
             "Voice Meeting",
+            filters={"owner": frappe.session.user},
             fields=["name", "title", "date", "status", "audio_file", "minute_docx", "task_xlsx", "transcript", "raw_results"],
             order_by="creation desc"
         )

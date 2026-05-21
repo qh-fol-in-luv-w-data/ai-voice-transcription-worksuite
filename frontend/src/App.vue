@@ -502,6 +502,22 @@ const parseMeetingSegments = (rawResults) => {
   }
 }
 
+/**
+ * Tải file qua BE endpoint (tránh vấn đề xác thực của đường dẫn trực tiếp)
+ * @param {string} meetingName  - tên meeting (VD: MEETING-0001)
+ * @param {'docx'|'xlsx'} fileType
+ */
+const downloadViaBackend = (meetingName, fileType) => {
+  if (!meetingName) return;
+  const url = `/api/method/voice_app.api.download_meeting_file?meeting_name=${encodeURIComponent(meetingName)}&file_type=${fileType}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => document.body.removeChild(a), 200);
+}
+
 onMounted(async () => {
   await initSession('/api/method/voice_app.api.get_context')
   if (authState.value !== 'authorized') return
@@ -751,14 +767,14 @@ onMounted(async () => {
                   <p class="card-description">{{ t('task_desc') }}</p>
                 </div>
                 <div class="flex gap-2">
-                  <a v-if="excelUrl" :href="excelUrl" target="_blank" class="shadcn-btn shadcn-btn-ghost" :download="'Task ngày ' + currentLocalDate() + '.xlsx'">
+                  <button v-if="excelUrl && currentMeetingName" @click="downloadViaBackend(currentMeetingName, 'xlsx')" class="shadcn-btn shadcn-btn-ghost">
                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                      {{ t('export_xlsx') }}
-                  </a>
-                  <a v-if="docxUrl" :href="docxUrl" target="_blank" class="shadcn-btn shadcn-btn-ghost" :download="'Biên bản họp ngày ' + currentLocalDate() + '.docx'">
+                  </button>
+                  <button v-if="docxUrl && currentMeetingName" @click="downloadViaBackend(currentMeetingName, 'docx')" class="shadcn-btn shadcn-btn-ghost">
                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                      {{ t('export_docx') }}
-                  </a>
+                  </button>
                   <button @click="addTask" class="shadcn-btn shadcn-btn-outline">
                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                      {{ t('add_task') }}
@@ -899,15 +915,15 @@ onMounted(async () => {
                        Nghe lại Audio
                      </a>
                      
-                     <a v-if="currentMeeting?.minute_docx" :href="currentMeeting.minute_docx" target="_blank" :download="currentMeeting.title + '.docx'" class="shadcn-btn shadcn-btn-outline flex items-center gap-2 text-primary border-primary/20 hover:bg-primary/10">
+                     <button v-if="currentMeeting?.minute_docx" @click="downloadViaBackend(currentMeeting.name, 'docx')" class="shadcn-btn shadcn-btn-outline flex items-center gap-2 text-primary border-primary/20 hover:bg-primary/10">
                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                        Tải Biên bản (Word)
-                     </a>
+                     </button>
                      
-                     <a v-if="currentMeeting?.task_xlsx" :href="currentMeeting.task_xlsx" target="_blank" :download="currentMeeting.title + '.xlsx'" class="shadcn-btn shadcn-btn-outline flex items-center gap-2 text-green-500 border-green-500/20 hover:bg-green-500/10">
+                     <button v-if="currentMeeting?.task_xlsx" @click="downloadViaBackend(currentMeeting.name, 'xlsx')" class="shadcn-btn shadcn-btn-outline flex items-center gap-2 text-green-500 border-green-500/20 hover:bg-green-500/10">
                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M8 13h2"></path><path d="M8 17h2"></path><path d="M14 13h2"></path><path d="M14 17h2"></path></svg>
                        Tải Tasks (Excel)
-                     </a>
+                     </button>
                   </div>
 
                   <!-- Parsed JSON Transcript (raw_results) -->
