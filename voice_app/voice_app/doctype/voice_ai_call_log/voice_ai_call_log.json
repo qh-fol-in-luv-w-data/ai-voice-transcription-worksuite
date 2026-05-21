@@ -7,6 +7,7 @@
     "session", "action_log", "user", "timestamp",
     "call_type", "ai_model", "attempt_number",
     "section_tokens", "prompt_tokens", "completion_tokens", "total_tokens",
+    "section_elevenlabs", "elevenlabs_chars_used", "elevenlabs_chars_remaining",
     "section_result", "duration_seconds", "status", "error_code", "error_message"
   ],
   "fields": [
@@ -88,6 +89,27 @@
       "in_list_view": 1,
       "default": "0",
       "read_only": 1
+    },
+    {
+      "fieldname": "section_elevenlabs",
+      "fieldtype": "Section Break",
+      "label": "ElevenLabs Usage"
+    },
+    {
+      "fieldname": "elevenlabs_chars_used",
+      "fieldtype": "Int",
+      "label": "ElevenLabs Chars Used",
+      "default": "0",
+      "read_only": 1,
+      "description": "Số ký tự ElevenLabs đã sử dụng cho lần gọi này"
+    },
+    {
+      "fieldname": "elevenlabs_chars_remaining",
+      "fieldtype": "Int",
+      "label": "ElevenLabs Chars Remaining",
+      "default": "0",
+      "read_only": 1,
+      "description": "Số ký tự còn lại sau lần gọi này"
     },
     {
       "fieldname": "section_result",

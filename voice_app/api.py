@@ -32,7 +32,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
             return {"status": "error", "message": err}
 
         # Call ElevenLabs
-        segments, full_text, err = call_elevenlabs_stt(wav, language)
+        segments, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language)
         if err:
             return {"status": "error", "message": err}
 
@@ -141,6 +141,24 @@ def transcribe_audio(language="vi", filter_speakers=None):
         except Exception as ex:
             frappe.log_error(str(ex), "Create Voice Meeting Error")
 
+        # Log AI call (ElevenLabs)
+        try:
+            session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
+            session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
+            if session_name:
+                _logger.log_ai_call(
+                    session_name=session_name,
+                    action_name="",
+                    call_type="transcribe_audio",
+                    ai_model="elevenlabs/scribe_v2",
+                    duration_seconds=0,
+                    status="success",
+                    elevenlabs_chars_used=el_chars_used,
+                    elevenlabs_chars_remaining=el_chars_remaining,
+                )
+        except Exception as log_ex:
+            frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
+
         return {
             "status": "success",
             "results": results,
@@ -208,34 +226,7 @@ def extract_tasks():
             docx_url = file_doc.file_url
 
         # Extract tasks
-        items, hr_projects_map, errors, employees, usage = extract_tasks_only(docx_filename, model_type=model_type)
-
-        if os.path.exists(docx_filename): os.remove(docx_filename)
-
-        # Record Usage
-        session_id = frappe.request.headers.get("X-App-Session-Id")
-        if session_id and frappe.db.exists("VOICE Session", session_id):
-            session_doc = frappe.get_doc("VOICE Session", session_id)
-            session_doc.total_actions += 1
-            session_doc.total_ai_calls += 1
-            session_doc.total_tokens_used += usage.get("tokens_used", 0)
-            session_doc.total_prompt_tokens += usage.get("prompt_tokens", 0)
-            session_doc.total_completion_tokens += usage.get("completion_tokens", 0)
-            session_doc.last_active_at = frappe.utils.now()
-            session_doc.save(ignore_permissions=True)
-            
-            # Log AI Call
-            ai_log = frappe.get_doc({
-                "doctype": "VOICE AI Call Log",
-                "voice_session": session_id,
-                "action": "Extract Tasks",
-                "ai_service": "OpenAI",
-                "model_used": model_type,
-                "tokens_used": usage.get("tokens_used", 0),
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-            })
-            ai_log.insert(ignore_permissions=True)
+        items, hr_projects_map, errors, employees = extract_tasks_only(docx_filename, model_type=model_type)
 
         if os.path.exists(docx_filename): os.remove(docx_filename)
 
@@ -268,8 +259,21 @@ def extract_tasks():
             frappe.db.set_value("Voice Meeting", meeting_name, "minute_docx", docx_url)
             frappe.db.set_value("Voice Meeting", meeting_name, "task_xlsx", excel_url)
             frappe.db.set_value("Voice Meeting", meeting_name, "status", "Analyzed")
+            # Lưu toàn bộ tasks dưới dạng JSON để xem lại sau
+            if items:
+                frappe.db.set_value("Voice Meeting", meeting_name, "tasks_json",
+                                    json.dumps(items, ensure_ascii=False))
 
         frappe.db.commit()
+
+        # Log AI call (OpenAI tokens từ task extractor)
+        try:
+            session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
+            session_name_log = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
+            if session_name_log and hasattr(extract_tasks_only, '__last_tokens'):
+                pass  # tokens tracked via task_extractor
+        except Exception:
+            pass
 
         return {
             "status": "success",
@@ -291,55 +295,47 @@ def clean_transcript():
     payload = json.loads(data)
     results = payload.get("results", [])
     model_type = payload.get("model_type", "gpt-4o")
-
-    meeting_name = payload.get("meeting_name")
+    meeting_name = payload.get("meeting_name")  # Nhận meeting_name từ FE
 
     if not results:
         return {"status": "error", "message": "Không có nội dung để lọc"}
 
     try:
-        cleaned_results, err, usage = clean_transcript_llm(results, model_type)
+        cleaned_results, err = clean_transcript_llm(results, model_type)
         if err:
             return {"status": "error", "message": err}
 
-        # Record Usage
-        session_id = frappe.request.headers.get("X-App-Session-Id")
-        if session_id and frappe.db.exists("VOICE Session", session_id):
-            session_doc = frappe.get_doc("VOICE Session", session_id)
-            session_doc.total_actions += 1
-            session_doc.total_ai_calls += 1
-            session_doc.total_tokens_used += usage.get("tokens_used", 0)
-            session_doc.total_prompt_tokens += usage.get("prompt_tokens", 0)
-            session_doc.total_completion_tokens += usage.get("completion_tokens", 0)
-            session_doc.last_active_at = frappe.utils.now()
-            session_doc.save(ignore_permissions=True)
-            
-            # Log AI Call
-            ai_log = frappe.get_doc({
-                "doctype": "VOICE AI Call Log",
-                "voice_session": session_id,
-                "action": "Clean Transcript",
-                "ai_service": "OpenAI",
-                "model_used": model_type,
-                "tokens_used": usage.get("tokens_used", 0),
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-            })
-            ai_log.insert(ignore_permissions=True)
-
+        # Cập nhật raw_results trong Meeting (kết quả sau lọc = trạng thái cuối cùng)
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
-            meeting = frappe.get_doc("Voice Meeting", meeting_name)
-            
-            # Save original results if not saved yet
-            if not meeting.original_raw_results:
-                meeting.original_raw_results = meeting.raw_results
-                
-            meeting.raw_results = json.dumps(cleaned_results, ensure_ascii=False)
-            meeting.save(ignore_permissions=True)
+            frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
+                                json.dumps(cleaned_results, ensure_ascii=False))
+            frappe.db.commit()
 
         return {"status": "success", "cleaned_results": cleaned_results}
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Transcript Clean Error")
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def update_meeting_results():
+    """Cập nhật raw_results khi user hoàn tác lọc (undo clean)"""
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+    results = payload.get("results", [])
+
+    if not meeting_name or not results:
+        return {"status": "error", "message": "Thiếu meeting_name hoặc results"}
+
+    try:
+        if frappe.db.exists("Voice Meeting", meeting_name):
+            frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
+                                json.dumps(results, ensure_ascii=False))
+            frappe.db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Update Meeting Results Error")
         return {"status": "error", "message": str(e)}
 
 

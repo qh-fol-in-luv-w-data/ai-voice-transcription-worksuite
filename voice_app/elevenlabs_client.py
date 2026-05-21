@@ -3,23 +3,26 @@ from typing import List, Dict, Any, Tuple
 from elevenlabs.client import ElevenLabs
 from .constants import get_elevenlabs_api_key
 
-def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> Tuple[List[Dict[str, Any]], str, str | None]:
+def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> tuple:
     """
     Gọi ElevenLabs Speech-to-Text API với diarization.
-    Trả về: (segments, full_text, error)
-    Trong đó segments là danh sách các dict chứa:
-    {
-        "start": float,
-        "end": float,
-        "speaker_id": str,
-        "text": str
-    }
+    Trả về: (segments, full_text, error, chars_used, chars_remaining)
     """
     api_key = get_elevenlabs_api_key()
     if not api_key:
-        return [], "", "Thiếu ELEVENLABS_API_KEY trong cấu hình"
+        return [], "", "Thiếu ELEVENLABS_API_KEY trong cấu hình", 0, 0
 
     client = ElevenLabs(api_key=api_key)
+    
+    # Lấy số dư trước
+    chars_before = 0
+    chars_limit = 0
+    try:
+        sub_before = client.user.subscription.get()
+        chars_before = sub_before.character_count or 0
+        chars_limit = sub_before.character_limit or 0
+    except Exception:
+        pass
     
     try:
         with open(wav_path, "rb") as f:
@@ -28,8 +31,20 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> Tuple[List[Dict[
                 file=f,
                 model_id="scribe_v2",
                 diarize=True,
-                language_code=language if language != "auto" else "vi" # Scribe v2 hỗ trợ language code
+                language_code=language if language != "auto" else "vi"
             )
+        
+        # Lấy số dư sau
+        chars_after = chars_before
+        try:
+            sub_after = client.user.subscription.get()
+            chars_after = sub_after.character_count or 0
+            chars_limit = sub_after.character_limit or 0
+        except Exception:
+            pass
+        
+        chars_used = max(0, chars_after - chars_before)
+        chars_remaining = max(0, chars_limit - chars_after)
         
         # Kết quả trả về chứa .words hoặc .text. Ta cần gộp words thành các đoạn theo speaker
         segments = []
@@ -37,7 +52,6 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> Tuple[List[Dict[
         
         if hasattr(result, 'words') and result.words:
             for word in result.words:
-                # Nếu đổi người nói, hoặc chưa có segment, hoặc cách nhau quá xa
                 if current_segment is None or current_segment["speaker_id"] != word.speaker_id:
                     if current_segment is not None:
                         segments.append(current_segment)
@@ -49,20 +63,18 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> Tuple[List[Dict[
                         "text": word.text
                     }
                 else:
-                    # Cùng người nói, gộp tiếp
                     current_segment["end"] = word.end
                     current_segment["text"] += " " + word.text
             
             if current_segment is not None:
                 segments.append(current_segment)
         
-        # Clean up text
         full_text = result.text if hasattr(result, 'text') else " ".join([s["text"] for s in segments])
         
-        return segments, full_text, None
+        return segments, full_text, None, chars_used, chars_remaining
 
     except Exception as e:
-        return [], "", f"Lỗi ElevenLabs: {str(e)}"
+        return [], "", f"Lỗi ElevenLabs: {str(e)}", 0, 0
 
 def check_elevenlabs_balance() -> str:
     api_key = get_elevenlabs_api_key()
