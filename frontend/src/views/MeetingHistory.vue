@@ -6,18 +6,21 @@ const props = defineProps({
   t: Function
 })
 
-const getSegments = (rawResults) => {
-  if (!rawResults) return [];
+const formatJSON = (rawResults) => {
+  if (!rawResults) return '[]';
   try {
-    return typeof rawResults === 'string' ? JSON.parse(rawResults) : rawResults;
+
+    const parsed = typeof rawResults === 'string' ? JSON.parse(rawResults) : rawResults;
+    return JSON.stringify(parsed, null, 2);
   } catch(e) {
-    return [];
+    return rawResults;
   }
 }
 
 const downloadFile = (url, defaultName) => {
   if (!url) return;
-  // Fallback to window.open if it's a relative URL or cross-origin might block direct download click
+
+  // Use window.open as fallback for better cross-origin download support
   window.open(url, '_blank');
 }
 </script>
@@ -52,19 +55,12 @@ const downloadFile = (url, defaultName) => {
     <!-- TRANSCRIPT -->
     <div v-if="meeting.raw_results" class="shadcn-card">
       <div class="card-header border-b border-border bg-muted/10">
+
         <h3 class="card-title">{{ t('transcript_result') }}</h3>
         <p class="card-description">{{ t('transcript_desc') }}</p>
       </div>
-      <div class="card-content p-0">
-         <div class="log-view p-6 space-y-6 max-h-[500px] overflow-auto">
-            <div v-for="(seg, idx) in getSegments(meeting.raw_results)" :key="idx" class="log-entry">
-               <div class="log-meta">
-                  <span class="log-speaker">{{ seg[2] }}</span>
-                  <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
-               </div>
-               <p class="log-text">{{ seg[3] }}</p>
-            </div>
-         </div>
+      <div class="card-content p-6">
+          <pre class="whitespace-pre-wrap font-mono text-sm bg-muted/20 p-4 rounded-lg overflow-auto border border-border">{{ formatJSON(meeting.raw_results) }}</pre>
       </div>
     </div>
     <div v-else-if="meeting.transcript" class="shadcn-card">
