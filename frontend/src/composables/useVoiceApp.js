@@ -1,8 +1,9 @@
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { transcribeAudio, extractTasks, syncTasksToERP, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript } from '../api'
 
 // Global UI State
-export const isDark = ref(true)
+const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+export const isDark = ref(prefersDark)
 export const uiLang = ref('vi')
 export const activeTab = ref('transcribe')
 
@@ -101,7 +102,10 @@ export const dict = {
     enroll_desc: "Thu âm hoặc tải lên giọng nói. Hệ thống tự động liên kết với tài khoản đang đăng nhập.",
     btn_record: "Bắt đầu thu âm",
     btn_stop: "Dừng thu âm",
-    btn_enroll: "Đăng ký Hệ thống"
+    btn_enroll: "Đăng ký Hệ thống",
+    menu_main: "Menu Chính",
+    meeting_history: "Lịch sử cuộc họp",
+    no_history: "Chưa có lịch sử"
   },
   en: {
     title: "Advanced Edition",
@@ -154,14 +158,29 @@ export const dict = {
     enroll_desc: "Record or upload your voice. The system will automatically link it to your current account.",
     btn_record: "Start Recording",
     btn_stop: "Stop Recording",
-    btn_enroll: "Enroll Voice"
+    btn_enroll: "Enroll Voice",
+    menu_main: "Main Menu",
+    meeting_history: "Meeting History",
+    no_history: "No history yet"
   }
 }
 
-export const t = (key) => dict[uiLang.value][key] || key
+export const t = (key) => {
+  if (!dict[uiLang.value]) return key
+  return dict[uiLang.value][key] || key
+}
 
 export const toggleDark = () => { isDark.value = !isDark.value }
 export const toggleLang = () => { uiLang.value = uiLang.value === 'vi' ? 'en' : 'vi' }
+
+// Watcher to apply dark mode class to html element
+watch(isDark, (val) => {
+  if (val) {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
+}, { immediate: true })
 
 export const loadHistory = async () => {
   try {
