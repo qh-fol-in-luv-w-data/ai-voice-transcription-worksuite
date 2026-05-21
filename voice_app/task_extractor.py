@@ -28,6 +28,9 @@ class AgentState(TypedDict):
     frappe_projects: dict
     created_tasks:  Annotated[list, operator.add]
     errors:         Annotated[list, operator.add]
+    tokens_used:    int
+    prompt_tokens:  int
+    completion_tokens: int
 
 
 # ─────────────────────────────────────────────
@@ -205,7 +208,17 @@ Nội dung biên bản họp:
         tasks_count = sum(1 for i in data.get("items", []) if i["loai"] == "Task")
         noti_count  = sum(1 for i in data.get("items", []) if i["loai"] == "Noti")
         print(f"   ✅ Tìm thấy {tasks_count} Task, {noti_count} Noti")
-        return {"extracted_data": data}
+        
+        prompt_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') and response.usage else 0
+        completion_tokens = response.usage.completion_tokens if hasattr(response, 'usage') and response.usage else 0
+        total_tokens = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else 0
+        
+        return {
+            "extracted_data": data,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "tokens_used": total_tokens
+        }
     except Exception as e:
         print(f"   ❌ Lỗi extract tasks: {e}")
         return {"errors": [f"Lỗi extract: {str(e)}"]}
@@ -594,6 +607,9 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
         "frappe_projects":{},
         "created_tasks":  [],
         "errors":         [],
+        "tokens_used":    0,
+        "prompt_tokens":  0,
+        "completion_tokens": 0,
     })
     
     # Xử lý kết quả để merge thông tin user/project vào extracted_data
@@ -636,7 +652,13 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
         }
         items.append(item_enriched)
         
-    return items, hr_projects_map, result.get("errors", []), employees
+    usage = {
+        "tokens_used": result.get("tokens_used", 0),
+        "prompt_tokens": result.get("prompt_tokens", 0),
+        "completion_tokens": result.get("completion_tokens", 0)
+    }
+        
+    return items, hr_projects_map, result.get("errors", []), employees, usage
 
 
 def create_tasks_to_erp(tasks_list):
@@ -854,10 +876,16 @@ def clean_transcript_llm(results, model_type="gpt-4o-mini"):
                 
         # Nếu LLM xóa sạch hoặc lỗi, trả về nguyên gốc để an toàn
         if not cleaned_results and results:
-            return results, None
+            return results, None, {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
             
-        return cleaned_results, None
+        usage = {
+            "prompt_tokens": response.usage.prompt_tokens if hasattr(response, 'usage') and response.usage else 0,
+            "completion_tokens": response.usage.completion_tokens if hasattr(response, 'usage') and response.usage else 0,
+            "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') and response.usage else 0
+        }
+            
+        return cleaned_results, None, usage
     except Exception as e:
         print(f"Lỗi clean_transcript_llm: {e}")
-        return results, str(e)
+        return results, str(e), {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
 
