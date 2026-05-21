@@ -404,11 +404,20 @@ def download_meeting_file():
     if not file_url:
         frappe.throw(f"Meeting chưa có file {ext.upper()}")
 
-    # Lấy đường dẫn tuyệt đối trên server
-    file_path = frappe.get_site_path(file_url.lstrip("/"))
+    # Resolve đường dẫn đúng theo quy tắc Frappe:
+    # - Public  (/files/xxx)          → {site_path}/public/files/xxx
+    # - Private (/private/files/xxx)  → {site_path}/private/files/xxx
+    clean_url = file_url.lstrip("/")
+    if clean_url.startswith("files/"):
+        # Public file — cần thêm tiền tố "public/"
+        file_path = frappe.get_site_path("public", clean_url)
+    else:
+        # Private file hoặc đường dẫn đã đầy đủ
+        file_path = frappe.get_site_path(clean_url)
 
     if not os.path.exists(file_path):
-        frappe.throw(f"File không tồn tại trên server: {file_url}")
+        frappe.throw(f"File không tồn tại trên server: {file_url} → {file_path}")
+
 
     # Tên file tải xuống = title của meeting
     safe_title = meeting.title.replace("/", "-").replace("\\", "-")
