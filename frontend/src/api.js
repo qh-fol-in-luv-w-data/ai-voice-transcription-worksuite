@@ -87,4 +87,12 @@ export async function cleanTranscript(results, modelType, meetingName) {
   return res.data.message
 }
 
+export async function updateMeetingResults(meetingName, results) {
+  const res = await api.post('/api/method/voice_app.api.update_meeting_results', {
+    meeting_name: meetingName,
+    results: results
+  })
+  return res.data.message
+}
+
 export default api

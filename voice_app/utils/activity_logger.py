@@ -101,19 +101,20 @@ class ActivityLogger:
 
     def _increment_session_counters(self, session_name: str,
                                     actions: int = 0, ai_calls: int = 0,
-                                    prompt_tokens: int = 0, completion_tokens: int = 0):
+                                    prompt_tokens: int = 0, completion_tokens: int = 0,
+                                    elevenlabs_chars: int = 0):
         """Tang counter trong session. Goi sau moi action/ai_call."""
         if not session_name:
             return
         try:
-            # ignore_permissions=True bat buoc: user thuong khong co read permission
-            # tren DocType Session theo mac dinh, nen get_doc se fail ma khong throw
             sess = frappe.get_doc(self.session_dt, session_name, ignore_permissions=True)
             sess.total_actions          = (sess.total_actions or 0) + actions
             sess.total_ai_calls         = (sess.total_ai_calls or 0) + ai_calls
             sess.total_prompt_tokens    = (sess.total_prompt_tokens or 0) + prompt_tokens
             sess.total_completion_tokens = (sess.total_completion_tokens or 0) + completion_tokens
             sess.total_tokens_used      = (sess.total_tokens_used or 0) + prompt_tokens + completion_tokens
+            if elevenlabs_chars > 0:
+                sess.total_elevenlabs_chars = (getattr(sess, 'total_elevenlabs_chars', None) or 0) + elevenlabs_chars
             sess.last_active_at         = now_datetime()
             sess.save(ignore_permissions=True)
             frappe.db.commit()
@@ -193,7 +194,9 @@ class ActivityLogger:
                     duration_seconds: float = 0.0,
                     status: str = "success",
                     attempt_number: int = 1,
-                    error_code: str = "", error_message: str = "") -> str:
+                    error_code: str = "", error_message: str = "",
+                    elevenlabs_chars_used: int = 0,
+                    elevenlabs_chars_remaining: int = 0) -> str:
         """Ghi mot lan goi AI. Tra ve ten document."""
         if not session_name:
             return ""
@@ -214,6 +217,8 @@ class ActivityLogger:
                 "status": status,
                 "error_code": error_code,
                 "error_message": error_message[:500] if error_message else "",
+                "elevenlabs_chars_used": elevenlabs_chars_used,
+                "elevenlabs_chars_remaining": elevenlabs_chars_remaining,
             })
             doc.insert(ignore_permissions=True)
             frappe.db.commit()
@@ -221,6 +226,7 @@ class ActivityLogger:
                 session_name, ai_calls=1,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                elevenlabs_chars=elevenlabs_chars_used,
             )
             return doc.name
         except Exception as e:

@@ -8,7 +8,8 @@
     "department", "role_param", "started_at", "last_active_at",
     "section_stats",
     "total_actions", "total_ai_calls", "total_tokens_used",
-    "total_prompt_tokens", "total_completion_tokens", "status"
+    "total_prompt_tokens", "total_completion_tokens",
+    "total_elevenlabs_chars", "status"
   ],
   "fields": [
     {
@@ -105,6 +106,15 @@
       "label": "Completion Tokens",
       "default": "0",
       "read_only": 1
+    },
+    {
+      "fieldname": "total_elevenlabs_chars",
+      "fieldtype": "Int",
+      "label": "Tổng ElevenLabs Chars",
+      "default": "0",
+      "read_only": 1,
+      "in_list_view": 0,
+      "description": "Tổng số ký tự ElevenLabs đã sử dụng trong phiên này"
     },
     {
       "fieldname": "status",
