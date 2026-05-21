@@ -94,20 +94,21 @@ def transcribe_audio(language="vi", filter_speakers=None):
         # Cleanup temp wav
         if os.path.exists(wav): os.remove(wav)
 
-        from voice_app.task_extractor import BASE_URL, WS_EMAIL, WS_PASSWORD
+        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
         import requests
         
         employees = []
         try:
             session = requests.Session()
+            base_url = get_worksuite_url()
             login_resp = session.post(
-                f"{BASE_URL}/api/method/login",
-                json={"usr": WS_EMAIL, "pwd": WS_PASSWORD},
+                f"{base_url}/api/method/login",
+                json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()},
                 timeout=10,
             )
             if login_resp.status_code == 200:
                 emp_resp = session.get(
-                    f"{BASE_URL}/api/resource/Employee",
+                    f"{base_url}/api/resource/Employee",
                     params={
                         "fields": '["name","employee_name","user_id"]',
                         "filters": '[["status","=","Active"]]',
