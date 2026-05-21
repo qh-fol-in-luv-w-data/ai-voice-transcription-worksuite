@@ -188,17 +188,14 @@ class SpeakerDB:
         return best_name, best_sim, best_email, best_user_info
 
 def get_segment_embedding(wav_path: str, start: float, end: float):
-    inf = get_embedding_model()
-    if inf is None: return None
-    from pyannote.core import Segment
-    import torch
-    torch.set_num_threads(1)
     try:
-        return inf.crop(wav_path, Segment(start, end))
+        emb = _extract_embedding_subprocess(wav_path, start, end)
+        return emb
     except Exception as e:
-        print(f"Lỗi trích xuất embedding: {e}"); return None
+        print(f"Lỗi trích xuất embedding segment: {e}")
+        return None
 
-def _extract_embedding_subprocess(wav_path: str) -> "np.ndarray":
+def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float = None) -> "np.ndarray":
     """
     Chạy trích xuất embedding trong một subprocess hoàn toàn mới.
     Giải pháp dứt khoát cho lỗi 'could not create a primitive' của DNNL/NNPACK
@@ -213,8 +210,12 @@ def _extract_embedding_subprocess(wav_path: str) -> "np.ndarray":
     hf_token = get_hf_token() or ""
     python_exe = sys.executable
 
+    args = [python_exe, script_path, wav_path, hf_token]
+    if start is not None and end is not None:
+        args.extend([str(start), str(end)])
+
     result = subprocess.run(
-        [python_exe, script_path, wav_path, hf_token],
+        args,
         capture_output=True,
         text=True,
         timeout=180,  # 3 phút timeout cho lần đầu load model
