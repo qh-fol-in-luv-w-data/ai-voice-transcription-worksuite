@@ -25,6 +25,9 @@ def main():
     wav_path = sys.argv[1]
     hf_token = sys.argv[2]
 
+    start = float(sys.argv[3]) if len(sys.argv) > 3 else None
+    end = float(sys.argv[4]) if len(sys.argv) > 4 else None
+
     import torch
     if hasattr(torch.backends, 'nnpack'):
         torch.backends.nnpack.enabled = False
@@ -42,7 +45,18 @@ def main():
 
     model = Model.from_pretrained("pyannote/embedding", use_auth_token=hf_token)
     inference = Inference(model, window="whole")
-    embedding = inference(wav_path)
+    
+    if start is not None and end is not None:
+        from pyannote.core import Segment
+        # Try to extract segment
+        try:
+            embedding = inference.crop(wav_path, Segment(start, end))
+        except Exception as e:
+            # Return empty or error
+            print(json.dumps({"error": str(e)}))
+            sys.exit(1)
+    else:
+        embedding = inference(wav_path)
 
     # Output embedding as JSON to stdout
     print(json.dumps(embedding.tolist()))
