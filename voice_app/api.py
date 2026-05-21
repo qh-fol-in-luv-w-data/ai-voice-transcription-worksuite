@@ -167,7 +167,7 @@ def extract_tasks():
 
     try:
         # Fetch speaker roles: Voice Speaker DB (speaker_name→email) → CTERP (email→designation)
-        from voice_app.task_extractor import BASE_URL, WS_EMAIL, WS_PASSWORD
+        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
         speaker_roles = {}
         try:
             # Step 1: Lấy Voice Speaker DB để map speaker_name → email
@@ -179,9 +179,10 @@ def extract_tasks():
 
             # Step 2: Lấy CTERP Employee để map email (user_id) → designation
             sess = requests.Session()
-            lr = sess.post(f"{BASE_URL}/api/method/login", json={"usr": WS_EMAIL, "pwd": WS_PASSWORD}, timeout=8)
+            base_url = get_worksuite_url()
+            lr = sess.post(f"{base_url}/api/method/login", json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()}, timeout=8)
             if lr.status_code == 200:
-                er = sess.get(f"{BASE_URL}/api/resource/Employee",
+                er = sess.get(f"{base_url}/api/resource/Employee",
                     params={"fields": '["user_id","designation"]', "filters": '[["status","=","Active"]]', "limit": 500},
                     timeout=8)
                 if er.status_code == 200:
