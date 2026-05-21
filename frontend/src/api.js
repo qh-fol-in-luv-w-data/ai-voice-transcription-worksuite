@@ -78,10 +78,11 @@ export async function getEnrolledSpeakers() {
   return res.data.message
 }
 
-export async function cleanTranscript(results, modelType) {
+export async function cleanTranscript(results, modelType, meetingName) {
   const res = await api.post('/api/method/voice_app.api.clean_transcript', {
     results: results,
-    model_type: modelType
+    model_type: modelType,
+    meeting_name: meetingName
   })
   return res.data.message
 }

@@ -13,6 +13,7 @@
   "audio_file",
   "transcript",
   "raw_results",
+  "original_raw_results",
   "minute_docx",
   "task_xlsx"
  ],
@@ -52,6 +53,12 @@
    "fieldname": "raw_results",
    "fieldtype": "Code",
    "label": "Raw AI Results (JSON)",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "original_raw_results",
+   "fieldtype": "Code",
+   "label": "Original Raw AI Results (JSON)",
    "options": "JSON"
   },
   {

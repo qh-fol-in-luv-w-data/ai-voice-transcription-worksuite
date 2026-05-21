@@ -208,7 +208,34 @@ def extract_tasks():
             docx_url = file_doc.file_url
 
         # Extract tasks
-        items, hr_projects_map, errors, employees = extract_tasks_only(docx_filename, model_type=model_type)
+        items, hr_projects_map, errors, employees, usage = extract_tasks_only(docx_filename, model_type=model_type)
+
+        if os.path.exists(docx_filename): os.remove(docx_filename)
+
+        # Record Usage
+        session_id = frappe.request.headers.get("X-App-Session-Id")
+        if session_id and frappe.db.exists("VOICE Session", session_id):
+            session_doc = frappe.get_doc("VOICE Session", session_id)
+            session_doc.total_actions += 1
+            session_doc.total_ai_calls += 1
+            session_doc.total_tokens_used += usage.get("tokens_used", 0)
+            session_doc.total_prompt_tokens += usage.get("prompt_tokens", 0)
+            session_doc.total_completion_tokens += usage.get("completion_tokens", 0)
+            session_doc.last_active_at = frappe.utils.now()
+            session_doc.save(ignore_permissions=True)
+            
+            # Log AI Call
+            ai_log = frappe.get_doc({
+                "doctype": "VOICE AI Call Log",
+                "voice_session": session_id,
+                "action": "Extract Tasks",
+                "ai_service": "OpenAI",
+                "model_used": model_type,
+                "tokens_used": usage.get("tokens_used", 0),
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            })
+            ai_log.insert(ignore_permissions=True)
 
         if os.path.exists(docx_filename): os.remove(docx_filename)
 
@@ -265,13 +292,51 @@ def clean_transcript():
     results = payload.get("results", [])
     model_type = payload.get("model_type", "gpt-4o")
 
+    meeting_name = payload.get("meeting_name")
+
     if not results:
         return {"status": "error", "message": "Không có nội dung để lọc"}
 
     try:
-        cleaned_results, err = clean_transcript_llm(results, model_type)
+        cleaned_results, err, usage = clean_transcript_llm(results, model_type)
         if err:
             return {"status": "error", "message": err}
+
+        # Record Usage
+        session_id = frappe.request.headers.get("X-App-Session-Id")
+        if session_id and frappe.db.exists("VOICE Session", session_id):
+            session_doc = frappe.get_doc("VOICE Session", session_id)
+            session_doc.total_actions += 1
+            session_doc.total_ai_calls += 1
+            session_doc.total_tokens_used += usage.get("tokens_used", 0)
+            session_doc.total_prompt_tokens += usage.get("prompt_tokens", 0)
+            session_doc.total_completion_tokens += usage.get("completion_tokens", 0)
+            session_doc.last_active_at = frappe.utils.now()
+            session_doc.save(ignore_permissions=True)
+            
+            # Log AI Call
+            ai_log = frappe.get_doc({
+                "doctype": "VOICE AI Call Log",
+                "voice_session": session_id,
+                "action": "Clean Transcript",
+                "ai_service": "OpenAI",
+                "model_used": model_type,
+                "tokens_used": usage.get("tokens_used", 0),
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            })
+            ai_log.insert(ignore_permissions=True)
+
+        if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
+            meeting = frappe.get_doc("Voice Meeting", meeting_name)
+            
+            # Save original results if not saved yet
+            if not meeting.original_raw_results:
+                meeting.original_raw_results = meeting.raw_results
+                
+            meeting.raw_results = json.dumps(cleaned_results, ensure_ascii=False)
+            meeting.save(ignore_permissions=True)
+
         return {"status": "success", "cleaned_results": cleaned_results}
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Transcript Clean Error")
