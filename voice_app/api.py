@@ -228,8 +228,8 @@ def extract_tasks():
             file_doc = save_file(docx_filename, f.read(), None, None, is_private=0) # public for download
             docx_url = file_doc.file_url
 
-        # Extract tasks
-        items, hr_projects_map, errors, employees = extract_tasks_only(docx_filename, model_type=model_type)
+        # Extract tasks — trả về 5 giá trị: items, hr_projects_map, errors, employees, usage
+        items, hr_projects_map, errors, employees, task_usage = extract_tasks_only(docx_filename, model_type=model_type)
 
         if os.path.exists(docx_filename): os.remove(docx_filename)
 
@@ -307,7 +307,7 @@ def clean_transcript():
         return {"status": "error", "message": "Không có nội dung để lọc"}
 
     try:
-        cleaned_results, err = clean_transcript_llm(results, model_type)
+        cleaned_results, err, clean_usage = clean_transcript_llm(results, model_type)
         if err:
             return {"status": "error", "message": err}
 
