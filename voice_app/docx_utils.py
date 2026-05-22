@@ -5,6 +5,24 @@ from datetime import datetime
 import docx
 import frappe
 
+def normalize_whitespace(text):
+    """Chuẩn hóa khoảng trắng: loại bỏ khoảng trắng thừa, thay thế bằng 1 dấu cách duy nhất."""
+    if not text:
+        return ""
+    return re.sub(r'\s+', ' ', str(text)).strip()
+
+def set_font_times(run, size_pt=12):
+    from docx.shared import Pt
+    from docx.oxml.ns import qn
+    run.font.name = 'Times New Roman'
+    run.font.size = Pt(size_pt)
+    rPr = run._element.get_or_add_rPr()
+    rFonts = rPr.get_or_add_rFonts()
+    rFonts.set(qn('w:eastAsia'), 'Times New Roman')
+    rFonts.set(qn('w:cs'), 'Times New Roman')
+    rFonts.set(qn('w:ascii'), 'Times New Roman')
+    rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+
 def get_template_path():
     return frappe.get_app_path("voice_app", "public", "files", "template_v2.docx")
 
@@ -30,10 +48,8 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
                                 if '{DATE}' in p.text:
                                     p.text = p.text.replace('{DATE}', current_date)
                                     # Restore font
-                                    from docx.shared import Pt
                                     for run in p.runs:
-                                        run.font.name = 'Times New Roman'
-                                        run.font.size = Pt(10)
+                                        set_font_times(run, 10)
 
         # Cập nhật bảng Thành phần tham dự (Table 0)
         if len(doc.tables) > 0:
@@ -44,8 +60,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
                 s = re.sub(r'[\U0001F464\U0001F465\U0001F466\U0001F467👤]', '', raw)
                 s = re.sub(r'\(.*?\)', '', s)           # bỏ (email), (score%)
                 s = re.sub(r'-\s*\d+%', '', s)         # bỏ - 69%
-                s = re.sub(r'\s+', ' ', s).strip()
-                return s
+                return normalize_whitespace(s)
 
             # Build lowercase lookup từ speaker_roles để match linh hoạt hơn
             roles_lower = {k.strip().lower(): v for k, v in speaker_roles.items()}
@@ -63,7 +78,6 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
                 tr.getparent().remove(tr)
                 
             # Thêm các hàng mới, điền designation nếu có
-            from docx.shared import Pt
             for i, spk_name in enumerate(unique_speakers):
                 row_cells = attendee_table.add_row().cells
                 row_cells[0].text = f"{i + 1}."
@@ -79,8 +93,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
                 for cell in row_cells:
                     for p in cell.paragraphs:
                         for run in p.runs:
-                            run.font.name = 'Times New Roman'
-                            run.font.size = Pt(12)
+                            set_font_times(run, 12)
         
         # Tìm vị trí "II. Nội dung chi tiết cuộc họp:"
         start_idx = -1
@@ -93,23 +106,20 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
             target_p = doc.paragraphs[start_idx + 1]
             
             # Chèn nội dung mới
-            from docx.shared import Pt
             for start, end, spk, txt in results:
-                txt = " ".join(txt.split())
+                txt = normalize_whitespace(txt)
                 clean_spk = re.sub(r'[👤👤]', '', spk) # Bỏ icon
                 clean_spk = re.sub(r'\(.*?\)', '', clean_spk) # Bỏ (email)
                 clean_spk = re.sub(r'-\s*\d+%', '', clean_spk) # Bỏ - 100%
-                clean_spk = " ".join(clean_spk.split())
+                clean_spk = normalize_whitespace(clean_spk)
                 
                 p = target_p.insert_paragraph_before("")
                 r_spk = p.add_run(f"{clean_spk}: ")
                 r_spk.bold = True
-                r_spk.font.name = 'Times New Roman'
-                r_spk.font.size = Pt(12)
+                set_font_times(r_spk, 12)
                 
                 r_txt = p.add_run(txt)
-                r_txt.font.name = 'Times New Roman'
-                r_txt.font.size = Pt(12)
+                set_font_times(r_txt, 12)
                 
             # Xóa các đoạn hội thoại mẫu để file chỉ chứa kết quả AI mới
             # Slice [:-1] để CHẮC CHẮN không xóa paragraph cuối cùng (chứa <w:sectPr>), tránh lỗi file Word
@@ -135,16 +145,21 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
         hdr_cells[2].text = 'Nội dung'
 
         for start, end, spk, txt in results:
-            txt = " ".join(txt.split())
+            txt = normalize_whitespace(txt)
             clean_spk = re.sub(r'[👤👤]', '', spk)
             clean_spk = re.sub(r'\(.*?\)', '', clean_spk)
             clean_spk = re.sub(r'-\s*\d+%', '', clean_spk)
-            clean_spk = " ".join(clean_spk.split())
+            clean_spk = normalize_whitespace(clean_spk)
 
             row_cells = table.add_row().cells
             row_cells[0].text = f"{start:.1f}s"
             row_cells[1].text = clean_spk
             row_cells[2].text = txt
+            
+            for cell in row_cells:
+                for p in cell.paragraphs:
+                    for run in p.runs:
+                        set_font_times(run, 12)
 
     filename = f"meeting_minutes_{os.urandom(2).hex()}.docx"
     doc.save(filename)
