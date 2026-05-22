@@ -71,6 +71,9 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> tuple:
         
         full_text = result.text if hasattr(result, 'text') else " ".join([s["text"] for s in segments])
         
+        if chars_used <= 0 and full_text:
+            chars_used = len(full_text)
+            
         return segments, full_text, None, chars_used, chars_remaining
 
     except Exception as e:
