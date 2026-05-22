@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults } from './api'
+import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask } from './api'
 import { initSession, useSession } from './utils/session'
 import CTSplashScreen from './components/CTSplashScreen.vue'
 import CTAccessDenied from './components/CTAccessDenied.vue'
@@ -57,6 +57,32 @@ const isRecording = ref(false)
 const mediaRecorder = ref(null)
 const audioChunks = ref([])
 const recordedAudioUrl = ref('')
+
+// Voice Task Module States
+const voiceTaskAudioFile = ref(null)
+const voiceTaskRecordedUrl = ref('')
+const voiceTaskIsRecording = ref(false)
+const voiceTaskMediaRecorder = ref(null)
+const voiceTaskChunks = ref([])
+
+const isVoiceTaskProcessing = ref(false)
+const voiceTaskStatus = ref('')
+const voiceTaskTranscript = ref('')
+const parsedVoiceTask = ref(null)
+const voiceTaskProjects = ref([])
+const voiceTaskEmployees = ref([])
+
+const voiceTaskSyncStatus = ref('')
+const isVoiceTaskSyncing = ref(false)
+
+// Conversational Refinement States
+const voiceTaskClarification = ref('')
+const voiceTaskMissingFields = ref([])
+const voiceTaskRefineAudioFile = ref(null)
+const voiceTaskRefineRecordedUrl = ref('')
+const voiceTaskRefineIsRecording = ref(false)
+const voiceTaskRefineMediaRecorder = ref(null)
+const voiceTaskRefineChunks = ref([])
 
 const languages = [
   { val: 'vi', label: 'Tiếng Việt' },
@@ -133,7 +159,18 @@ const dict = {
     enroll_desc: "Thu âm hoặc tải lên giọng nói. Hệ thống tự động liên kết với tài khoản đang đăng nhập.",
     btn_record: "Bắt đầu thu âm",
     btn_stop: "Dừng thu âm",
-    btn_enroll: "Đăng ký Hệ thống"
+    btn_enroll: "Đăng ký Hệ thống",
+    tab_voice_task: "Tự tạo Task qua Voice",
+    voice_task_title: "Tự tạo Task bằng Giọng nói",
+    voice_task_desc: "Nói hoặc tải lên câu lệnh giọng nói để AI tự động trích xuất tên task, dự án, thời gian bắt đầu, kết thúc và mô tả.",
+    voice_task_recording: "Đang ghi âm câu lệnh...",
+    voice_task_transcribing: "Đang chuyển giọng nói thành văn bản...",
+    voice_task_parsing: "AI đang phân tích thông tin tạo Task...",
+    voice_task_success: "✅ Phân tích câu lệnh thành công!",
+    voice_task_empty: "Chưa có câu lệnh giọng nói nào được phân tích...",
+    voice_task_sync_success: "✅ Đồng bộ Task thành công!",
+    voice_task_sync_error: "❌ Đồng bộ Task thất bại: ",
+    voice_task_placeholder: "Ví dụ: 'Tạo nhiệm vụ thiết kế giao diện cho dự án AI Worksuite bắt đầu từ ngày mai đến hết thứ sáu tuần này, mô tả là cần làm giao diện thật đẹp mắt.'"
   },
   en: {
     title: "Advanced Edition",
@@ -186,7 +223,18 @@ const dict = {
     enroll_desc: "Record or upload your voice. The system will automatically link it to your current account.",
     btn_record: "Start Recording",
     btn_stop: "Stop Recording",
-    btn_enroll: "Enroll Voice"
+    btn_enroll: "Enroll Voice",
+    tab_voice_task: "Voice Task Creator",
+    voice_task_title: "Create Task via Voice",
+    voice_task_desc: "Speak or upload a voice command for AI to automatically extract task name, project, start date, due date, and description.",
+    voice_task_recording: "Recording command...",
+    voice_task_transcribing: "Transcribing voice to text...",
+    voice_task_parsing: "AI parsing details...",
+    voice_task_success: "✅ Command parsed successfully!",
+    voice_task_empty: "No voice commands parsed yet...",
+    voice_task_sync_success: "✅ Task synced successfully!",
+    voice_task_sync_error: "❌ Failed to sync task: ",
+    voice_task_placeholder: "Example: 'Create a task to design the UI for AI Worksuite project starting tomorrow until this Friday, description is to make it look premium.'"
   }
 }
 
@@ -269,6 +317,254 @@ const submitEnrollment = async () => {
   } finally {
     isEnrolling.value = false
   }
+}
+
+const handleVoiceTaskFileChange = (e) => {
+  if (e.target.files.length > 0) {
+    voiceTaskAudioFile.value = e.target.files[0]
+    voiceTaskRecordedUrl.value = ''
+  }
+}
+
+const toggleVoiceTaskRecording = async () => {
+  if (voiceTaskIsRecording.value) {
+    voiceTaskMediaRecorder.value.stop()
+    voiceTaskIsRecording.value = false
+    return
+  }
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    voiceTaskMediaRecorder.value = new MediaRecorder(stream)
+    voiceTaskChunks.value = []
+    
+    voiceTaskMediaRecorder.value.ondataavailable = e => {
+      if (e.data.size > 0) voiceTaskChunks.value.push(e.data)
+    }
+    
+    voiceTaskMediaRecorder.value.onstop = () => {
+      const blob = new Blob(voiceTaskChunks.value, { type: 'audio/wav' })
+      voiceTaskAudioFile.value = blob
+      voiceTaskAudioFile.value.name = 'voice_task_command.wav'
+      voiceTaskRecordedUrl.value = URL.createObjectURL(blob)
+      stream.getTracks().forEach(t => t.stop())
+    }
+    
+    voiceTaskMediaRecorder.value.start()
+    voiceTaskIsRecording.value = true
+  } catch(e) {
+    alert("Lỗi truy cập Micro: " + e)
+  }
+}
+
+const submitVoiceTask = async () => {
+  if (!voiceTaskAudioFile.value) {
+    alert(t('alert_no_file'))
+    return
+  }
+  isVoiceTaskProcessing.value = true
+  voiceTaskStatus.value = t('voice_task_transcribing')
+  voiceTaskTranscript.value = ''
+  parsedVoiceTask.value = null
+  voiceTaskSyncStatus.value = ''
+  voiceTaskClarification.value = ''
+  voiceTaskMissingFields.value = []
+  
+  try {
+    const res = await voiceToTask(voiceTaskAudioFile.value)
+    if (res.status === 'success') {
+      voiceTaskStatus.value = t('voice_task_success')
+      voiceTaskTranscript.value = res.transcript
+      
+      let assignee = res.task.assignee_display || '';
+      if (!assignee && currentUser.value && res.employees) {
+        const emp = res.employees.find(e => e.user_id === currentUser.value);
+        if (emp) assignee = emp.employee_name + ' (' + emp.name + ')';
+      }
+      
+      parsedVoiceTask.value = {
+        title: res.task.task_name || '',
+        assignee_display: assignee,
+        assignee_hr_code: '',
+        assignee_email: '',
+        project: res.task.project_id || '',
+        start_date: res.task.start_date || '',
+        due_date: res.task.end_date || '',
+        description: res.task.description || ''
+      }
+      
+      voiceTaskProjects.value = res.projects || []
+      voiceTaskEmployees.value = res.employees || []
+      
+      voiceTaskClarification.value = res.task.clarification_question || ''
+      voiceTaskMissingFields.value = res.task.missing_fields || []
+    } else {
+      voiceTaskStatus.value = '❌ Lỗi: ' + res.message
+    }
+  } catch(e) {
+    voiceTaskStatus.value = '❌ Lỗi: ' + t('error_connect')
+  } finally {
+    isVoiceTaskProcessing.value = false
+  }
+}
+
+const handleVoiceTaskRefineFileChange = (e) => {
+  if (e.target.files.length > 0) {
+    voiceTaskRefineAudioFile.value = e.target.files[0]
+    voiceTaskRefineRecordedUrl.value = ''
+  }
+}
+
+const toggleVoiceTaskRefineRecording = async () => {
+  if (voiceTaskRefineIsRecording.value) {
+    voiceTaskRefineMediaRecorder.value.stop()
+    voiceTaskRefineIsRecording.value = false
+    return
+  }
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    voiceTaskRefineMediaRecorder.value = new MediaRecorder(stream)
+    voiceTaskRefineChunks.value = []
+    
+    voiceTaskRefineMediaRecorder.value.ondataavailable = e => {
+      if (e.data.size > 0) voiceTaskRefineChunks.value.push(e.data)
+    }
+    
+    voiceTaskRefineMediaRecorder.value.onstop = () => {
+      const blob = new Blob(voiceTaskRefineChunks.value, { type: 'audio/wav' })
+      voiceTaskRefineAudioFile.value = blob
+      voiceTaskRefineAudioFile.value.name = 'voice_task_refine.wav'
+      voiceTaskRefineRecordedUrl.value = URL.createObjectURL(blob)
+      stream.getTracks().forEach(t => t.stop())
+    }
+    
+    voiceTaskRefineMediaRecorder.value.start()
+    voiceTaskRefineIsRecording.value = true
+  } catch(e) {
+    alert("Lỗi truy cập Micro: " + e)
+  }
+}
+
+const submitVoiceTaskRefine = async () => {
+  if (!voiceTaskRefineAudioFile.value) {
+    alert(t('alert_no_file'))
+    return
+  }
+  isVoiceTaskProcessing.value = true
+  voiceTaskStatus.value = t('voice_task_parsing')
+  
+  try {
+    const res = await voiceToTask(voiceTaskRefineAudioFile.value, parsedVoiceTask.value)
+    if (res.status === 'success') {
+      voiceTaskStatus.value = t('voice_task_success')
+      voiceTaskTranscript.value += ` -> ${res.transcript}`
+      
+      let assignee = res.task.assignee_display || '';
+      if (!assignee && currentUser.value && res.employees) {
+        const emp = res.employees.find(e => e.user_id === currentUser.value);
+        if (emp) assignee = emp.employee_name + ' (' + emp.name + ')';
+      }
+      
+      parsedVoiceTask.value = {
+        title: res.task.task_name || '',
+        assignee_display: assignee,
+        assignee_hr_code: '',
+        assignee_email: '',
+        project: res.task.project_id || '',
+        start_date: res.task.start_date || '',
+        due_date: res.task.end_date || '',
+        description: res.task.description || ''
+      }
+      
+      voiceTaskProjects.value = res.projects || []
+      voiceTaskEmployees.value = res.employees || []
+      
+      voiceTaskClarification.value = res.task.clarification_question || ''
+      voiceTaskMissingFields.value = res.task.missing_fields || []
+      
+      voiceTaskRefineAudioFile.value = null
+      voiceTaskRefineRecordedUrl.value = ''
+    } else {
+      voiceTaskStatus.value = '❌ Lỗi: ' + res.message
+    }
+  } catch(e) {
+    voiceTaskStatus.value = '❌ Lỗi: ' + t('error_connect')
+  } finally {
+    isVoiceTaskProcessing.value = false
+  }
+}
+
+const syncVoiceTaskToERP = async () => {
+  if (!parsedVoiceTask.value) return
+  isVoiceTaskSyncing.value = true
+  voiceTaskSyncStatus.value = t('status_sync_wait')
+  
+  try {
+    const displayStr = parsedVoiceTask.value.assignee_display
+    if (displayStr) {
+      const match = displayStr.match(/\((HR[-_]EMP[-_][^)]+)\)/i)
+      if (match) parsedVoiceTask.value.assignee_hr_code = match[1]
+      
+      const matchedEmp = voiceTaskEmployees.value.find(e => e.employee_name + ' (' + e.name + ')' === displayStr)
+      if (matchedEmp) {
+        parsedVoiceTask.value.assignee_email = matchedEmp.user_id
+        parsedVoiceTask.value.assignee_hr_code = matchedEmp.name
+      }
+    }
+
+    const res = await syncTasksToERP([parsedVoiceTask.value])
+    if (res.status === 'success') {
+      const created = res.report.created_tasks ? res.report.created_tasks.length : 0
+      if (created > 0) {
+        voiceTaskSyncStatus.value = t('voice_task_sync_success')
+      } else {
+        voiceTaskSyncStatus.value = t('voice_task_sync_error') + (res.report.errors ? res.report.errors.join(', ') : '')
+      }
+    } else {
+      voiceTaskSyncStatus.value = t('voice_task_sync_error') + res.message
+    }
+  } catch (e) {
+    voiceTaskSyncStatus.value = t('error_connect')
+  } finally {
+    isVoiceTaskSyncing.value = false
+  }
+}
+
+const stringToColor = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+  return '#' + '00000'.substring(0, 6 - c.length) + c;
+}
+
+const parseTranscript = (text) => {
+  if (!text) return []
+  const lines = text.split('\n')
+  const messages = []
+  let currentMsg = null
+  for (const line of lines) {
+    const speakerMatch = line.match(/^\*\*(.*?)\*\*\s+\[(.*?)\]/)
+    if (speakerMatch) {
+      if (currentMsg) messages.push(currentMsg)
+      let name = speakerMatch[1].replace('👤', '').trim()
+      name = name.replace(/\s*-\s*\d+%$/, '').trim()
+      name = name.replace(/\s+/g, ' ')
+      currentMsg = {
+        speaker: name,
+        time: speakerMatch[2].trim(),
+        text: ''
+      }
+    } else if (currentMsg && line.trim()) {
+      currentMsg.text += (currentMsg.text ? '\n' : '') + line.trim()
+    } else if (!currentMsg && line.trim()) {
+      currentMsg = { speaker: 'Hệ thống', time: '', text: line.trim() }
+    }
+  }
+  if (currentMsg) messages.push(currentMsg)
+  return messages
 }
 
 const startTranscribe = async () => {
@@ -555,6 +851,12 @@ onMounted(async () => {
               <button @click="activeTab='transcribe'" :class="activeTab==='transcribe' ? 'text-primary font-medium' : 'text-muted-foreground hover:bg-muted/30'" class="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-left bg-transparent border-none shadow-none focus:outline-none cursor-pointer" style="background: none; border: none; box-shadow: none;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
                 {{ t('tab_transcribe') }}
+              </button>
+            </li>
+            <li>
+              <button @click="activeTab='voice_task'" :class="activeTab==='voice_task' ? 'text-primary font-medium' : 'text-muted-foreground hover:bg-muted/30'" class="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-left bg-transparent border-none shadow-none focus:outline-none cursor-pointer" style="background: none; border: none; box-shadow: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c-1.7 0-3 1.2-3 2.6v6.8c0 1.4 1.3 2.6 3 2.6s3-1.2 3-2.6V4.6C15 3.2 13.7 2 12 2z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="m9 17 3 3 5-5"/></svg>
+                {{ t('tab_voice_task') }}
               </button>
             </li>
             <li>
@@ -899,6 +1201,190 @@ onMounted(async () => {
          </div>
       </template>
 
+      <template v-if="activeTab === 'voice_task'">
+         <div class="w-full flex flex-col gap-8 pb-10 mt-2">
+            <!-- VOICE TASK SETTINGS CARD -->
+            <div class="shadcn-card glow-effect">
+                <div class="card-header border-b border-border bg-muted/10">
+                   <h3 class="card-title">{{ t('voice_task_title') }}</h3>
+                   <p class="card-description">{{ t('voice_task_desc') }}</p>
+                </div>
+                
+                <div class="card-content flex flex-col gap-6 mt-6">
+                    <div class="reading-script bg-primary/5 p-4 rounded-md border border-primary/20">
+                       <h4 class="text-sm font-bold text-primary mb-2">Gợi ý câu lệnh mẫu:</h4>
+                       <p class="text-sm text-muted-foreground italic leading-relaxed font-sans">
+                          "{{ t('voice_task_placeholder') }}"
+                       </p>
+                    </div>
+                
+                    <button @click="toggleVoiceTaskRecording" class="shadcn-btn w-full font-bold h-12 transition-all cursor-pointer" :class="voiceTaskIsRecording ? 'shadcn-btn-destructive pulse-animation' : 'shadcn-btn-outline'">
+                       <svg v-if="!voiceTaskIsRecording" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+                       <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="mr-2 text-white"><rect width="18" height="18" x="3" y="3" rx="2"></rect></svg>
+                       {{ voiceTaskIsRecording ? t('btn_stop') : t('btn_record') }}
+                    </button>
+                    
+
+                    
+                    <div class="flex items-center gap-4">
+                        <div class="h-px bg-border flex-1"></div>
+                        <span class="text-xs text-muted-foreground uppercase font-bold tracking-wider">Hoặc</span>
+                        <div class="h-px bg-border flex-1"></div>
+                    </div>
+                    
+                    <div class="upload-zone" :class="{ 'active': voiceTaskAudioFile && !voiceTaskRecordedUrl }">
+                      <input type="file" id="voice-task-audio-upload" @change="handleVoiceTaskFileChange" accept="audio/*" class="hidden-input" />
+                      <label for="voice-task-audio-upload" class="upload-label py-12">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-4 text-muted-foreground"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96M14 13v4h-4v-4H7l5-5 5 5z"></path></svg>
+                        <p class="text-base font-medium mb-1">Kéo thả file vào đây hoặc bấm để chọn</p>
+                        <span class="upload-primary-text text-sm">{{ (voiceTaskAudioFile && !voiceTaskRecordedUrl) ? voiceTaskAudioFile.name : 'Hỗ trợ: .mp3, .wav' }}</span>
+                      </label>
+                    </div>
+                </div>
+                
+                <div class="card-footer border-t border-border bg-muted/20 flex flex-col gap-3 mt-4">
+                    <button @click="submitVoiceTask" :disabled="isVoiceTaskProcessing || !voiceTaskAudioFile" class="shadcn-btn shadcn-btn-primary w-full h-12 text-lg">
+                       {{ isVoiceTaskProcessing ? t('voice_task_parsing') : 'Bắt đầu xử lý lệnh giọng nói' }}
+                    </button>
+                    <div v-if="voiceTaskStatus" class="text-center text-sm font-medium mt-1" :class="voiceTaskStatus.includes('✅') ? 'text-primary' : 'text-destructive'">
+                       {{ voiceTaskStatus }}
+                    </div>
+                </div>
+            </div>
+
+
+
+            <!-- AI ASSISTANT CHAT BUBBLE (LUÔN HIỆN KHI CÓ TASK ĐỂ CHỈNH SỬA) -->
+            <div v-if="parsedVoiceTask" class="shadcn-card border-primary/40 glow-effect" style="background: hsla(var(--primary)/0.03); backdrop-filter: blur(10px); margin-top: 1rem;">
+                <div class="card-header border-b border-border bg-primary/5 flex items-center gap-3">
+                   <div class="avatar flex items-center justify-center text-white font-bold" style="background: linear-gradient(135deg, #a855f7, #6366f1); width: 36px; height: 36px; border-radius: 50%;">🤖</div>
+                   <div>
+                      <h3 class="card-title text-primary flex items-center gap-2">Trợ lý AI</h3>
+                      <p v-if="voiceTaskMissingFields && voiceTaskMissingFields.length > 0" class="card-description text-destructive font-medium">Phát hiện thông tin tạo Task chưa đầy đủ</p>
+                      <p v-else class="card-description" style="color: #10b981; font-weight: 500;">Thông tin đã đầy đủ, bạn có thể lưu hoặc tiếp tục tinh chỉnh</p>
+                   </div>
+                </div>
+                <div class="card-content flex flex-col gap-4 mt-4">
+                   <!-- Missing Fields Badges -->
+                   <div v-if="voiceTaskMissingFields && voiceTaskMissingFields.length > 0" class="flex flex-wrap gap-2 items-center">
+                      <span class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Thông tin còn thiếu:</span>
+                      <span v-if="voiceTaskMissingFields.includes('project')" class="attendee-chip attendee-chip--active bg-destructive/10 border-destructive/30 text-destructive font-bold flex items-center gap-1.5 px-3 py-1 text-xs rounded-full" style="border-color: rgba(239, 68, 68, 0.4); color: rgb(239, 68, 68); background: rgba(239, 68, 68, 0.1);">
+                         ⚠️ Thiếu Dự án
+                      </span>
+                      <span v-if="voiceTaskMissingFields.includes('assignee')" class="attendee-chip attendee-chip--active bg-destructive/10 border-destructive/30 text-destructive font-bold flex items-center gap-1.5 px-3 py-1 text-xs rounded-full" style="border-color: rgba(239, 68, 68, 0.4); color: rgb(239, 68, 68); background: rgba(239, 68, 68, 0.1);">
+                         ⚠️ Thiếu Người phụ trách
+                      </span>
+                      <span v-if="voiceTaskMissingFields.includes('end_date')" class="attendee-chip attendee-chip--active bg-destructive/10 border-destructive/30 text-destructive font-bold flex items-center gap-1.5 px-3 py-1 text-xs rounded-full" style="border-color: rgba(239, 68, 68, 0.4); color: rgb(239, 68, 68); background: rgba(239, 68, 68, 0.1);">
+                         ⚠️ Thiếu Hạn chót
+                      </span>
+                   </div>
+
+                   <!-- AI Clarification Question -->
+                   <div class="p-4 bg-background/50 border border-border rounded-lg leading-relaxed text-base font-medium font-sans">
+                      "{{ (voiceTaskMissingFields && voiceTaskMissingFields.length > 0) ? voiceTaskClarification : 'Tất cả thông tin cốt lõi đã sẵn sàng! Bạn muốn bổ sung hay thay đổi gì nữa không?' }}"
+                   </div>
+
+                   <div class="h-px bg-border my-1"></div>
+
+                   <!-- Voice Refinement input -->
+                   <div class="flex flex-col gap-3">
+                      <span class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Nói hoặc tải lên câu lệnh để chỉnh sửa:</span>
+                      
+                      <button @click="toggleVoiceTaskRefineRecording" class="shadcn-btn w-full font-bold h-11 transition-all cursor-pointer" :class="voiceTaskRefineIsRecording ? 'shadcn-btn-destructive pulse-animation' : 'shadcn-btn-outline'">
+                         <svg v-if="!voiceTaskRefineIsRecording" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+                         <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="mr-2 text-white"><rect width="18" height="18" x="3" y="3" rx="2"></rect></svg>
+                         {{ voiceTaskRefineIsRecording ? 'Dừng ghi âm bổ sung' : 'Nói để bổ sung/chỉnh sửa thông tin' }}
+                      </button>
+
+                      <div v-if="voiceTaskRefineRecordedUrl" class="w-full bg-background p-3 rounded-md border border-border flex items-center gap-4">
+                         <audio :src="voiceTaskRefineRecordedUrl" controls class="flex-1"></audio>
+                      </div>
+
+                      <div class="flex items-center gap-4 py-1">
+                         <div class="h-px bg-border flex-1"></div>
+                         <span class="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Hoặc chọn file</span>
+                         <div class="h-px bg-border flex-1"></div>
+                      </div>
+
+                      <div class="flex items-center gap-3">
+                         <input type="file" id="voice-task-refine-upload" @change="handleVoiceTaskRefineFileChange" accept="audio/*" style="display:none" />
+                         <label for="voice-task-refine-upload" class="shadcn-btn shadcn-btn-outline flex-1 cursor-pointer">
+                            📁 {{ voiceTaskRefineAudioFile ? voiceTaskRefineAudioFile.name : 'Chọn file ghi âm bổ sung' }}
+                         </label>
+                         <button @click="submitVoiceTaskRefine" :disabled="isVoiceTaskProcessing || !voiceTaskRefineAudioFile" class="shadcn-btn shadcn-btn-primary flex-1">
+                            🚀 Gửi yêu cầu chỉnh sửa
+                         </button>
+                      </div>
+                   </div>
+                </div>
+            </div>
+
+            <!-- PARSED TASK CARD (PREVIEW & EDIT) -->
+            <div v-if="parsedVoiceTask" class="shadcn-card border-primary/30" style="background: hsl(var(--card)); margin-top: 1rem;">
+                <div class="card-header border-b border-border bg-primary/5">
+                   <h3 class="card-title text-primary flex items-center gap-2">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"/><path d="m18 22 4-4-6-6-4 4Z"/><path d="m8.5 2.5 13 13"/></svg>
+                      Xem trước và hiệu chỉnh Task tạo từ AI
+                   </h3>
+                   <p class="card-description">Các thông tin được trích xuất tự động qua OpenAI. Vui lòng xác nhận trước khi lưu.</p>
+                </div>
+                
+                <div class="card-content flex flex-col gap-6 mt-6">
+                   <!-- Transcript Text -->
+                   <div class="flex flex-col gap-1.5 p-3 bg-muted/20 rounded-md border border-border">
+                     <span class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Văn bản chuyển đổi từ giọng nói (STT):</span>
+                     <p class="text-sm font-medium leading-relaxed font-sans">"{{ voiceTaskTranscript }}"</p>
+                   </div>
+
+                   <!-- Form Fields Table -->
+                   <div class="overflow-x-auto border border-border rounded-lg bg-card mt-2">
+                     <table class="shadcn-table w-full text-sm">
+                        <thead class="bg-muted/20 border-b border-border">
+                           <tr>
+                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[200px]">{{ t('col_name') }}</th>
+                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[180px]">{{ t('col_assignee') }}</th>
+                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[200px]">{{ t('col_project') }}</th>
+                              <th class="p-4 text-left font-medium text-muted-foreground w-36">{{ t('col_start') }}</th>
+                              <th class="p-4 text-left font-medium text-muted-foreground w-36">{{ t('col_due') }}</th>
+                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[250px]">{{ t('col_desc') }}</th>
+                           </tr>
+                        </thead>
+                        <tbody>
+                           <tr class="border-b border-border hover:bg-muted/10 transition-colors">
+                              <td class="p-3"><input v-model="parsedVoiceTask.title" class="shadcn-table-input" /></td>
+                              <td class="p-3">
+                                <input v-model="parsedVoiceTask.assignee_display" list="voice_task_employee_list" class="shadcn-table-input" placeholder="Tìm người..." />
+                                <datalist id="voice_task_employee_list">
+                                  <option v-for="emp in voiceTaskEmployees" :key="emp.name" :value="emp.employee_name + ' (' + emp.name + ')'">{{ emp.user_id ? emp.user_id : '' }}</option>
+                                </datalist>
+                              </td>
+                              <td class="p-3">
+                                <select v-model="parsedVoiceTask.project" class="shadcn-table-select">
+                                  <option value="">{{ t('empty_project') }}</option>
+                                  <option v-for="p in voiceTaskProjects" :key="p.name" :value="p.name">
+                                    {{ p.project_name ? p.project_name : p.name }}
+                                  </option>
+                                </select>
+                              </td>
+                              <td class="p-3"><input v-model="parsedVoiceTask.start_date" type="date" class="shadcn-table-input px-2" /></td>
+                              <td class="p-3"><input v-model="parsedVoiceTask.due_date" type="date" class="shadcn-table-input px-2" /></td>
+                              <td class="p-3"><textarea v-model="parsedVoiceTask.description" class="shadcn-table-input resize-y min-h-[80px] py-2"></textarea></td>
+                           </tr>
+                        </tbody>
+                     </table>
+                   </div>
+                </div>
+
+                <div class="card-footer border-t border-border bg-muted/20 flex-between">
+                   <span class="text-sm font-semibold font-mono" :class="voiceTaskSyncStatus.includes('✅') ? 'text-primary' : 'text-destructive'">{{ voiceTaskSyncStatus }}</span>
+                   <button @click="syncVoiceTaskToERP" :disabled="isVoiceTaskSyncing" class="shadcn-btn shadcn-btn-primary h-11 px-8 text-base cursor-pointer">
+                      {{ isVoiceTaskSyncing ? '⏳ Đang đồng bộ...' : 'Tạo & Đồng bộ Task lên ERPNext' }}
+                   </button>
+                </div>
+            </div>
+         </div>
+      </template>
+
       <template v-if="activeTab === 'view_meeting'">
          <div class="w-full flex flex-col gap-8 pb-10 mt-2">
             <div class="shadcn-card glow-effect">
@@ -952,8 +1438,18 @@ onMounted(async () => {
                   <!-- Fallback plain transcript -->
                   <div class="mt-4" v-else-if="currentMeeting?.transcript">
                     <h4 class="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Nội dung hội thoại</h4>
-                    <div class="bg-muted/10 border border-border rounded-lg p-6 max-h-[500px] overflow-y-auto">
-                       <pre class="font-sans text-sm whitespace-pre-wrap leading-relaxed">{{ currentMeeting.transcript }}</pre>
+                    <div class="bg-muted/10 border border-border rounded-lg p-6 max-h-[500px] overflow-y-auto flex flex-col gap-6">
+                       <div v-for="(msg, idx) in parseTranscript(currentMeeting.transcript)" :key="idx" class="flex gap-3">
+                          <div class="flex flex-col gap-1.5 flex-1">
+                            <div class="flex items-center gap-2">
+                              <span class="text-sm font-bold text-foreground">{{ msg.speaker }}</span>
+                              <span class="text-xs text-muted-foreground">{{ msg.time }}</span>
+                            </div>
+                            <div class="text-sm text-foreground bg-white dark:bg-muted/20 border border-border rounded-2xl rounded-tl-none p-3.5 leading-relaxed shadow-sm w-fit max-w-[90%] whitespace-pre-wrap break-words font-sans">
+                               {{ msg.text }}
+                            </div>
+                          </div>
+                       </div>
                     </div>
                   </div>
                 </div>
@@ -1041,6 +1537,7 @@ body {
   color: hsl(var(--foreground));
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  zoom: 1.25;
 }
 
 /* Utilities */
@@ -1271,7 +1768,7 @@ body {
 .log-meta { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
 .log-speaker { font-size: 0.75rem; font-weight: 600; color: hsl(var(--primary)); letter-spacing: 0.05em; }
 .log-time { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
-.log-text { font-size: 0.875rem; line-height: 1.5; margin: 0; color: hsl(var(--foreground)); }
+.log-text { font-size: 0.875rem; line-height: 1.5; margin: 0; color: hsl(var(--foreground)); word-break: break-word; white-space: pre-wrap; }
 
 /* Attendee Chips */
 .attendee-chip {

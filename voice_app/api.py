@@ -49,6 +49,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
             unique_speakers[spk].append(seg)
             
         speaker_cache = {}
+        unknown_counter = 1
         for spk, segs in unique_speakers.items():
             segs.sort(key=lambda x: x["end"] - x["start"], reverse=True)
             sample_seg = segs[0]
@@ -67,7 +68,8 @@ def transcribe_audio(language="vi", filter_speakers=None):
                         else:
                             speaker_cache[spk] = f"👤 {name} ({email}) - {score:.0%}"
                     else:
-                        speaker_cache[spk] = f"👤 Người lạ ({score:.0%})"
+                        speaker_cache[spk] = f"👤 Người lạ {unknown_counter} ({score:.0%})"
+                        unknown_counter += 1
                 else:
                     speaker_cache[spk] = f"👤 Speaker {spk}"
             else:
@@ -82,10 +84,10 @@ def transcribe_audio(language="vi", filter_speakers=None):
         for seg in segments:
             s = seg["start"]
             e = seg["end"]
-            txt = seg["text"].strip()
+            txt = " ".join(seg["text"].split())
             if not txt: continue
                 
-            spk_label = speaker_cache.get(seg["speaker_id"], seg["speaker_id"])
+            spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
             results.append((s, e, spk_label, txt))
             
             if spk_label != last_spk:
@@ -605,4 +607,203 @@ def _log_action(session_id: str, action: str, details: dict):
     s_name = _resolve_session(session_id)
     if s_name:
         _logger.log_action(s_name, action, details)
+
+@frappe.whitelist(allow_guest=True)
+def voice_to_task(existing_task=None):
+    if 'file' not in frappe.request.files:
+        frappe.throw("Thiếu file âm thanh")
+        
+    audio_file = frappe.request.files['file']
+    
+    # Lưu file tải lên
+    file_doc = save_file(audio_file.filename, audio_file.read(), None, None, is_private=1)
+    file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
+    
+    try:
+        # Chuyển đổi sang WAV
+        wav, err = convert_to_wav(file_path)
+        if err:
+            return {"status": "error", "message": err}
+
+        # Gọi ElevenLabs Speech-to-Text
+        segments, full_text, err = call_elevenlabs_stt(wav, "vi")
+        if err:
+            return {"status": "error", "message": err}
+            
+        # Xóa file wav tạm
+        if os.path.exists(wav): 
+            os.remove(wav)
+
+        if not full_text.strip():
+            return {"status": "error", "message": "Không thể trích xuất văn bản từ âm thanh."}
+
+        # Lấy danh sách dự án và nhân viên từ ERPNext
+        from voice_app.task_extractor import BASE_URL, WS_EMAIL, WS_PASSWORD
+        from voice_app.constants import OPENAI_API_KEY
+        from openai import OpenAI
+        from datetime import datetime, timedelta
+        
+        projects = []
+        employees = []
+        try:
+            session = requests.Session()
+            login_resp = session.post(
+                f"{BASE_URL}/api/method/login",
+                json={"usr": WS_EMAIL, "pwd": WS_PASSWORD},
+                timeout=10,
+            )
+            if login_resp.status_code == 200:
+                # Lấy CSRF token
+                csrf_token = None
+                try:
+                    r = session.get(f"{BASE_URL}/api/method/frappe.utils.get_csrf_token", timeout=5)
+                    if r.status_code == 200:
+                        csrf_token = r.json().get("message") or session.cookies.get("csrf_token")
+                except: 
+                    pass
+                if not csrf_token: 
+                    csrf_token = session.cookies.get("csrf_token")
+                if csrf_token:
+                    session.headers.update({
+                        "X-Frappe-CSRF-Token": csrf_token,
+                        "X-Frappe-Site-Name":  BASE_URL.replace("https://", "").replace("http://", ""),
+                    })
+
+                # Lấy danh sách Projects active
+                proj_resp = session.get(
+                    f"{BASE_URL}/api/resource/Project",
+                    params={"fields": '["name", "project_name"]', "limit": 500},
+                    timeout=10,
+                )
+                if proj_resp.status_code == 200:
+                    projects = proj_resp.json().get("data", [])
+
+                # Lấy danh sách Employees active
+                emp_resp = session.get(
+                    f"{BASE_URL}/api/resource/Employee",
+                    params={
+                        "fields": '["name","employee_name","user_id","designation"]',
+                        "filters": '[["status","=","Active"]]',
+                        "limit": 500,
+                    },
+                    timeout=10,
+                )
+                if emp_resp.status_code == 200:
+                    employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
+        except Exception as ex:
+            frappe.log_error(str(ex), "Fetch Projects/Employees Error in Voice to Task")
+
+        current_user_email = frappe.session.user
+        current_employee = None
+        for e in employees:
+            if e.get("user_id") == current_user_email:
+                current_employee = e
+                break
+
+        assignee_default = f"{current_employee.get('employee_name')} ({current_employee.get('name')})" if current_employee else ""
+
+        # Gọi OpenAI để phân tích câu lệnh
+        if not OPENAI_API_KEY:
+            return {"status": "error", "message": "Thiếu OPENAI_API_KEY"}
+
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        
+        now = datetime.now()
+        current_date_str = now.strftime("%Y-%m-%d")
+        current_day_of_week = now.strftime("%A")
+        
+        days_vi = {
+            "Monday": "Thứ Hai",
+            "Tuesday": "Thứ Ba",
+            "Wednesday": "Thứ Tư",
+            "Thursday": "Thứ Năm",
+            "Friday": "Thứ Sáu",
+            "Saturday": "Thứ Bảy",
+            "Sunday": "Chủ Nhật"
+        }
+        day_vi = days_vi.get(current_day_of_week, current_day_of_week)
+
+        # Phân tích existing_task gửi từ frontend nếu có
+        parsed_existing = None
+        if existing_task:
+            try:
+                parsed_existing = json.loads(existing_task)
+            except Exception as e:
+                frappe.log_error(f"Error parsing existing_task: {str(e)}", "Voice to Task JSON Parse Error")
+
+        prompt = f"""
+Bạn là trợ lý AI chuyên nghiệp giúp trích xuất và tinh chỉnh thông tin tạo nhiệm vụ (Task) từ đoạn hội thoại/giọng nói.
+Hôm nay là {day_vi}, ngày {current_date_str} (định dạng YYYY-MM-DD).
+
+Thông tin Người đang tạo Task (Current User):
+- Tên: {current_employee.get('employee_name') if current_employee else 'Không rõ'}
+- Email/ID: {current_user_email}
+- Chức vụ: {current_employee.get('designation') if current_employee and current_employee.get('designation') else 'Không rõ'}
+
+Hãy đọc đoạn văn bản được chuyển từ giọng nói sau đây:
+Văn bản bổ sung mới: "{full_text}"
+
+{"Thông tin Task hiện tại đang có trước khi bổ sung: " + json.dumps(parsed_existing, ensure_ascii=False) if parsed_existing else "Đây là lượt khởi tạo Task đầu tiên."}
+
+Danh sách các dự án khả dụng (Project List):
+{json.dumps(projects, ensure_ascii=False)}
+
+Danh sách nhân viên khả dụng (Employee List) để giao nhiệm vụ:
+{json.dumps([{"employee_name": e.get("employee_name"), "name": e.get("name")} for e in employees], ensure_ascii=False)}
+
+Yêu cầu nhiệm vụ:
+1. Kết hợp thông tin mới từ "Văn bản bổ sung mới" vào "Thông tin Task hiện tại" để hoàn thiện hoặc cập nhật các trường dưới đây.
+2. Các trường cần trả về trong JSON:
+   - "task_name": Tên nhiệm vụ cốt lõi mà người nói muốn thực hiện. ĐẶC BIỆT CHÚ Ý: 
+     + Người dùng có thể nói lộn xộn, tự đính chính trong lúc nói (ví dụ: "à không", "sửa lại là..."). Phải lấy quyết định cuối cùng của họ.
+     + Nếu họ nói ngọng hoặc nhầm lẫn giữa "tên dự án" và "tên nhiệm vụ", hãy tự suy luận ngữ cảnh để tách ra Hành động/Công việc (Task) và Tên dự án.
+     + Nếu không có hành động rõ ràng (chỉ nói "test" hoặc một cụm từ), hãy lấy cụm từ đó làm tên nhiệm vụ. TUYỆT ĐỐI không để trống, nếu mập mờ hãy tự tóm tắt thành 1 cụm động từ.
+   - "project_id": So sánh tên dự án được nhắc tới trong hội thoại với danh sách dự án ở trên. Chọn "name" của dự án khớp nhất. Nếu không khớp bất kỳ dự án nào, trả về null (hoặc giữ nguyên dự án cũ từ thông tin Task hiện tại).
+   - "project_name": Tên dự án được nói tới (nhớ cập nhật theo ý đính chính cuối cùng của người nói).
+   - "assignee_display": So sánh tên người thực hiện được nhắc tới với danh sách nhân viên khả dụng. Nếu khớp, điền 'employee_name (name)'. LƯU Ý QUAN TRỌNG: Nếu người dùng xưng "tôi", "mình", hoặc KHÔNG nhắc tới ai thực hiện, hãy tự động lấy "Người đang tạo Task" ở trên làm người thực hiện (điền '{assignee_default}' nếu có thông tin, ngược lại để null). Nếu nhắc tới tên không có trong danh sách, điền tên đó. Nếu không nhắc tới và không có Người đang tạo Task, trả về null (hoặc giữ nguyên người cũ từ thông tin Task hiện tại).
+   - "start_date": Ngày bắt đầu (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Ví dụ: "ngày mai" là ngày {(now + timedelta(days=1)).strftime("%Y-%m-%d")}. Nếu không nhắc tới, mặc định lấy ngày hôm nay ({current_date_str}).
+   - "end_date": Ngày kết thúc / Hạn chót (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Nếu không nhắc tới, trả về null (hoặc giữ nguyên hạn chót cũ từ thông tin Task hiện tại).
+   - "description": Mô tả chi tiết nhiệm vụ (nếu có chi tiết hơn). Lọc bỏ các từ thừa, ậm ừ.
+3. Kiểm tra tính đầy đủ của thông tin cốt lõi:
+   - Một nhiệm vụ được coi là thiếu thông tin cốt lõi nếu:
+     - Chưa xác định được dự án cụ thể (`project_id` là null hoặc "")
+     - Hoặc chưa có người thực hiện (`assignee_display` là null hoặc "" hoặc chưa khớp với nhân viên nào dạng 'employee_name (name)')
+     - Hoặc chưa có ngày kết thúc / hạn chót (`end_date` là null hoặc "")
+   - "missing_fields": Hãy trả về danh sách các trường bị thiếu, có thể gồm: "project" (nếu thiếu dự án), "assignee" (nếu thiếu người thực hiện), "end_date" (nếu thiếu hạn chót). Lưu ý: Nếu `assignee_display` đã được gán tự động cho "Người đang tạo Task", thì KHÔNG bị tính là thiếu "assignee". Nếu không thiếu trường nào, trả về mảng rỗng [].
+   - "clarification_question": Nếu có ít nhất một trường bị thiếu trong `missing_fields`, hãy viết một câu hỏi gợi ý rất ngắn gọn, tự nhiên, lịch sự bằng tiếng Việt để nhắc người dùng bổ sung các thông tin còn thiếu này qua giọng nói (Ví dụ: 'Nhiệm vụ này chưa có dự án cụ thể. Bạn muốn tạo task này cho dự án nào?' hoặc 'Nhiệm vụ này chưa có hạn chót. Hạn chót khi nào?'). Nếu thông tin đã đầy đủ hoặc không thiếu gì, trả về null.
+
+Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdown (```json), KHÔNG giải thích thêm:
+{{
+  "task_name": "...",
+  "project_id": "...",
+  "project_name": "...",
+  "assignee_display": "...",
+  "start_date": "...",
+  "end_date": "...",
+  "description": "...",
+  "missing_fields": [...],
+  "clarification_question": "..."
+}}
+"""
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+        
+        parsed_data = json.loads(response.choices[0].message.content.strip())
+        
+        return {
+            "status": "success",
+            "transcript": full_text,
+            "task": parsed_data,
+            "projects": projects,
+            "employees": employees
+        }
+
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Voice to Task Error")
+        return {"status": "error", "message": str(e)}
+
 
