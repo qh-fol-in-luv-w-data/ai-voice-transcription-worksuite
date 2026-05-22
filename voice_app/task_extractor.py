@@ -714,11 +714,11 @@ def create_tasks_to_erp(tasks_list):
             hr_code = display_val.strip()
             
         payload = {
-            "subject":        item["title"],
+            "subject":        item.get("title", "Task không tên"),
             "status":         "Open",
-            "description":    item["description"],
-            "exp_start_date": _parse_date(item["start_date"]),
-            "exp_end_date":   _parse_date(item["end_date"]),
+            "description":    item.get("description", ""),
+            "exp_start_date": _parse_date(item.get("start_date")),
+            "exp_end_date":   _parse_date(item.get("due_date") or item.get("end_date")),
             "custom_assignee":  hr_code,
             "project":        project_id,
             "is_group":       1,
@@ -733,7 +733,19 @@ def create_tasks_to_erp(tasks_list):
             )
 
             if resp.status_code not in (200, 201):
-                err = f"'{item['title'][:40]}': HTTP {resp.status_code} - {resp.text[:300]}"
+                err_text = resp.text
+                if "cannot be later than Project" in err_text or "cannot be before Project" in err_text:
+                    # Retry without dates
+                    payload.pop("exp_end_date", None)
+                    payload.pop("exp_start_date", None)
+                    resp = session.post(
+                        f"{BASE_URL}/api/resource/Task",
+                        json=payload,
+                        timeout=15,
+                    )
+                    
+            if resp.status_code not in (200, 201):
+                err = f"'{item.get('title', '')[:40]}': HTTP {resp.status_code} - {resp.text[:300]}"
                 print(f"   ❌ {err}")
                 errors.append(err)
                 continue
@@ -843,9 +855,9 @@ def clean_transcript_llm(results, model_type="gpt-4o-mini"):
     prompt = """Bạn là trợ lý chỉnh sửa biên bản họp. Nhiệm vụ của bạn là lọc hội thoại.
     Mặc định, bạn phải GIỮ LẠI các câu nói chứa thông tin.
     YÊU CẦU BẮT BUỘC: 
-    - XÓA BỎ những câu ậm ừ, dạ, vâng, ờ...
-    - XÓA BỎ những câu quá ngắn (nhỏ hơn hoặc bằng 3 chữ) không mang lại ý nghĩa quan trọng (ví dụ: 'dạ', 'ừm', 'ờ', 'vâng', 'rồi', 'ok anh').
-    - TUYỆT ĐỐI KHÔNG ĐƯỢC XÓA các câu giao tiếp có ý nghĩa đầy đủ, câu hỏi, hay câu chốt vấn đề.
+    - XÓA BỎ HOÀN TOÀN TẤT CẢ những câu nói chỉ có 1 hoặc 2 chữ, bất kể nội dung là gì (ví dụ: 'dạ', 'ừm', 'ờ', 'vâng', 'rồi', 'ok anh', 'chào', 'chưa').
+    - XÓA BỎ những câu ậm ừ, vô nghĩa.
+    - TUYỆT ĐỐI KHÔNG ĐƯỢC XÓA các câu giao tiếp có từ 3 chữ trở lên, mang ý nghĩa đầy đủ, câu hỏi, hay câu chốt vấn đề.
     
     Trả về định dạng JSON duy nhất như sau (không kèm text nào khác, không có markdown):
     {

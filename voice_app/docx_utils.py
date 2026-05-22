@@ -63,6 +63,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
                 tr.getparent().remove(tr)
                 
             # Thêm các hàng mới, điền designation nếu có
+            from docx.shared import Pt
             for i, spk_name in enumerate(unique_speakers):
                 row_cells = attendee_table.add_row().cells
                 row_cells[0].text = f"{i + 1}."
@@ -75,6 +76,11 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
                         or "Thành viên"
                     )
                     row_cells[2].text = designation
+                for cell in row_cells:
+                    for p in cell.paragraphs:
+                        for run in p.runs:
+                            run.font.name = 'Times New Roman'
+                            run.font.size = Pt(12)
         
         # Tìm vị trí "II. Nội dung chi tiết cuộc họp:"
         start_idx = -1
@@ -87,19 +93,23 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
             target_p = doc.paragraphs[start_idx + 1]
             
             # Chèn nội dung mới
+            from docx.shared import Pt
             for start, end, spk, txt in results:
+                txt = " ".join(txt.split())
                 clean_spk = re.sub(r'[👤👤]', '', spk) # Bỏ icon
                 clean_spk = re.sub(r'\(.*?\)', '', clean_spk) # Bỏ (email)
-                clean_spk = re.sub(r'- \d+%', '', clean_spk) # Bỏ - 100%
-                clean_spk = clean_spk.strip()
+                clean_spk = re.sub(r'-\s*\d+%', '', clean_spk) # Bỏ - 100%
+                clean_spk = " ".join(clean_spk.split())
                 
                 p = target_p.insert_paragraph_before("")
                 r_spk = p.add_run(f"{clean_spk}: ")
                 r_spk.bold = True
                 r_spk.font.name = 'Times New Roman'
+                r_spk.font.size = Pt(12)
                 
                 r_txt = p.add_run(txt)
                 r_txt.font.name = 'Times New Roman'
+                r_txt.font.size = Pt(12)
                 
             # Xóa các đoạn hội thoại mẫu để file chỉ chứa kết quả AI mới
             # Slice [:-1] để CHẮC CHẮN không xóa paragraph cuối cùng (chứa <w:sectPr>), tránh lỗi file Word
@@ -125,10 +135,11 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
         hdr_cells[2].text = 'Nội dung'
 
         for start, end, spk, txt in results:
+            txt = " ".join(txt.split())
             clean_spk = re.sub(r'[👤👤]', '', spk)
             clean_spk = re.sub(r'\(.*?\)', '', clean_spk)
-            clean_spk = re.sub(r'- \d+%', '', clean_spk)
-            clean_spk = clean_spk.strip()
+            clean_spk = re.sub(r'-\s*\d+%', '', clean_spk)
+            clean_spk = " ".join(clean_spk.split())
 
             row_cells = table.add_row().cells
             row_cells[0].text = f"{start:.1f}s"
