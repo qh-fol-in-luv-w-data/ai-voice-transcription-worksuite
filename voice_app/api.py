@@ -276,10 +276,19 @@ def extract_tasks():
         try:
             session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
             session_name_log = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
-            if session_name_log and hasattr(extract_tasks_only, '__last_tokens'):
-                pass  # tokens tracked via task_extractor
-        except Exception:
-            pass
+            if session_name_log and task_usage:
+                _logger.log_ai_call(
+                    session_name=session_name_log,
+                    action_name="",
+                    call_type="extract_tasks",
+                    ai_model=model_type,
+                    duration_seconds=0,
+                    status="success",
+                    prompt_tokens=task_usage.get("prompt_tokens", 0),
+                    completion_tokens=task_usage.get("completion_tokens", 0)
+                )
+        except Exception as log_ex:
+            frappe.log_error(str(log_ex), "Log OpenAI AI Call Error")
 
         return {
             "status": "success",
