@@ -14,7 +14,7 @@ from voice_app.audio_utils import convert_to_wav
 from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def transcribe_audio(language="vi", filter_speakers=None):
     if frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập để sử dụng tính năng này"}
@@ -175,7 +175,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def extract_tasks():
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -304,7 +304,7 @@ def extract_tasks():
         frappe.log_error(traceback.format_exc(), "Task Extraction Error")
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def clean_transcript():
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -334,7 +334,7 @@ def clean_transcript():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def update_meeting_results():
     """Cập nhật raw_results khi user hoàn tác lọc (undo clean)"""
     if frappe.session.user == "Guest":
@@ -362,7 +362,7 @@ def update_meeting_results():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def sync_tasks_to_erp():
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -379,7 +379,7 @@ def sync_tasks_to_erp():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def download_meeting_file():
     """
     Endpoint tải file (docx/xlsx) từ meeting về phía client.
@@ -443,7 +443,7 @@ def download_meeting_file():
 
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_elevenlabs_info():
     return {"balance": check_elevenlabs_balance()}
 
@@ -498,12 +498,12 @@ def enroll_voice():
         frappe.log_error(traceback.format_exc(), "Voice Enrollment Error")
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_current_user():
     return frappe.session.user
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_enrolled_speakers():
     """Trả về danh sách người đã đăng ký giọng nói trong Voice DB."""
     try:
