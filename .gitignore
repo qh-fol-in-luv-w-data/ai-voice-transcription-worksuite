@@ -17,3 +17,15 @@ yarn-error.log*
 *.swp
 *~
 .DS_Store
+
+# Generated / large data files
+speaker_db.json
+
+# Office documents (không commit tài liệu nội bộ)
+*.pdf
+*.docx
+*.doc
+*.xlsx
+
+# Test scripts (không commit vào source)
+test_*.py
