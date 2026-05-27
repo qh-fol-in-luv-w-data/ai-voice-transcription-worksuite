@@ -739,7 +739,7 @@ def create_tasks_to_erp(tasks_list):
                     payload.pop("exp_end_date", None)
                     payload.pop("exp_start_date", None)
                     resp = session.post(
-                        f"{BASE_URL}/api/resource/Task",
+                        f"{base_url}/api/resource/Task",
                         json=payload,
                         timeout=15,
                     )
