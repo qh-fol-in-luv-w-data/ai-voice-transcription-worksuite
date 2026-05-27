@@ -95,4 +95,19 @@ export async function updateMeetingResults(meetingName, results) {
   return res.data.message
 }
 
+export async function voiceToTask(file, existingTask = null) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (existingTask) {
+    formData.append('existing_task', JSON.stringify(existingTask))
+  }
+
+  const res = await api.post('/api/method/voice_app.api.voice_to_task', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+  return res.data.message
+}
+
 export default api

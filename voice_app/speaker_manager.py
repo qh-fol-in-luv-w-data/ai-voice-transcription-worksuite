@@ -30,8 +30,13 @@ class SpeakerDB:
                 if s.get("embedding"):
                     try:
                         emb_list = json.loads(s.get("embedding"))
+                        emb = np.array(emb_list, dtype=np.float32)
+                        # L2 normalize để cosine similarity hoạt động đúng
+                        norm = np.linalg.norm(emb)
+                        if norm > 0:
+                            emb = emb / norm
                         processed[s.get("speaker_name")] = {
-                            "embedding": np.array(emb_list, dtype=np.float32),
+                            "embedding": emb,
                             "email": s.get("email") or "Chưa cập nhật",
                             "user_info": s.get("user_info")
                         }
@@ -49,6 +54,10 @@ class SpeakerDB:
     def add_speaker(self, name, embedding, email="", user_info=None):
         import frappe
         try:
+            # L2 normalize trước khi lưu
+            norm = np.linalg.norm(embedding)
+            if norm > 0:
+                embedding = embedding / norm
             self.speakers[name] = {
                 "embedding": embedding,
                 "email": email or "Chưa cập nhật",
@@ -87,20 +96,48 @@ class SpeakerDB:
         if allowed_names:
             candidates = ((n, v) for n, v in self.speakers.items() if n in allowed_names)
         
+        scores = []
         for name, info in candidates:
             sim = 1 - cosine(embedding, info["embedding"])
+            scores.append((name, sim))
             if sim > best_sim:
                 best_sim = sim
                 if sim >= SIMILARITY_THRESHOLD:
                     best_name = name
                     best_email = info["email"]
                     best_user_info = info.get("user_info")
-        
+
+        # Debug: in top 3 để dễ điều chỉnh ngưỡng
+        scores.sort(key=lambda x: x[1], reverse=True)
+        top3 = ", ".join(f"{n}={s:.3f}" for n, s in scores[:3])
+        print(f"[Speaker] best='{best_name}'({best_sim:.3f}) threshold={SIMILARITY_THRESHOLD} | top3: [{top3}]")
+
         return best_name, best_sim, best_email, best_user_info
 
+# ── EMBEDDING CACHE (process-level, tránh gọi subprocess trùng lặp) ─────────
+_embedding_cache: dict = {}   # key: (wav_path, start_rounded, end_rounded)
+_CACHE_MAX = 64               # giới hạn tối đa số entry để tránh OOM
+
 def get_segment_embedding(wav_path: str, start: float, end: float):
+    """Trích xuất embedding có cache: cùng file+segment thì không gọi subprocess lại."""
+    # Key = (path, start làm tròn 2 chữ số, end làm tròn 2 chữ số)
+    cache_key = (wav_path, round(start, 2), round(end, 2))
+
+    if cache_key in _embedding_cache:
+        return _embedding_cache[cache_key]
+
     try:
         emb = _extract_embedding_subprocess(wav_path, start, end)
+        if emb is not None:
+            # L2 normalize về unit vector (cosine sim cần embedding normalized)
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+                emb = emb / norm
+            # Giới hạn cache size (FIFO đơn giản)
+            if len(_embedding_cache) >= _CACHE_MAX:
+                oldest = next(iter(_embedding_cache))
+                del _embedding_cache[oldest]
+            _embedding_cache[cache_key] = emb
         return emb
     except Exception as e:
         print(f"Lỗi trích xuất embedding segment: {e}")
@@ -141,7 +178,17 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     if not stdout:
         raise RuntimeError(f"Subprocess không trả về kết quả. stderr:\n{result.stderr[-2000:]}")
 
-    embedding_list = json.loads(stdout)
+    # stdout có thể chứa cả warning text lẫn JSON — tìm dòng JSON cuối cùng
+    json_line = None
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('['):
+            json_line = line
+            break
+    if json_line is None:
+        raise RuntimeError(f"Không tìm thấy JSON trong stdout:\n{stdout[:500]}")
+
+    embedding_list = json.loads(json_line)
     return np.array(embedding_list)
 
 

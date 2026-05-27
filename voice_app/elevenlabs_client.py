@@ -25,13 +25,52 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> tuple:
         pass
     
     try:
+        # Keyterms: gợi ý từ khoá nghiệp vụ để tăng độ chính xác nhận dạng
+        KEYTERMS = [
+            # --- Tiếng Việt nghiệp vụ ---
+            "tờ trình", "kế hoạch", "doanh thu", "báo cáo", "hợp đồng",
+            "dự án", "ngân sách", "phòng ban", "công ty", "quản lý",
+            "nghiệm thu", "thanh lý", "đề xuất", "phê duyệt", "triển khai",
+            "tiến độ", "rủi ro", "chi phí", "lợi nhuận", "quyết toán",
+
+            # --- Tên hệ thống / thương hiệu ---
+            "CT Group", "Worksuite", "ERP", "CRM", "HRM", "DAIT",
+
+            # --- Quản lý dự án (Project Management) ---
+            "deadline", "milestone", "sprint", "backlog", "roadmap",
+            "kickoff", "handover", "deliverable", "stakeholder", "scope",
+            "timeline", "escalation", "sign-off", "go-live", "rollout",
+            "Agile", "Scrum", "Kanban", "Waterfall",
+
+            # --- Tài chính / Kế toán (Finance) ---
+            "KPI", "OKR", "ROI", "P&L", "EBITDA", "revenue", "budget",
+            "invoice", "purchase order", "PO", "capex", "opex",
+            "cash flow", "cost center", "profit margin", "breakeven",
+
+            # --- IT / Công nghệ (Technology) ---
+            "API", "backend", "frontend", "database", "server", "cloud",
+            "deployment", "Docker", "Kubernetes", "CI/CD", "DevOps",
+            "microservice", "pipeline", "repository", "Git", "branch",
+            "Python", "JavaScript", "Vue", "React", "Node.js", "Frappe",
+
+            # --- Nhân sự / HR ---
+            "onboarding", "offboarding", "headcount", "recruitment",
+            "performance review", "probation", "payroll", "offer letter",
+            "job description", "KPIs", "OKRs",
+
+            # --- Từ viết tắt phổ biến trong họp ---
+            "ASAP", "FYI", "TBD", "TBC", "EOD", "EOM", "ETA",
+            "Q1", "Q2", "Q3", "Q4", "YTD", "MoM", "YoY",
+        ]
+
         with open(wav_path, "rb") as f:
-            # Gọi API
             result = client.speech_to_text.convert(
                 file=f,
-                model_id="scribe_v2",
-                diarize=True,
-                language_code=language if language != "auto" else "vi"
+                model_id="scribe_v2",          # Model tốt nhất hiện tại
+                diarize=True,                   # Phân biệt người nói
+                tag_audio_events=False,         # TẮT: bỏ [tiếng nói chồng chéo], [laughter]...
+                language_code=language if language != "auto" else None,  # None = auto-detect
+                keyterms=KEYTERMS,              # Gợi ý từ khoá nghiệp vụ VN
             )
         
         # Lấy số dư sau
