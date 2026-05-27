@@ -19,7 +19,7 @@ def get_hf_token():
     except Exception: pass
     return os.getenv("HF_TOKEN", "")
 
-AGENT_NAME = "2AS-WORKSUITE"  # Đổi thành ID/Tên Agent thực tế của app này trong bảng Agent
+AGENT_NAME = "2AS-WORKSUITE"
 
 def get_openai_api_key(agent_name=AGENT_NAME):
     try:
@@ -69,7 +69,7 @@ MAX_SPEAKERS = 8
 DEFAULT_LANG = "vi"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SPEAKER_DB_PATH = os.path.join(BASE_DIR, "speaker_db.json")
-SIMILARITY_THRESHOLD = 0.5
+SIMILARITY_THRESHOLD = 0.5   # Nhận diện speaker từ DB khi similarity >= 0.5
 LANGUAGES = [
     ("Tiếng Việt", "vi"), ("English", "en"), ("日本語", "ja"),
     ("中文", "zh"), ("한국어", "ko"), ("Français", "fr"),

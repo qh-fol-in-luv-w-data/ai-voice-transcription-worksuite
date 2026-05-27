@@ -39,7 +39,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
         if err:
             return {"status": "error", "message": err}
 
-        # Diarization
+        # ── DIARIZATION ────────────────────────────────────────────────────────
         spk_db = SpeakerDB()
         unique_speakers = {}
         for seg in segments:
@@ -47,49 +47,139 @@ def transcribe_audio(language="vi", filter_speakers=None):
             if spk not in unique_speakers:
                 unique_speakers[spk] = []
             unique_speakers[spk].append(seg)
-            
-        speaker_cache = {}
-        unknown_counter = 1
+
+        # Trích xuất embedding cho mỗi speaker_id từ ElevenLabs
+        # Dùng concat nhiều đoạn → embedding đại diện hơn 1 đoạn ngắn
+        from scipy.spatial.distance import cosine as cos_dist
+        from voice_app.audio_utils import concat_speaker_segments
+        spk_embeddings = {}  # speaker_id -> embedding
+        spk_identified = {}  # speaker_id -> (name, score, email, user_info)
+
         for spk, segs in unique_speakers.items():
-            segs.sort(key=lambda x: x["end"] - x["start"], reverse=True)
-            sample_seg = segs[0]
-            start = sample_seg["start"]
-            end = min(sample_seg["end"], start + 5.0)
-            
-            if end - start >= 0.5:
-                emb = get_segment_embedding(wav, start, end)
-                if emb is not None:
-                    # Parse filter list if provided
-                    allowed = json.loads(filter_speakers) if filter_speakers else None
-                    name, score, email, user_info = spk_db.identify(emb, allowed_names=allowed)
-                    if name != "Người lạ":
-                        if not email or email.lower() == "chưa cập nhật":
-                            speaker_cache[spk] = f"👤 {name} - {score:.0%}"
-                        else:
-                            speaker_cache[spk] = f"👤 {name} ({email}) - {score:.0%}"
-                    else:
-                        speaker_cache[spk] = f"👤 Người lạ {unknown_counter} ({score:.0%})"
-                        unknown_counter += 1
+            # Ghép tất cả đoạn của speaker này (tối đa 25 giây, mỗi đoạn >= 1s)
+            concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.0)
+
+            # Fallback: nếu không ghép được, lấy đoạn dài nhất (cũ)
+            if concat_wav is None:
+                segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
+                sample = segs_sorted[0]
+                start = sample["start"]
+                end = min(sample["end"], start + 5.0)
+                if end - start >= 0.5:
+                    concat_wav = wav  # dùng full wav với start/end
+                    emb = get_segment_embedding(wav, start, end)
                 else:
-                    speaker_cache[spk] = f"👤 Speaker {spk}"
+                    continue
             else:
-                speaker_cache[spk] = f"👤 Speaker {spk}"
+                # Lấy embedding từ toàn bộ file concat (start=0, end=duration)
+                from voice_app.audio_utils import get_duration
+                dur = get_duration(concat_wav)
+                emb = get_segment_embedding(concat_wav, 0.0, dur)
+                # Dọn file tạm sau khi lấy xong
+                try: os.remove(concat_wav)
+                except: pass
+
+            if emb is not None:
+                spk_embeddings[spk] = emb
+                allowed = json.loads(filter_speakers) if filter_speakers else None
+                name, score, email, user_info = spk_db.identify(emb, allowed_names=allowed)
+                spk_identified[spk] = (name, score, email, user_info)
+
+        # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.6)
+        MERGE_THRESHOLD = 0.6
+        stranger_groups = {}  # spk -> group_id (speaker_id của người đại diện nhóm)
+        strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
+
+        for spk in strangers:
+            merged = False
+            for rep in list(stranger_groups.keys()):
+                if rep in spk_embeddings and spk in spk_embeddings:
+                    sim = 1 - cos_dist(spk_embeddings[spk], spk_embeddings[rep])
+                    if sim >= MERGE_THRESHOLD:
+                        stranger_groups[spk] = stranger_groups[rep]  # gộp vào nhóm của rep
+                        merged = True
+                        break
+            if not merged:
+                stranger_groups[spk] = spk  # tự là đại diện nhóm mới
+
+        # Đánh số "Người lạ N" theo thứ tự xuất hiện
+        group_label = {}  # group_id -> "Người lạ N"
+        unknown_counter = 1
+        for spk in strangers:
+            group_id = stranger_groups.get(spk, spk)
+            if group_id not in group_label:
+                group_label[group_id] = f"Người lạ {unknown_counter}"
+                unknown_counter += 1
+
+        # Tạo speaker_cache với nhãn hiển thị sạch
+        speaker_cache = {}
+        for spk, info in spk_identified.items():
+            name, score, email, user_info = info
+            if name != "Người lạ":
+                if not email or email.lower() == "chưa cập nhật":
+                    speaker_cache[spk] = f"👤 {name}"
+                else:
+                    speaker_cache[spk] = f"👤 {name} ({email})"
+            else:
+                group_id = stranger_groups.get(spk, spk)
+                label = group_label.get(group_id, f"Người lạ {unknown_counter}")
+                speaker_cache[spk] = f"👤 {label}"
+
+        # Fallback cho những spk không có embedding
+        for spk in unique_speakers:
+            if spk not in speaker_cache:
+                speaker_cache[spk] = f"👤 Người lạ {unknown_counter}"
+                unknown_counter += 1
+
+        # ── LỌC SEGMENT VÔ NGHĨA ──────────────────────────────────────────────
+        def is_meaningful(text):
+            """Lọc bỏ segment quá ngắn hoặc không có nội dung hữu ích."""
+            import re
+            t = text.strip()
+            if not t:
+                return False
+            # Loại bỏ câu chỉ có dấu câu / ký tự đặc biệt
+            if re.fullmatch(r'[\W\d]+', t):
+                return False
+            words = t.split()
+            # Loại bỏ câu <= 2 từ đơn lẻ không có nghĩa
+            if len(words) <= 2:
+                # Cho phép nếu là tên riêng hoặc câu trả lời ngắn có nghĩa
+                meaningful_short = {'vâng', 'dạ', 'có', 'không', 'rồi', 'ừ', 'okay', 'ok',
+                                    'được', 'đúng', 'đồng ý', 'yes', 'no', 'sure'}
+                joined = ' '.join(words).lower().strip('.,!?')
+                if joined not in meaningful_short:
+                    return False
+            return True
+
+        # ── GỘP SEGMENT LIỀN KỀ CÙNG SPEAKER ─────────────────────────────────
+        # Nếu 2 segment liên tiếp của cùng 1 speaker và khoảng gap < 1.5s → gộp lại
+        MERGE_GAP = 1.5  # giây
+
+        merged_segments = []
+        segments.sort(key=lambda x: x["start"])
+
+        for seg in segments:
+            txt = " ".join(seg["text"].split())
+            if not txt or not is_meaningful(txt):
+                continue
+            spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
+
+            if (merged_segments
+                    and merged_segments[-1][2] == spk_label
+                    and seg["start"] - merged_segments[-1][1] <= MERGE_GAP):
+                # Gộp vào segment trước
+                prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1]
+                merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt)
+            else:
+                merged_segments.append((seg["start"], seg["end"], spk_label, txt))
 
         # Format results
-        results = []
+        results = merged_segments[:]
         final_output_text = ""
         last_spk = None
-        
-        segments.sort(key=lambda x: x["start"])
-        for seg in segments:
-            s = seg["start"]
-            e = seg["end"]
-            txt = " ".join(seg["text"].split())
-            if not txt: continue
-                
-            spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
-            results.append((s, e, spk_label, txt))
-            
+
+        for s, e, spk_label, txt in results:
             if spk_label != last_spk:
                 final_output_text += f"\n**{spk_label}** [{s:.1f}s]\n{txt}"
             else:
@@ -561,8 +651,11 @@ def get_meeting_history():
         return {"status": "error", "message": str(e), "meetings": []}
 _logger = ActivityLogger(prefix="VOICE", module="voice_app")
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def get_context():
+    if frappe.session.user == "Guest":
+        frappe.throw("Vui lòng đăng nhập", frappe.AuthenticationError)
+
     import uuid
     dept = ""
     role = ""
@@ -626,7 +719,7 @@ def voice_to_task(existing_task=None):
             return {"status": "error", "message": err}
 
         # Gọi ElevenLabs Speech-to-Text
-        segments, full_text, err = call_elevenlabs_stt(wav, "vi")
+        segments, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
         if err:
             return {"status": "error", "message": err}
             
@@ -638,8 +731,12 @@ def voice_to_task(existing_task=None):
             return {"status": "error", "message": "Không thể trích xuất văn bản từ âm thanh."}
 
         # Lấy danh sách dự án và nhân viên từ ERPNext
-        from voice_app.task_extractor import BASE_URL, WS_EMAIL, WS_PASSWORD
-        from voice_app.constants import OPENAI_API_KEY
+        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        BASE_URL = get_worksuite_url()
+        WS_EMAIL = get_worksuite_email()
+        WS_PASSWORD = get_worksuite_password()
+        from voice_app.constants import get_openai_api_key
+        OPENAI_API_KEY = get_openai_api_key()
         from openai import OpenAI
         from datetime import datetime, timedelta
         

@@ -9,8 +9,6 @@ import CTAccessDenied from './components/CTAccessDenied.vue'
 const { authState, currentUser, currentFullName } = useSession()
 
 // States
-
-// States
 const audioFile = ref(null)
 const language = ref('vi')
 const modelType = ref('gpt-4o')
@@ -955,17 +953,29 @@ onMounted(async () => {
             </div>
           </div>
           
-          <!-- EXTRACT BUTTON ROW -->
-          <div v-if="transcriptResults.length > 0" class="flex justify-end mt-4">
-              <button @click="startExtractTasks" :disabled="isExtracting || transcriptResults.length === 0" class="shadcn-btn shadcn-btn-outline w-full max-w-[300px]" :style="{ opacity: transcriptResults.length === 0 ? 0.5 : 1 }">
-                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                 {{ isExtracting ? t('extracting') : t('extract_task') }}
-              </button>
+          <!-- AI FILTER + EXTRACT BUTTON ROW -->
+          <div v-if="transcriptResults.length > 0" class="flex flex-wrap gap-3 items-center mt-2">
+            <button
+              @click="startCleanTranscript"
+              :disabled="isCleaning"
+              class="shadcn-btn flex-1"
+              :class="isCleaned ? 'shadcn-btn-outline border-primary text-primary' : 'shadcn-btn-outline'"
+              style="min-width:180px;"
+            >
+              <svg v-if="isCleaning" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              <svg v-else-if="isCleaned" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M3 7v6h6"/><path d="M21 17v-6h-6"/><path d="M18.37 7.63A9 9 0 0 0 5.41 5.41L3 8"/><path d="M5.63 16.37A9 9 0 0 0 18.59 18.59L21 16"/></svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+              {{ isCleaning ? 'Đang lọc AI...' : (isCleaned ? '↩ Hoàn tác lọc' : '✨ AI Lọc hội thoại') }}
+            </button>
+            <button @click="startExtractTasks" :disabled="isExtracting || transcriptResults.length === 0" class="shadcn-btn shadcn-btn-primary flex-1" :style="{ opacity: transcriptResults.length === 0 ? 0.5 : 1 }" style="min-width:180px;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+              {{ isExtracting ? t('extracting') : t('extract_task') }}
+            </button>
           </div>
           <div v-if="extractStatus" class="text-primary text-sm font-medium text-center bg-primary/10 py-2 rounded-md border border-primary/20">
-             {{ extractStatus }}
+            {{ extractStatus }}
           </div>
-          
+
           <!-- TRANSCRIPT RESULTS -->
           <div v-if="transcriptResults.length > 0" class="shadcn-card">
             <div class="card-header border-b border-border flex justify-between items-center bg-muted/10">
@@ -973,12 +983,6 @@ onMounted(async () => {
                 <h3 class="card-title">{{ t('transcript_result') }}</h3>
                 <p class="card-description">{{ t('transcript_desc') }}</p>
               </div>
-              <button @click="startCleanTranscript" :disabled="isCleaning" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs" :class="{'border-primary text-primary': isCleaned}">
-                 <svg v-if="!isCleaning && !isCleaned" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-                 <svg v-else-if="!isCleaning && isCleaned" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M3 7v6h6"/><path d="M21 17v-6h-6"/><path d="M18.37 7.63A9 9 0 0 0 5.41 5.41L3 8"/><path d="M5.63 16.37A9 9 0 0 0 18.59 18.59L21 16"/></svg>
-                 <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                 {{ isCleaning ? 'Đang xử lý...' : (isCleaned ? 'Hoàn tác Lọc' : 'AI Lọc hội thoại') }}
-              </button>
             </div>
             <div class="card-content p-0">
                <div class="log-view p-6 space-y-6 max-h-[250px] overflow-auto">
@@ -1077,51 +1081,58 @@ onMounted(async () => {
                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                      {{ t('export_docx') }}
                   </button>
-                  <button @click="addTask" class="shadcn-btn shadcn-btn-outline">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                     {{ t('add_task') }}
-                  </button>
                 </div>
              </div>
-             <div class="card-content p-0 bg-background" style="max-height: 60vh; overflow-y: auto;">
-                <table class="shadcn-table w-full text-sm">
+             <div class="card-content p-0 overflow-x-auto">
+                <table class="shadcn-table w-full text-sm" style="table-layout:fixed;">
+                   <colgroup>
+                     <col style="width:3rem" />
+                     <col style="width:22%" />
+                     <col style="width:16%" />
+                     <col style="width:16%" />
+                     <col style="width:10%" />
+                     <col style="width:10%" />
+                     <col />
+                     <col style="width:3rem" />
+                   </colgroup>
                    <thead class="bg-muted/20 border-b border-border sticky top-0 z-10">
                       <tr>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-12">#</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground min-w-[250px]">{{ t('col_name') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground min-w-[180px]">{{ t('col_assignee') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground min-w-[200px]">{{ t('col_project') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-40">{{ t('col_start') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-40">{{ t('col_due') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground min-w-[350px]">{{ t('col_desc') }}</th>
-                         <th class="p-4 text-center font-medium text-muted-foreground w-16">{{ t('col_del') }}</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">#</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_name') }}</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_assignee') }}</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_project') }}</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_start') }}</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_due') }}</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_desc') }}</th>
+                         <th class="p-3 text-center font-medium text-muted-foreground">{{ t('col_del') }}</th>
                       </tr>
                    </thead>
                    <tbody>
                       <tr v-for="(task, idx) in tasks" :key="idx" class="border-b border-border hover:bg-muted/10 transition-colors">
-                         <td class="p-4 font-mono text-xs text-muted-foreground">{{ idx + 1 }}</td>
-                         <td class="p-3"><input v-model="task.title" :title="task.title" class="shadcn-table-input" /></td>
-                         <td class="p-3">
+                         <td class="p-3 font-mono text-xs text-muted-foreground">{{ idx + 1 }}</td>
+                         <td class="p-2"><input v-model="task.title" :title="task.title" class="shadcn-table-input" style="width:100%;min-width:0" /></td>
+                         <td class="p-2">
                            <input
                              v-model="task.assignee_display"
                              list="erp_employee_list"
                              :title="task.assignee_display"
                              class="shadcn-table-input"
-                             placeholder="Tìm người thực hiện..."
+                             placeholder="Tìm người..."
+                             style="width:100%;min-width:0"
                            />
                          </td>
-                         <td class="p-3">
-                            <select v-model="task.project" class="shadcn-table-select">
+                         <td class="p-2">
+                            <select v-model="task.project" class="shadcn-table-select" style="width:100%;min-width:0">
                               <option value="">{{ t('empty_project') }}</option>
                               <option v-for="p in getProjectsForHR(task.assignee_display)" :key="p[1]" :value="p[1]">
                                 {{ p[0] }}
                               </option>
                             </select>
                          </td>
-                         <td class="p-3"><input v-model="task.start_date" type="date" class="shadcn-table-input px-2" /></td>
-                         <td class="p-3"><input v-model="task.due_date" type="date" class="shadcn-table-input px-2" /></td>
-                         <td class="p-3"><textarea v-model="task.description" class="shadcn-table-input resize-y min-h-[80px] py-2"></textarea></td>
-                         <td class="p-4 text-center">
+                         <td class="p-2"><input v-model="task.start_date" type="date" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
+                         <td class="p-2"><input v-model="task.due_date" type="date" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
+                         <td class="p-2"><textarea v-model="task.description" class="shadcn-table-input resize-none" style="width:100%;min-width:0;min-height:60px;font-size:0.8rem"></textarea></td>
+                         <td class="p-3 text-center">
                             <button @click="removeTask(idx)" class="btn-ghost-icon text-destructive hover:bg-destructive/10">
                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
                             </button>
@@ -1542,7 +1553,6 @@ body {
   color: hsl(var(--foreground));
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
-  zoom: 1.25;
 }
 
 /* Utilities */
