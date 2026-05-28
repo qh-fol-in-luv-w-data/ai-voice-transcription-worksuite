@@ -701,8 +701,21 @@ def _log_action(session_id: str, action: str, details: dict):
     if s_name:
         _logger.log_action(s_name, action, details)
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def voice_to_task(existing_task=None):
+    """Tạo Task từ giọng nói — ElevenLabs STT → OpenAI GPT parse."""
+    # ── Session & Action Logging ──
+    session_id = frappe.get_request_header("X-App-Session-Id") or ""
+    session_name = _resolve_session(session_id)
+    if not session_name:
+        import uuid as _uuid
+        session_name = _logger.create_session(str(_uuid.uuid4()))
+    action_name = _logger.start_action(
+        session_name,
+        action_type="voice_to_task",
+        input_summary="audio upload",
+    )
+
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
         
@@ -739,6 +752,7 @@ def voice_to_task(existing_task=None):
         OPENAI_API_KEY = get_openai_api_key()
         from openai import OpenAI
         from datetime import datetime, timedelta
+        from voice_app.utils.activity_logger import Timer
         
         projects = []
         employees = []
@@ -799,6 +813,10 @@ def voice_to_task(existing_task=None):
 
         assignee_default = f"{current_employee.get('employee_name')} ({current_employee.get('name')})" if current_employee else ""
 
+        # ── Limit list size to avoid prompt overflow ──
+        projects = projects[:100]
+        employees = employees[:100]
+
         # Gọi OpenAI để phân tích câu lệnh
         if not OPENAI_API_KEY:
             return {"status": "error", "message": "Thiếu OPENAI_API_KEY"}
@@ -857,7 +875,7 @@ Yêu cầu nhiệm vụ:
      + Nếu không có hành động rõ ràng (chỉ nói "test" hoặc một cụm từ), hãy lấy cụm từ đó làm tên nhiệm vụ. TUYỆT ĐỐI không để trống, nếu mập mờ hãy tự tóm tắt thành 1 cụm động từ.
    - "project_id": So sánh tên dự án được nhắc tới trong hội thoại với danh sách dự án ở trên. Chọn "name" của dự án khớp nhất. Nếu không khớp bất kỳ dự án nào, trả về null (hoặc giữ nguyên dự án cũ từ thông tin Task hiện tại).
    - "project_name": Tên dự án được nói tới (nhớ cập nhật theo ý đính chính cuối cùng của người nói).
-   - "assignee_display": So sánh tên người thực hiện được nhắc tới với danh sách nhân viên khả dụng. Nếu khớp, điền 'employee_name (name)'. LƯU Ý QUAN TRỌNG: Nếu người dùng xưng "tôi", "mình", hoặc KHÔNG nhắc tới ai thực hiện, hãy tự động lấy "Người đang tạo Task" ở trên làm người thực hiện (điền '{assignee_default}' nếu có thông tin, ngược lại để null). Nếu nhắc tới tên không có trong danh sách, điền tên đó. Nếu không nhắc tới và không có Người đang tạo Task, trả về null (hoặc giữ nguyên người cũ từ thông tin Task hiện tại).
+   - "assignee_display": So sánh tên người thực hiện được nhắc tới với danh sách nhân viên khả dụng. Nếu khớp, điền 'employee_name (name)'. LƯU Ý QUAN TRỌNG: Nếu người dùng xưng "tôi", "mình", hoặc KHÔNG nhắc tới ai thực hiện, hãy tự động lấy "Người đang tạo Task" ở trên làm người thực hiện (điền '{assignee_default if assignee_default else "null"}' nếu có thông tin, ngược lại để null). Nếu nhắc tới tên không có trong danh sách, điền tên đó. Nếu không nhắc tới và không có Người đang tạo Task, trả về null (hoặc giữ nguyên người cũ từ thông tin Task hiện tại).
    - "start_date": Ngày bắt đầu (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Ví dụ: "ngày mai" là ngày {(now + timedelta(days=1)).strftime("%Y-%m-%d")}. Nếu không nhắc tới, mặc định lấy ngày hôm nay ({current_date_str}).
    - "end_date": Ngày kết thúc / Hạn chót (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Nếu không nhắc tới, trả về null (hoặc giữ nguyên hạn chót cũ từ thông tin Task hiện tại).
    - "description": Mô tả chi tiết nhiệm vụ (nếu có chi tiết hơn). Lọc bỏ các từ thừa, ậm ừ.
@@ -882,15 +900,34 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
   "clarification_question": "..."
 }}
 """
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            response_format={"type": "json_object"}
-        )
+        with Timer() as t:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                response_format={"type": "json_object"}
+            )
         
         parsed_data = json.loads(response.choices[0].message.content.strip())
-        
+        usage = response.usage
+        p_tok = usage.prompt_tokens if usage else 0
+        c_tok = usage.completion_tokens if usage else 0
+
+        # ── AI Call Log ──
+        _logger.log_ai_call(
+            session_name, action_name,
+            call_type="voice_to_task", ai_model="gpt-4o",
+            prompt_tokens=p_tok, completion_tokens=c_tok,
+            duration_seconds=t.elapsed, status="success",
+        )
+        _logger.finish_action(
+            action_name, status="success",
+            output_summary=f"task={parsed_data.get('task_name','')}",
+            ai_model="gpt-4o",
+            prompt_tokens=p_tok, completion_tokens=c_tok,
+            duration_seconds=t.elapsed,
+        )
+
         return {
             "status": "success",
             "transcript": full_text,
@@ -901,6 +938,14 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
 
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Voice to Task Error")
+        _logger.finish_action(action_name, status="failed", error_message=str(e)[:500])
         return {"status": "error", "message": str(e)}
+    finally:
+        # ── Cleanup temp files ──
+        try:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
 
 
