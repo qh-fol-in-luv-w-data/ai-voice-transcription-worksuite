@@ -547,19 +547,7 @@ def enroll_voice():
     email = frappe.session.user
     full_name = frappe.utils.get_fullname(email)
     user_info = None
-    
-    # Try fetching from CT Group API
-    try:
-        api_url = f"https://app.ctpai.vn/api/method/ct_agent_hub.ct_agent_hub.api.get_user_by_mail?mail={email}"
-        resp = requests.get(api_url, timeout=10)
-        data = resp.json()
-        if data.get("message", {}).get("status") == "success":
-            user_info = data["message"]["user"]
-            if "full_name" in user_info and user_info["full_name"]:
-                full_name = user_info["full_name"]
-    except Exception as e:
-        frappe.log_error(str(e), "CT Group API Fetch Error")
-        
+
     if 'file' not in frappe.request.files:
         return {"status": "error", "message": "Thiếu file âm thanh"}
         
