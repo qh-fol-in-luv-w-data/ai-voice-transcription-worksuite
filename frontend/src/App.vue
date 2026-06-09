@@ -301,14 +301,17 @@ const submitEnrollment = async () => {
     return
   }
   isEnrolling.value = true
-  enrollStatus.value = "⏳ Đang đăng ký..."
+  enrollStatus.value = "" // Chỉ hiển thị "Đang xử lý..." trên nút, xóa status bên dưới
   
   try {
-    const msg = await enrollVoice(enrollAudioFile.value)
-    enrollStatus.value = "✅ " + msg
+    const resMsg = await enrollVoice(enrollAudioFile.value)
+    // resMsg là object {"status": "...", "message": "..."}
+    const displayMsg = (typeof resMsg === 'object' && resMsg.message) ? resMsg.message : resMsg
+    enrollStatus.value = (resMsg?.status === 'error' ? "❌ " : "✅ ") + displayMsg
   } catch(e) {
     if (e.response?.data?.message) {
-      enrollStatus.value = "❌ " + e.response.data.message
+      const errMsg = e.response.data.message
+      enrollStatus.value = "❌ " + ((typeof errMsg === 'object' && errMsg.message) ? errMsg.message : errMsg)
     } else {
       enrollStatus.value = "❌ " + t('error_connect')
     }
