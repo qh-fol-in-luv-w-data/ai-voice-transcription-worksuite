@@ -234,6 +234,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
             frappe.db.commit()
             meeting_name = meeting_doc.name
         except Exception as ex:
+            frappe.db.rollback()
             frappe.log_error(str(ex), "Create Voice Meeting Error")
 
         # Log AI call (ElevenLabs)
@@ -252,6 +253,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
                     elevenlabs_chars_remaining=el_chars_remaining,
                 )
         except Exception as log_ex:
+            frappe.db.rollback()
             frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
 
         return {
@@ -263,6 +265,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
         }
 
     except Exception as e:
+        frappe.db.rollback()
         frappe.log_error(traceback.format_exc(), "Audio Transcription Error")
         return {"status": "error", "message": str(e)}
 
