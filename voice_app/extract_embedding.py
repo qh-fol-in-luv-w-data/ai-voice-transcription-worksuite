@@ -18,6 +18,7 @@ import numpy as np
 
 
 def main():
+    print("DEBUG: Script started", flush=True)
     if len(sys.argv) < 3:
         print(json.dumps({"error": "Missing arguments: wav_path and hf_token required"}), file=sys.stderr)
         sys.exit(1)
@@ -28,7 +29,9 @@ def main():
     start = float(sys.argv[3]) if len(sys.argv) > 3 else None
     end   = float(sys.argv[4]) if len(sys.argv) > 4 else None
 
+    print("DEBUG: Importing torch...", flush=True)
     import torch
+    print("DEBUG: torch imported", flush=True)
 
     # Disable NNPACK / MKL-DNN
     if hasattr(torch.backends, 'nnpack'):
@@ -59,15 +62,19 @@ def main():
         os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
         os.environ["HF_TOKEN"] = hf_token
 
+    print("DEBUG: Importing pyannote...", flush=True)
     from pyannote.audio import Model
     from pyannote.audio.core.inference import Inference
+    print("DEBUG: pyannote imported", flush=True)
 
     # Thử load model — nếu đã cache local thì không cần token nữa
     try:
+        print("DEBUG: Loading model...", flush=True)
         model = Model.from_pretrained("pyannote/embedding", token=hf_token)
     except TypeError:
         model = Model.from_pretrained("pyannote/embedding", use_auth_token=hf_token)
-
+    
+    print("DEBUG: Model loaded successfully", flush=True)
     inference = Inference(model, window="whole")
 
     # ── Fix 3: Đọc audio bằng soundfile thay vì torchaudio/torchcodec ──────────
@@ -96,16 +103,20 @@ def main():
                 data = sp_resample(data, n_out).astype('float32')
         return torch.tensor(data).unsqueeze(0).unsqueeze(0)  # [1, 1, samples]
 
+    print("DEBUG: Loading waveform...", flush=True)
     if start is not None and end is not None:
         waveform = load_wav_soundfile(wav_path, start, end)
     else:
         waveform = load_wav_soundfile(wav_path)
 
+    print("DEBUG: Running model inference...", flush=True)
     with torch.inference_mode():
         embedding = model(waveform)
         if hasattr(embedding, 'data'):
             embedding = embedding.data
         embedding = embedding.squeeze().cpu().numpy()
+    
+    print("DEBUG: Inference finished", flush=True)
 
     # Output embedding as JSON to stdout
     print(json.dumps(embedding.tolist()))
