@@ -29,7 +29,8 @@ class SpeakerDB:
             for s in speakers:
                 if s.get("embedding"):
                     try:
-                        emb_list = json.loads(s.get("embedding"))
+                        emb_val = s.get("embedding")
+                        emb_list = json.loads(emb_val) if isinstance(emb_val, str) else emb_val
                         emb = np.array(emb_list, dtype=np.float32)
                         # L2 normalize để cosine similarity hoạt động đúng
                         norm = np.linalg.norm(emb)
