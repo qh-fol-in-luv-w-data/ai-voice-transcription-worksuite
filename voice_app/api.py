@@ -218,24 +218,33 @@ def transcribe_audio(language="vi", filter_speakers=None):
 
         # Create Voice Meeting
         meeting_name = None
-        try:
-            from datetime import datetime
-            meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-            meeting_doc = frappe.get_doc({
-                "doctype": "Voice Meeting",
-                "title": meeting_title,
-                "date": frappe.utils.now(),
-                "status": "Pending",
-                "audio_file": file_doc.file_url,
-                "transcript": final_output_text.strip(),
-                "raw_results": json.dumps(results, ensure_ascii=False)
-            })
-            meeting_doc.insert(ignore_permissions=True)
-            frappe.db.commit()
-            meeting_name = meeting_doc.name
-        except Exception as ex:
-            frappe.db.rollback()
-            frappe.log_error(str(ex), "Create Voice Meeting Error")
+        for attempt in range(3):
+            try:
+                from datetime import datetime
+                meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                meeting_doc = frappe.get_doc({
+                    "doctype": "Voice Meeting",
+                    "title": meeting_title,
+                    "date": frappe.utils.now(),
+                    "status": "Pending",
+                    "audio_file": file_doc.file_url,
+                    "transcript": final_output_text.strip(),
+                    "raw_results": json.dumps(results, ensure_ascii=False)
+                })
+                meeting_doc.insert(ignore_permissions=True)
+                frappe.db.commit()
+                meeting_name = meeting_doc.name
+                break
+            except Exception as ex:
+                if getattr(frappe.db, "_cursor", None):
+                    frappe.db._cursor.execute("ROLLBACK")
+                frappe.db.rollback()
+                if "SerializationFailure" in str(type(ex)) or "concurrent update" in str(ex):
+                    import time
+                    time.sleep(0.5)
+                    continue
+                frappe.log_error(str(ex), f"Create Voice Meeting Error (Attempt {attempt+1})")
+                break
 
         # Log AI call (ElevenLabs)
         try:
@@ -253,6 +262,8 @@ def transcribe_audio(language="vi", filter_speakers=None):
                     elevenlabs_chars_remaining=el_chars_remaining,
                 )
         except Exception as log_ex:
+            if getattr(frappe.db, "_cursor", None):
+                frappe.db._cursor.execute("ROLLBACK")
             frappe.db.rollback()
             frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
 
@@ -265,6 +276,8 @@ def transcribe_audio(language="vi", filter_speakers=None):
         }
 
     except Exception as e:
+        if getattr(frappe.db, "_cursor", None):
+            frappe.db._cursor.execute("ROLLBACK")
         frappe.db.rollback()
         frappe.log_error(traceback.format_exc(), "Audio Transcription Error")
         return {"status": "error", "message": str(e)}
