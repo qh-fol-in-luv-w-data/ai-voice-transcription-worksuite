@@ -247,3 +247,10 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+
+
+# SPA Routing
+website_route_rules = [
+    {"from_route": "/aicenter/2as-worksuite/<path:app_path>", "to_route": "voice_app_spa"},
+    {"from_route": "/aicenter/2as-worksuite", "to_route": "voice_app_spa"}
+]
