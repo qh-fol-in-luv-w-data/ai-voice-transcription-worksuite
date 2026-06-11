@@ -11,6 +11,8 @@ os.environ["USE_NNPACK"] = "0"
 os.environ["DNNL_PRIMITIVE_CACHE_CAPACITY"] = "0"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
 import sys
 import json
