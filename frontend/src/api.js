@@ -33,17 +33,26 @@ export async function transcribeAudio(file, language, filterSpeakers = null) {
   return res.data.message
 }
 
-export async function extractTasks(results, modelType, meetingName) {
+export async function extractTasks(results, modelType, meetingName, startTime = null, endTime = null, location = null, chairperson = null) {
   const res = await api.post('/api/method/voice_app.api.extract_tasks', {
     results: results,
     model_type: modelType,
-    meeting_name: meetingName
+    meeting_name: meetingName,
+    start_time: startTime,
+    end_time: endTime,
+    location: location,
+    chairperson: chairperson
   })
   return res.data.message
 }
 
 export async function getMeetingHistory() {
   const res = await api.get('/api/method/voice_app.api.get_meeting_history')
+  return res.data.message
+}
+
+export async function getEmployees() {
+  const res = await api.get('/api/method/voice_app.api.get_employees')
   return res.data.message
 }
 
