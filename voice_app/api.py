@@ -86,7 +86,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
                 spk_identified[spk] = (name, score, email, user_info)
 
         # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.6)
-        MERGE_THRESHOLD = 0.6
+        MERGE_THRESHOLD = 0.45
         stranger_groups = {}  # spk -> group_id (speaker_id của người đại diện nhóm)
         strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
 
