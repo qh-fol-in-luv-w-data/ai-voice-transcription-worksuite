@@ -1,7 +1,11 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask } from './api'
+import { ref, onMounted, watch, computed } from 'vue'
+import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees } from './api'
 import { initSession, useSession } from './utils/session'
+import { VueDatePicker } from '@vuepic/vue-datepicker';
+import '@vuepic/vue-datepicker/dist/main.css';
+import Multiselect from '@vueform/multiselect';
+import '@vueform/multiselect/themes/default.css';
 import CTSplashScreen from './components/CTSplashScreen.vue'
 import CTAccessDenied from './components/CTAccessDenied.vue'
 
@@ -41,6 +45,61 @@ const activeTab = ref('transcribe') // 'transcribe' | 'enroll' | 'history' | 'vi
 const meetingHistory = ref([])
 const currentMeetingName = ref(null)
 const currentMeeting = ref(null)
+
+const audioDuration = ref(0)
+const meetingStartTime = ref(new Date())
+const meetingLocation = ref('')
+const meetingChairperson = ref('')
+
+const globalEmployees = ref([])
+const employeeOptions = computed(() => {
+  return globalEmployees.value.map(emp => ({
+    value: emp.employee_name + ' (' + emp.name + ')',
+    label: emp.employee_name + ' (' + emp.name + ')' + (emp.user_id ? ' - ' + emp.user_id : '')
+  }))
+})
+
+const speakerMapping = ref({})
+
+const unknownSpeakers = computed(() => {
+  if (!transcriptResults.value) return []
+  const speakers = new Set()
+  for (const seg of transcriptResults.value) {
+    if (seg[2] && (seg[2].startsWith('👤 Người lạ') || seg[2].startsWith('Người lạ'))) {
+      speakers.add(seg[2])
+    }
+  }
+  return Array.from(speakers)
+})
+
+const updateIdentities = async () => {
+  let changed = false
+  for (const seg of transcriptResults.value) {
+    if (speakerMapping.value[seg[2]]) {
+      seg[2] = speakerMapping.value[seg[2]]
+      changed = true
+    }
+  }
+  if (changed) {
+    // Update original as well
+    for (const seg of originalTranscriptResults.value) {
+      if (speakerMapping.value[seg[2]]) {
+        seg[2] = speakerMapping.value[seg[2]]
+      }
+    }
+    // Update backend if meeting exists
+    if (currentMeetingName.value) {
+      try {
+        await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+      } catch(e) {
+        console.warn('Could not save updated identities to server', e)
+      }
+    }
+    alert('✅ Đã cập nhật danh tính thành công!')
+  } else {
+    alert('Chưa có thay đổi nào được áp dụng.')
+  }
+}
 
 const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
@@ -137,6 +196,7 @@ const dict = {
     col_project: "Dự án",
     col_start: "Bắt đầu",
     col_due: "Hạn chót",
+    col_weight: "Tỉ trọng (%)",
     col_desc: "Mô tả chi tiết",
     col_del: "Xóa",
     btn_sync: "Đồng bộ lên ERPNext",
@@ -201,6 +261,7 @@ const dict = {
     col_project: "Project",
     col_start: "Start Date",
     col_due: "Due Date",
+    col_weight: "Weight (%)",
     col_description: "Description",
     col_del: "Delete",
     btn_sync: "Sync to ERPNext",
@@ -251,6 +312,11 @@ const checkBalance = async () => {
 const handleFileChange = (e) => {
   if (e.target.files.length > 0) {
     audioFile.value = e.target.files[0]
+    const url = URL.createObjectURL(audioFile.value)
+    const audio = new Audio(url)
+    audio.onloadedmetadata = () => {
+      audioDuration.value = audio.duration
+    }
   }
 }
 
@@ -391,6 +457,7 @@ const submitVoiceTask = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
+        weight: 0,
         description: res.task.description || ''
       }
       
@@ -475,6 +542,7 @@ const submitVoiceTaskRefine = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
+        weight: 0,
         description: res.task.description || ''
       }
       
@@ -653,11 +721,44 @@ const startExtractTasks = async () => {
     alert(t('alert_no_transcript'))
     return
   }
+  if (!meetingStartTime.value) {
+    meetingStartTime.value = new Date()
+  }
   isExtracting.value = true
   extractStatus.value = t('status_extract_wait')
   
   try {
-    const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value)
+    let endTimeStr = ''
+    if (meetingStartTime.value && audioDuration.value) {
+      const start = new Date(meetingStartTime.value)
+      const end = new Date(start.getTime() + audioDuration.value * 1000)
+      
+      const pad = (n) => String(n).padStart(2, '0')
+      endTimeStr = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`
+    }
+
+    let startFormatted = ''
+    if (meetingStartTime.value) {
+      const d = new Date(meetingStartTime.value)
+      const pad = (n) => String(n).padStart(2, '0')
+      startFormatted = `${pad(d.getHours())}:${pad(d.getMinutes())} ngày ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
+    }
+    let endFormatted = ''
+    if (endTimeStr) {
+      const d = new Date(endTimeStr)
+      const pad = (n) => String(n).padStart(2, '0')
+      endFormatted = `${pad(d.getHours())}:${pad(d.getMinutes())} ngày ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
+    }
+
+    const res = await extractTasks(
+      transcriptResults.value, 
+      modelType.value, 
+      currentMeetingName.value,
+      startFormatted,
+      endFormatted,
+      meetingLocation.value,
+      meetingChairperson.value
+    )
     if (res.status === 'success') {
       extractStatus.value = t('status_extract_ok')
       tasks.value = res.items
@@ -719,6 +820,7 @@ const addTask = () => {
     project: '',
     start_date: '',
     due_date: '',
+    weight: 0,
     description: ''
   })
 }
@@ -824,6 +926,11 @@ onMounted(async () => {
     const res = await getEnrolledSpeakers()
     if (res && res.speakers) voiceDbSpeakers.value = res.speakers
   } catch(e) { console.warn('Could not load enrolled speakers', e) }
+  
+  try {
+    const res = await getEmployees()
+    if (res && res.employees) globalEmployees.value = res.employees
+  } catch(e) { console.warn('Could not load employees', e) }
   
   loadHistory()
 })
@@ -932,6 +1039,32 @@ onMounted(async () => {
                  <select v-model="language" class="h-10 bg-transparent max-w-xs cursor-pointer font-medium transition-colors" style="color: inherit; background: transparent url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E&quot;) no-repeat right center; background-size: 16px; padding-right: 24px; border: none; outline: none; box-shadow: none; padding-left: 0; font-size: 1rem; -webkit-appearance: none; -moz-appearance: none; appearance: none;">
                    <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
                  </select>
+               </div>
+               
+               <div class="h-px bg-border my-2"></div>
+               
+               <!-- Meeting Info -->
+               <div class="flex flex-col gap-3">
+                 <span class="text-sm font-bold text-foreground">Thông tin cuộc họp (Dùng cho Biên bản)</span>
+                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                   <div class="flex flex-col gap-1.5" style="min-width: 220px;">
+                     <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Ngày giờ bắt đầu</label>
+                     <VueDatePicker v-model="meetingStartTime" class="text-sm" auto-apply :enable-time-picker="true" format="dd/MM/yyyy HH:mm" />
+                   </div>
+                   <div class="flex flex-col gap-1.5" style="min-width: 220px;">
+                     <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Địa điểm</label>
+                     <input type="text" v-model="meetingLocation" placeholder="Nhập địa điểm..." class="h-[38px] bg-background border border-border rounded-md px-3 text-sm focus:outline-none focus:border-primary transition-colors" />
+                   </div>
+                   <div class="flex flex-col gap-1.5" style="min-width: 220px;">
+                     <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Người chủ trì</label>
+                     <Multiselect
+                       v-model="meetingChairperson"
+                       :options="employeeOptions"
+                       placeholder="Chọn người chủ trì..."
+                       :searchable="true"
+                     />
+                   </div>
+                 </div>
                </div>
                
                <div class="h-px bg-border my-2"></div>
@@ -1068,6 +1201,34 @@ onMounted(async () => {
             </div>
           </div>
 
+          <!-- UNKNOWN SPEAKERS MAPPING -->
+          <div v-if="unknownSpeakers.length > 0" class="shadcn-card" style="border-color: hsl(var(--primary)/0.5); border-width: 2px;">
+            <div class="card-header border-b border-border bg-primary/10">
+              <h3 class="card-title flex items-center gap-2 text-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m19 11-2 2-2-2"/><path d="m15 15 2-2 2 2"/></svg>
+                Gán tên người tham dự
+              </h3>
+              <p class="card-description">AI phát hiện các giọng nói chưa xác định được danh tính. Bạn vui lòng chọn tên nhân viên thực tế để hệ thống ghi chú vào Biên bản và Task.</p>
+            </div>
+            <div class="card-content p-4 flex flex-col gap-4">
+              <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-background border border-border p-3 rounded-lg overflow-visible">
+                <span class="font-bold text-sm min-w-[120px]">{{ spk }}</span>
+                <Multiselect
+                  v-model="speakerMapping[spk]"
+                  :options="employeeOptions"
+                  placeholder="Chọn nhân viên..."
+                  :searchable="true"
+                  class="flex-1"
+                />
+              </div>
+              <div class="flex justify-end mt-2">
+                <button @click="updateIdentities" class="shadcn-btn shadcn-btn-primary">
+                  Cập nhật danh tính
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- TASK EXTRACTOR -->
           <div v-if="transcriptResults.length > 0" class="shadcn-card">
              <div class="card-header border-b border-border flex-between bg-muted/10">
@@ -1095,6 +1256,7 @@ onMounted(async () => {
                      <col style="width:16%" />
                      <col style="width:10%" />
                      <col style="width:10%" />
+                     <col style="width:6%" />
                      <col />
                      <col style="width:3rem" />
                    </colgroup>
@@ -1106,6 +1268,7 @@ onMounted(async () => {
                          <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_project') }}</th>
                          <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_start') }}</th>
                          <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_due') }}</th>
+                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_weight') }}</th>
                          <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_desc') }}</th>
                          <th class="p-3 text-center font-medium text-muted-foreground">{{ t('col_del') }}</th>
                       </tr>
@@ -1114,14 +1277,13 @@ onMounted(async () => {
                       <tr v-for="(task, idx) in tasks" :key="idx" class="border-b border-border hover:bg-muted/10 transition-colors">
                          <td class="p-3 font-mono text-xs text-muted-foreground">{{ idx + 1 }}</td>
                          <td class="p-2"><input v-model="task.title" :title="task.title" class="shadcn-table-input" style="width:100%;min-width:0" /></td>
-                         <td class="p-2">
-                           <input
+                         <td class="p-2 overflow-visible" style="min-width: 200px;">
+                           <Multiselect
                              v-model="task.assignee_display"
-                             list="erp_employee_list"
-                             :title="task.assignee_display"
-                             class="shadcn-table-input"
+                             :options="employeeOptions"
                              placeholder="Tìm người..."
-                             style="width:100%;min-width:0"
+                             :searchable="true"
+                             style="min-height: 2.5rem;"
                            />
                          </td>
                          <td class="p-2">
@@ -1134,6 +1296,7 @@ onMounted(async () => {
                          </td>
                          <td class="p-2"><input v-model="task.start_date" type="date" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
                          <td class="p-2"><input v-model="task.due_date" type="date" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
+                         <td class="p-2"><input v-model="task.weight" type="number" min="0" max="100" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
                          <td class="p-2"><textarea v-model="task.description" class="shadcn-table-input resize-none" style="width:100%;min-width:0;min-height:60px;font-size:0.8rem"></textarea></td>
                          <td class="p-3 text-center">
                             <button @click="removeTask(idx)" class="btn-ghost-icon text-destructive hover:bg-destructive/10">
@@ -1143,9 +1306,6 @@ onMounted(async () => {
                       </tr>
                    </tbody>
                 </table>
-                <datalist id="erp_employee_list">
-                  <option v-for="emp in dbEmployees" :key="emp.name" :value="emp.employee_name + ' (' + emp.name + ')'">{{ emp.user_id ? emp.user_id : '' }}</option>
-                </datalist>
              </div>
              <div class="card-footer border-t border-border bg-muted/20 flex-between">
                 <span class="text-sm text-muted-foreground font-mono" v-if="erpStatus">{{ erpStatus }}</span>
@@ -1366,11 +1526,14 @@ onMounted(async () => {
                         <tbody>
                            <tr class="border-b border-border hover:bg-muted/10 transition-colors">
                               <td class="p-3"><input v-model="parsedVoiceTask.title" class="shadcn-table-input" /></td>
-                              <td class="p-3">
-                                <input v-model="parsedVoiceTask.assignee_display" list="voice_task_employee_list" class="shadcn-table-input" placeholder="Tìm người..." />
-                                <datalist id="voice_task_employee_list">
-                                  <option v-for="emp in voiceTaskEmployees" :key="emp.name" :value="emp.employee_name + ' (' + emp.name + ')'">{{ emp.user_id ? emp.user_id : '' }}</option>
-                                </datalist>
+                              <td class="p-3 overflow-visible" style="min-width: 200px;">
+                                <Multiselect
+                                  v-model="parsedVoiceTask.assignee_display"
+                                  :options="employeeOptions"
+                                  placeholder="Tìm người..."
+                                  :searchable="true"
+                                  style="min-height: 2.5rem;"
+                                />
                               </td>
                               <td class="p-3">
                                 <select v-model="parsedVoiceTask.project" class="shadcn-table-select">

@@ -648,6 +648,7 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
             "assignee_display": display_assignee,
             "start_date": item.get("ngay_bat_dau") or data.get("ngay_hop") or "",
             "end_date": item.get("ngay_ket_thuc") or "",
+            "weight": 0,
             "description": item.get('note', '') or ""
         }
         items.append(item_enriched)
@@ -717,6 +718,7 @@ def create_tasks_to_erp(tasks_list):
             "subject":        item.get("title", "Task không tên"),
             "status":         "Open",
             "description":    item.get("description", ""),
+            "task_weight":    float(item.get("weight", 0) or 0),
             "exp_start_date": _parse_date(item.get("start_date")),
             "exp_end_date":   _parse_date(item.get("due_date") or item.get("end_date")),
             "custom_assignee":  hr_code,
@@ -829,6 +831,7 @@ def extract_tasks_stateless(docx_path, model_type="gpt-4o-mini"):
             "assignee_display": item.get("nguoi_thuc_hien", ""),
             "start_date": item.get("ngay_bat_dau") or data.get("ngay_hop") or "",
             "end_date": item.get("ngay_ket_thuc") or "",
+            "weight": 0,
             "description": item.get('note', '') or ""
         })
         

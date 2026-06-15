@@ -1,5 +1,7 @@
 <script setup>
-import { defineProps, defineEmits } from 'vue'
+import { defineProps, defineEmits, computed } from 'vue'
+import Multiselect from '@vueform/multiselect'
+import '@vueform/multiselect/themes/default.css'
 
 const props = defineProps({
   isOpen: Boolean,
@@ -39,6 +41,13 @@ const downloadFile = (url, defaultName) => {
   link.click();
   document.body.removeChild(link);
 }
+
+const employeeOptions = computed(() => {
+  return props.dbEmployees.map(emp => ({
+    value: emp.employee_name + ' (' + emp.name + ')',
+    label: emp.employee_name + ' (' + emp.name + ')' + (emp.user_id ? ' - ' + emp.user_id : '')
+  }))
+})
 </script>
 
 <template>
@@ -146,6 +155,7 @@ const downloadFile = (url, defaultName) => {
                          <th class="p-4 text-left font-medium text-muted-foreground w-48">{{ t('col_project') }}</th>
                          <th class="p-4 text-left font-medium text-muted-foreground w-32">{{ t('col_start') }}</th>
                          <th class="p-4 text-left font-medium text-muted-foreground w-32">{{ t('col_due') }}</th>
+                         <th class="p-4 text-left font-medium text-muted-foreground w-24">{{ t('col_weight') }}</th>
                          <th class="p-4 text-left font-medium text-muted-foreground w-72">{{ t('col_desc') }}</th>
                          <th class="p-4 text-center font-medium text-muted-foreground w-16">{{ t('col_del') }}</th>
                       </tr>
@@ -154,24 +164,25 @@ const downloadFile = (url, defaultName) => {
                       <tr v-for="(task, idx) in tasks" :key="idx" class="border-b border-border hover:bg-muted/10 transition-colors">
                          <td class="p-4 font-mono text-xs text-muted-foreground">{{ idx + 1 }}</td>
                          <td class="p-3"><input v-model="task.title" class="shadcn-table-input" /></td>
-                         <td class="p-3">
-                           <input
+                         <td class="p-3" style="min-width: 250px;">
+                           <Multiselect
                              v-model="task.assignee_display"
-                             list="erp_employee_list_modal"
-                             class="shadcn-table-input"
+                             :options="employeeOptions"
                              placeholder="Tìm người..."
+                             :searchable="true"
                            />
                          </td>
-                         <td class="p-3">
-                            <select v-model="task.project" class="shadcn-table-select text-xs p-1 h-8">
-                              <option value="">Trống</option>
-                              <option v-for="p in getProjectsForHR(task.assignee_display)" :key="p[1]" :value="p[1]">
-                                {{ p[0] }}
-                              </option>
-                            </select>
+                         <td class="p-3" style="min-width: 250px;">
+                            <Multiselect
+                              v-model="task.project"
+                              :options="getProjectsForHR(task.assignee_display).map(p => ({ value: p[1], label: p[0] }))"
+                              placeholder="Trống"
+                              :searchable="true"
+                            />
                          </td>
                          <td class="p-3"><input v-model="task.start_date" type="date" class="shadcn-table-input px-1 text-xs" /></td>
                          <td class="p-3"><input v-model="task.due_date" type="date" class="shadcn-table-input px-1 text-xs" /></td>
+                         <td class="p-3"><input v-model="task.weight" type="number" min="0" max="100" class="shadcn-table-input px-1 text-xs" /></td>
                          <td class="p-3"><textarea v-model="task.description" class="shadcn-table-input resize-y min-h-[60px] p-2 text-xs"></textarea></td>
                          <td class="p-4 text-center">
                             <button @click="emit('remove-task', idx)" class="btn-ghost-icon text-destructive hover:bg-destructive/10">
@@ -181,9 +192,6 @@ const downloadFile = (url, defaultName) => {
                       </tr>
                    </tbody>
                 </table>
-                <datalist id="erp_employee_list_modal">
-                  <option v-for="emp in dbEmployees" :key="emp.name" :value="emp.employee_name + ' (' + emp.name + ')'">{{ emp.user_id ? emp.user_id : '' }}</option>
-                </datalist>
              </div>
         </div>
 
