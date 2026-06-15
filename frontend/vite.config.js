@@ -10,6 +10,7 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true
   },
   server: {
+    port: 5174,
     proxy: {
       '/api': 'http://127.0.0.1:8000',
       '/files': 'http://127.0.0.1:8000',

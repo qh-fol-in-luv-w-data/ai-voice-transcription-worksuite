@@ -42,7 +42,10 @@ def get_elevenlabs_api_key():
 def get_worksuite_url():
     try:
         if frappe.db:
-            val = frappe.db.get_single_value("Voice App Settings", "worksuite_url")
+            frappe.flags.ignore_permissions = True
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.worksuite_url
+            frappe.flags.ignore_permissions = False
             if val: return val
     except Exception: pass
     return os.getenv("WORKSUITE_URL", "https://deverp.ctgroupvietnam.com")
@@ -50,7 +53,10 @@ def get_worksuite_url():
 def get_worksuite_email():
     try:
         if frappe.db:
-            val = frappe.db.get_single_value("Voice App Settings", "worksuite_email")
+            frappe.flags.ignore_permissions = True
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.worksuite_email
+            frappe.flags.ignore_permissions = False
             if val: return val
     except Exception: pass
     return os.getenv("WORKSUITE_EMAIL", "ai.worksuit.dev@ctmcorp.com.vn")
@@ -58,8 +64,10 @@ def get_worksuite_email():
 def get_worksuite_password():
     try:
         if frappe.db:
+            frappe.flags.ignore_permissions = True
             doc = frappe.get_doc("Voice App Settings")
             val = doc.get_password("worksuite_password")
+            frappe.flags.ignore_permissions = False
             if val: return val
     except Exception: pass
     return os.getenv("WORKSUITE_PASSWORD", "")

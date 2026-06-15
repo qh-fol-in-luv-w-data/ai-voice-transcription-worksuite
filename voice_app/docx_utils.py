@@ -65,7 +65,7 @@ def get_template_path():
     return frappe.get_app_path("voice_app", "public", "files", "template_v2.docx")
 
 
-def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
+def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_time=None, end_time=None, location=None, chairperson=None):
     """
     results: list of tuples (start, end, speaker_label, text)
     speaker_roles: dict { speaker_name: designation } lấy từ CTERP
@@ -90,6 +90,23 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
                                     p.text = p.text.replace('{DATE}', current_date)
                                     for run in p.runs:
                                         set_font_times(run, 10)
+
+        # ── Chèn thông tin cuộc họp (Thời gian, Địa điểm, Chủ trì) ───────────
+        for p in doc.paragraphs:
+            if "Thành phần tham dự" in p.text or "THÀNH PHẦN THAM DỰ" in p.text:
+                if start_time:
+                    p1 = p.insert_paragraph_before(f"Thời gian bắt đầu: {start_time}")
+                    if p1.runs: set_font_times(p1.runs[0], 12)
+                if end_time:
+                    p2 = p.insert_paragraph_before(f"Thời gian kết thúc: {end_time}")
+                    if p2.runs: set_font_times(p2.runs[0], 12)
+                if location:
+                    p3 = p.insert_paragraph_before(f"Địa điểm: {location}")
+                    if p3.runs: set_font_times(p3.runs[0], 12)
+                if chairperson:
+                    p4 = p.insert_paragraph_before(f"Chủ trì: {chairperson}")
+                    if p4.runs: set_font_times(p4.runs[0], 12)
+                break
 
         # ── Cập nhật bảng Thành phần tham dự (Table 0) ───────────────────────
         if len(doc.tables) > 0:
@@ -152,6 +169,30 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
             for p in current_paragraphs[start_idx + 1 + num_inserted:-1]:
                 p._element.getparent().remove(p._element)
 
+        # ── Thêm chữ ký ở cuối biên bản ──────────────────────────────────────
+        doc.add_paragraph("")
+        sig_table = doc.add_table(rows=2, cols=2)
+        sig_table.alignment = 1 # Center
+        r0 = sig_table.rows[0].cells
+        r0[0].text = "THƯ KÝ CUỘC HỌP"
+        r0[1].text = "CHỦ TRÌ CUỘC HỌP"
+        r0[0].paragraphs[0].alignment = 1
+        r0[1].paragraphs[0].alignment = 1
+        
+        r1 = sig_table.rows[1].cells
+        r1[0].text = "(Ký, ghi rõ họ tên)"
+        r1[1].text = "(Ký, ghi rõ họ tên)"
+        r1[0].paragraphs[0].alignment = 1
+        r1[1].paragraphs[0].alignment = 1
+        
+        for row in sig_table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    for run in p.runs:
+                        set_font_times(run, 12)
+                        if "THƯ KÝ" in run.text or "CHỦ TRÌ" in run.text:
+                            run.bold = True
+
     else:
         # ── Fallback nếu không tìm thấy template ─────────────────────────────
         doc = docx.Document()
@@ -180,6 +221,30 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None):
             row_cells[2].text = txt
             for cell in row_cells:
                 apply_font_to_cell(cell, 12)
+
+        # ── Thêm chữ ký ở cuối biên bản (Fallback) ───────────────────────────
+        doc.add_paragraph("")
+        sig_table = doc.add_table(rows=2, cols=2)
+        sig_table.alignment = 1 # Center
+        r0 = sig_table.rows[0].cells
+        r0[0].text = "THƯ KÝ CUỘC HỌP"
+        r0[1].text = "CHỦ TRÌ CUỘC HỌP"
+        r0[0].paragraphs[0].alignment = 1
+        r0[1].paragraphs[0].alignment = 1
+        
+        r1 = sig_table.rows[1].cells
+        r1[0].text = "(Ký, ghi rõ họ tên)"
+        r1[1].text = "(Ký, ghi rõ họ tên)"
+        r1[0].paragraphs[0].alignment = 1
+        r1[1].paragraphs[0].alignment = 1
+        
+        for row in sig_table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    for run in p.runs:
+                        set_font_times(run, 12)
+                        if "THƯ KÝ" in run.text or "CHỦ TRÌ" in run.text:
+                            run.bold = True
 
     filename = f"meeting_minutes_{os.urandom(2).hex()}.docx"
     doc.save(filename)
