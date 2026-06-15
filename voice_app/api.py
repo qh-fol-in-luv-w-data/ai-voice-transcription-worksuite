@@ -207,7 +207,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
                     params={
                         "fields": '["name","employee_name","user_id"]',
                         "filters": '[["status","=","Active"]]',
-                        "limit": 500,
+                        "limit_page_length": 5000,
                     },
                     timeout=10,
                 )
@@ -290,6 +290,10 @@ def extract_tasks():
     results = payload.get("results", [])
     model_type = payload.get("model_type", "gpt-4o")
     meeting_name = payload.get("meeting_name")
+    start_time = payload.get("start_time")
+    end_time = payload.get("end_time")
+    location = payload.get("location")
+    chairperson = payload.get("chairperson")
 
     if not results:
         return {"status": "error", "message": "Không có nội dung để tạo task"}
@@ -312,24 +316,51 @@ def extract_tasks():
             lr = sess.post(f"{base_url}/api/method/login", json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()}, timeout=8)
             if lr.status_code == 200:
                 er = sess.get(f"{base_url}/api/resource/Employee",
-                    params={"fields": '["user_id","designation"]', "filters": '[["status","=","Active"]]', "limit": 500},
+                    params={"fields": '["user_id","designation","employee_name"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
                     timeout=8)
                 if er.status_code == 200:
+                    data = er.json().get("data", [])
                     email_desg_map = {
                         e["user_id"]: e["designation"]
-                        for e in er.json().get("data", [])
+                        for e in data
                         if e.get("user_id") and e.get("designation")
+                    }
+                    name_desg_map = {
+                        e["employee_name"]: e["designation"]
+                        for e in data
+                        if e.get("employee_name") and e.get("designation")
                     }
                     # Combine: speaker_name → designation (qua email)
                     for spk_name, email in spk_email_map.items():
                         if email in email_desg_map:
                             speaker_roles[spk_name] = email_desg_map[email]
-            frappe.log_error(f"speaker_roles: {speaker_roles}", "DEBUG Designations")
+                    
+                    # Direct mapping for cleaned names
+                    for emp_name, desg in name_desg_map.items():
+                        speaker_roles[emp_name] = desg
+                        speaker_roles[emp_name.strip().lower()] = desg
+                        
+                        # Handle Vietnamese tone placement variations (e.g. Thuý vs Thúy)
+                        alt_name_1 = emp_name.replace('úy', 'uý').replace('ủy', 'uỷ').replace('ũy', 'uỹ').replace('ụy', 'uỵ').replace('ùy', 'uỳ')
+                        alt_name_2 = emp_name.replace('uý', 'úy').replace('uỷ', 'ủy').replace('uỹ', 'ũy').replace('uỵ', 'ụy').replace('uỳ', 'ùy')
+                        speaker_roles[alt_name_1] = desg
+                        speaker_roles[alt_name_1.strip().lower()] = desg
+                        speaker_roles[alt_name_2] = desg
+                        speaker_roles[alt_name_2.strip().lower()] = desg
+
+
         except Exception as re_ex:
             frappe.log_error(str(re_ex), "Fetch Designations Error")
 
         # Create Docx
-        docx_filename = save_to_docx(results, speaker_roles=speaker_roles)
+        docx_filename = save_to_docx(
+            results, 
+            speaker_roles=speaker_roles,
+            start_time=start_time,
+            end_time=end_time,
+            location=location,
+            chairperson=chairperson
+        )
         
         # Save Docx to Frappe Files to get a download URL
         with open(docx_filename, "rb") as f:
@@ -440,6 +471,40 @@ def clean_transcript():
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Transcript Clean Error")
         return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+def get_employees():
+    import requests
+    from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
+    
+    employees = []
+    try:
+        base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+        with requests.Session() as sess:
+            lr = sess.post(f"{base_url}/api/method/login", json={"usr": ws_email, "pwd": ws_pwd}, timeout=8)
+            if lr.status_code != 200:
+                frappe.log_error(f"Worksuite Login Error: {lr.text}", "Fetch Employees Login Error")
+            else:
+                emp_resp = sess.get(
+                    f"{base_url}/api/resource/Employee",
+                    params={
+                        "fields": '["name","employee_name","user_id","designation"]',
+                        "filters": '[["status","=","Active"]]',
+                        "limit_page_length": 5000
+                    },
+                    timeout=10
+                )
+                if emp_resp.status_code == 200:
+                    employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
+    except Exception as e:
+        frappe.log_error(message=str(e), title="Fetch Employees Error in get_employees")
+        
+    return {"status": "success", "employees": employees}
 
 
 @frappe.whitelist(allow_guest=False)
@@ -615,11 +680,11 @@ def get_enrolled_speakers():
             sess = requests.Session()
             lr = sess.post(f"{base_url}/api/method/login", json={"usr": ws_email, "pwd": ws_pwd}, timeout=8)
             if lr.status_code == 200:
-                er = sess.get(f"{base_url}/api/resource/Employee",
-                    params={"fields": '["employee_name","designation","user_id"]', "filters": '[["status","=","Active"]]', "limit": 500},
+                emp_resp = sess.get(f"{base_url}/api/resource/Employee",
+                    params={"fields": '["employee_name","designation","user_id"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
                     timeout=8)
-                if er.status_code == 200:
-                    erp_map = {e["user_id"]: e for e in er.json().get("data", []) if e.get("user_id")}
+                if emp_resp.status_code == 200:
+                    erp_map = {e["user_id"]: e for e in emp_resp.json().get("data", []) if e.get("user_id")}
                     for spk in speakers:
                         if spk.get("email") and spk["email"] in erp_map:
                             spk["designation"] = erp_map[spk["email"]].get("designation", "")
@@ -791,7 +856,7 @@ def voice_to_task(existing_task=None):
                 # Lấy danh sách Projects active
                 proj_resp = session.get(
                     f"{BASE_URL}/api/resource/Project",
-                    params={"fields": '["name", "project_name"]', "limit": 500},
+                    params={"fields": '["name", "project_name"]', "limit_page_length": 5000},
                     timeout=10,
                 )
                 if proj_resp.status_code == 200:
@@ -803,7 +868,7 @@ def voice_to_task(existing_task=None):
                     params={
                         "fields": '["name","employee_name","user_id","designation"]',
                         "filters": '[["status","=","Active"]]',
-                        "limit": 500,
+                        "limit_page_length": 5000,
                     },
                     timeout=10,
                 )

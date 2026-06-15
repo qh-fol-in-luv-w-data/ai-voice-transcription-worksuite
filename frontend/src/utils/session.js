@@ -58,7 +58,11 @@ export async function initSession(contextUrl) {
     // Frappe redirects to login if unauthenticated (allow_guest=False)
     if (res.status === 401 || res.status === 307 || res.redirected || res.url.includes('/login')) {
       removeSplash()
-      window.location.href = '/login'
+      if (import.meta.env.DEV) {
+        window.location.href = 'http://localhost:8000/login'
+      } else {
+        window.location.href = '/login'
+      }
       return
     }
 
