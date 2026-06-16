@@ -941,8 +941,8 @@ onMounted(async () => {
     <!-- SIDEBAR -->
     <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
       <!-- Logo -->
-      <div class="h-16 flex items-center px-4 border-b border-border">
-         <h1 class="font-bold text-lg tracking-tight text-primary">2AS Worksuite</h1>
+      <div class="h-16 flex items-center justify-center border-b border-border px-4 w-full text-center">
+         <h1 class="font-bold text-xl tracking-tight text-primary">2AS Worksuite</h1>
       </div>
 
       <!-- Navigation Menu -->
@@ -1255,20 +1255,20 @@ onMounted(async () => {
               </div>
             </template>
             <el-table :data="tasks" style="width: 100%" border size="small">
-              <el-table-column type="index" label="#" width="50" align="center" />
-              <el-table-column :label="t('col_name')" min-width="200">
+              <el-table-column header-align="center" type="index" label="#" width="50" align="center" />
+              <el-table-column header-align="center" :label="t('col_name')" min-width="200">
                 <template #default="{ row }">
                   <el-input v-model="row.title" />
                 </template>
               </el-table-column>
-              <el-table-column :label="t('col_assignee')" min-width="180">
+              <el-table-column header-align="center" :label="t('col_assignee')" min-width="180">
                 <template #default="{ row }">
                   <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..." style="width: 100%">
                     <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column :label="t('col_project')" min-width="150">
+              <el-table-column header-align="center" :label="t('col_project')" min-width="150">
                 <template #default="{ row }">
                   <el-select v-model="row.project" style="width: 100%">
                     <el-option label="[Không có]" value="" />
@@ -1276,27 +1276,27 @@ onMounted(async () => {
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column :label="t('col_start')" width="130">
+              <el-table-column header-align="center" :label="t('col_start')" width="130">
                 <template #default="{ row }">
                   <el-date-picker v-model="row.start_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                 </template>
               </el-table-column>
-              <el-table-column :label="t('col_due')" width="130">
+              <el-table-column header-align="center" :label="t('col_due')" width="130">
                 <template #default="{ row }">
                   <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                 </template>
               </el-table-column>
-              <el-table-column :label="t('col_weight')" width="90">
+              <el-table-column header-align="center" :label="t('col_weight')" width="90">
                 <template #default="{ row }">
                   <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
                 </template>
               </el-table-column>
-              <el-table-column :label="t('col_desc')" min-width="200">
+              <el-table-column header-align="center" :label="t('col_desc')" min-width="200">
                 <template #default="{ row }">
                   <el-input v-model="row.description" type="textarea" :rows="2" resize="none" />
                 </template>
               </el-table-column>
-              <el-table-column :label="t('col_del')" width="70" align="center">
+              <el-table-column header-align="center" :label="t('col_del')" width="70" align="center">
                 <template #default="{ $index }">
                   <el-button type="danger" circle plain @click="removeTask($index)">
                     <template #icon><Delete /></template>
@@ -1531,19 +1531,19 @@ onMounted(async () => {
 
                    <!-- Form Fields Table -->
                    <el-table :data="[parsedVoiceTask]" style="width: 100%" border size="small">
-                      <el-table-column :label="t('col_name')" min-width="200">
+                      <el-table-column :label="t('col_name')" min-width="200" header-align="center">
                         <template #default="{ row }">
                           <el-input v-model="row.title" />
                         </template>
                       </el-table-column>
-                      <el-table-column :label="t('col_assignee')" min-width="180">
+                      <el-table-column :label="t('col_assignee')" min-width="180" header-align="center">
                         <template #default="{ row }">
                           <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..." style="width: 100%">
                             <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
                           </el-select>
                         </template>
                       </el-table-column>
-                      <el-table-column :label="t('col_project')" min-width="150">
+                      <el-table-column :label="t('col_project')" min-width="150" header-align="center">
                         <template #default="{ row }">
                           <el-select v-model="row.project" style="width: 100%">
                             <el-option label="[Không có]" value="" />
@@ -1551,17 +1551,17 @@ onMounted(async () => {
                           </el-select>
                         </template>
                       </el-table-column>
-                      <el-table-column :label="t('col_start')" width="130">
+                      <el-table-column header-align="center" :label="t('col_start')" width="130">
                         <template #default="{ row }">
                           <el-date-picker v-model="row.start_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                         </template>
                       </el-table-column>
-                      <el-table-column :label="t('col_due')" width="130">
+                      <el-table-column header-align="center" :label="t('col_due')" width="130">
                         <template #default="{ row }">
                           <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                         </template>
                       </el-table-column>
-                      <el-table-column :label="t('col_desc')" min-width="250">
+                      <el-table-column header-align="center" :label="t('col_desc')" min-width="250">
                         <template #default="{ row }">
                           <el-input v-model="row.description" type="textarea" :rows="3" resize="none" />
                         </template>
