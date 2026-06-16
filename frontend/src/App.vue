@@ -942,7 +942,7 @@ onMounted(async () => {
     <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
       <!-- Logo -->
       <div class="h-16 flex items-center justify-center border-b border-border px-4 w-full text-center">
-         <h1 class="font-bold text-xl tracking-tight text-primary">2AS Worksuite</h1>
+         <h1 class="font-bold text-lg tracking-tight text-primary">2AS Worksuite</h1>
       </div>
 
       <!-- Navigation Menu -->
