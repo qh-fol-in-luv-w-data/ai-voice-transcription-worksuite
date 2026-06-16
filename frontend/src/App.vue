@@ -941,8 +941,8 @@ onMounted(async () => {
     <!-- SIDEBAR -->
     <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
       <!-- Logo -->
-      <div class="h-16 flex items-center justify-center border-b border-border w-full">
-         <h1 class="font-bold text-lg tracking-tight text-primary m-0 text-center">2AS Worksuite</h1>
+      <div class="h-16 flex items-center px-6 border-b border-border">
+         <h1 class="font-bold text-lg tracking-tight text-primary">2AS Worksuite</h1>
       </div>
 
       <!-- Navigation Menu -->
