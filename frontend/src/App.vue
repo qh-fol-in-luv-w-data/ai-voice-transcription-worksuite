@@ -159,6 +159,11 @@ watch(isDark, (val) => {
 }, { immediate: true })
 
 const uiLang = ref('vi')
+const handleLangCommand = (command) => { uiLang.value = command }
+const currentLangLabel = computed(() => {
+  const map = { vi: 'Tiếng Việt', en: 'Tiếng Anh', ko: 'Tiếng Hàn', zh: 'Tiếng Trung' }
+  return map[uiLang.value] || 'Tiếng Việt'
+})
 const toggleLang = () => { uiLang.value = uiLang.value === 'vi' ? 'en' : 'vi' }
 
 const dict = {
@@ -941,8 +946,8 @@ onMounted(async () => {
     <!-- SIDEBAR -->
     <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
       <!-- Logo -->
-      <div class="h-16 flex items-center justify-center border-b border-border px-4 w-full text-center">
-         <h1 class="font-bold text-lg tracking-tight text-primary">2AS Worksuite</h1>
+      <div class="h-16 flex items-center justify-center border-b border-border w-full">
+         <h1 class="font-bold text-lg tracking-tight text-primary m-0 text-center">2AS Worksuite</h1>
       </div>
 
       <!-- Navigation Menu -->
@@ -999,9 +1004,21 @@ onMounted(async () => {
             <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
             <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg>
           </button>
-          <button @click="toggleLang" class="btn-ghost-icon font-bold text-base" style="color: hsl(var(--foreground)); width: 36px;">
-            {{ uiLang === 'vi' ? 'EN' : 'VI' }}
-          </button>
+          
+          <el-dropdown trigger="click" @command="handleLangCommand">
+            <button class="btn-ghost-icon font-medium text-sm flex items-center gap-2 px-2" style="color: hsl(var(--foreground)); width: auto;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+              <span>{{ currentLangLabel }}</span>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="vi">Tiếng Việt</el-dropdown-item>
+                <el-dropdown-item command="en">Tiếng Anh</el-dropdown-item>
+                <el-dropdown-item command="ko">Tiếng Hàn</el-dropdown-item>
+                <el-dropdown-item command="zh">Tiếng Trung</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
 
           <div v-if="currentUser === 'Guest'" class="flex items-center gap-3 bg-muted/30 px-4 py-2 rounded-full border border-border">
              <div class="avatar" style="width:32px; height:32px; background: hsl(var(--primary)); border-radius: 50%;"></div>
