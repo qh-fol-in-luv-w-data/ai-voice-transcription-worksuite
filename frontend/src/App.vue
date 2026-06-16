@@ -936,15 +936,41 @@ onMounted(async () => {
 <template>
   <CTSplashScreen v-if="authState === 'loading'" />
   <CTAccessDenied v-else-if="authState === 'denied'" />
-  <div v-else class="flex h-screen w-full bg-background overflow-hidden text-foreground">
+  <div v-else class="flex flex-col h-screen w-full bg-background overflow-hidden text-foreground">
   
-    <!-- SIDEBAR -->
-    <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
-      <!-- Logo -->
-      <div class="h-16 flex items-center px-6 border-b border-border">
-         <h1 class="font-bold text-lg tracking-tight text-primary">2AS Worksuite</h1>
+    <!-- UNIFIED TOPBAR -->
+    <header class="h-[72px] w-full flex items-center border-b border-border bg-background/80 backdrop-blur shrink-0 z-40 px-6">
+      <div class="w-[260px] shrink-0"></div>
+      <div class="flex-1 flex justify-center items-center">
+         <h1 class="font-bold text-xl tracking-tight text-primary m-0">2AS Worksuite</h1>
       </div>
+      <div class="w-[260px] shrink-0 flex items-center justify-end gap-6">
+          <button @click="toggleDark" class="btn-ghost-icon" style="color: hsl(var(--foreground));">
+            <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg>
+          </button>
+          <button @click="toggleLang" class="btn-ghost-icon font-bold text-base" style="color: hsl(var(--foreground)); width: 36px;">
+            {{ uiLang === 'vi' ? 'EN' : 'VI' }}
+          </button>
+          <div v-if="currentUser === 'Guest'" class="flex items-center gap-3 bg-muted/30 px-4 py-2 rounded-full border border-border">
+             <div class="avatar" style="width:32px; height:32px; background: hsl(var(--primary)); border-radius: 50%;"></div>
+             <span class="text-sm font-medium">Guest</span>
+          </div>
+          <div v-else class="flex items-center gap-3 bg-muted/30 px-4 py-2 rounded-full border border-border">
+             <div class="avatar flex items-center justify-center font-bold text-white bg-primary" style="width:32px; height:32px; border-radius: 50%;">
+                {{ currentFullName.charAt(0).toUpperCase() }}
+             </div>
+             <div class="flex flex-col">
+                <span class="text-sm font-bold leading-tight">{{ currentFullName }}</span>
+                <span class="text-xs text-muted-foreground leading-tight">{{ currentUser }}</span>
+             </div>
+          </div>
+      </div>
+    </header>
 
+    <div class="flex flex-1 overflow-hidden w-full">
+      <!-- SIDEBAR -->
+      <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
       <!-- Navigation Menu -->
       <div class="p-4 flex-1 overflow-y-auto space-y-8">
         
@@ -990,36 +1016,6 @@ onMounted(async () => {
 
     <!-- MAIN CONTENT -->
     <div class="flex-1 flex flex-col h-full overflow-hidden relative">
-      
-      <!-- Topbar -->
-      <header class="h-[72px] w-full flex items-center justify-end px-8 border-b border-border bg-background/80 backdrop-blur shrink-0 z-40">
-        <div class="flex items-center gap-6">
-          <!-- Toggle Buttons -->
-          <button @click="toggleDark" class="btn-ghost-icon" style="color: hsl(var(--foreground));">
-            <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg>
-          </button>
-          
-          <button @click="toggleLang" class="btn-ghost-icon font-bold text-base" style="color: hsl(var(--foreground)); width: 36px;">
-            {{ uiLang === 'vi' ? 'EN' : 'VI' }}
-          </button>
-
-          <div v-if="currentUser === 'Guest'" class="flex items-center gap-3 bg-muted/30 px-4 py-2 rounded-full border border-border">
-             <div class="avatar" style="width:32px; height:32px; background: hsl(var(--primary)); border-radius: 50%;"></div>
-             <span class="text-sm font-medium">Guest</span>
-          </div>
-          <div v-else class="flex items-center gap-3 bg-muted/30 px-4 py-2 rounded-full border border-border">
-             <div class="avatar flex items-center justify-center font-bold text-white bg-primary" style="width:32px; height:32px; border-radius: 50%;">
-                {{ currentFullName.charAt(0).toUpperCase() }}
-             </div>
-             <div class="flex flex-col">
-                <span class="text-sm font-bold leading-tight">{{ currentFullName }}</span>
-                <span class="text-xs text-muted-foreground leading-tight">{{ currentUser }}</span>
-             </div>
-          </div>
-        </div>
-      </header>
-
       <!-- Scrollable content area -->
       <main class="flex-1 overflow-y-auto p-6 bg-muted/5 relative">
       <template v-if="activeTab === 'transcribe'">
@@ -1655,6 +1651,7 @@ onMounted(async () => {
       </template>
 
     </main>
+    </div>
     </div>
   </div>
 </template>
