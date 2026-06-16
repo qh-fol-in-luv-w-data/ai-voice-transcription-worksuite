@@ -942,7 +942,7 @@ onMounted(async () => {
     <header class="h-[72px] w-full flex items-center border-b border-border bg-background/80 backdrop-blur shrink-0 z-40 px-6">
       <div class="w-[260px] shrink-0"></div>
       <div class="flex-1 flex justify-center items-center">
-         <h1 class="font-bold text-xl tracking-tight text-primary m-0">2AS Worksuite</h1>
+         <h1 class="font-bold text-lg tracking-tight text-primary m-0">2AS Worksuite</h1>
       </div>
       <div class="w-[260px] shrink-0 flex items-center justify-end gap-6">
           <button @click="toggleDark" class="btn-ghost-icon" style="color: hsl(var(--foreground));">
