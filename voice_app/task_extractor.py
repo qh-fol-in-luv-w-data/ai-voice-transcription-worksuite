@@ -192,12 +192,22 @@ Nội dung biên bản họp:
 """ + state["doc_text"]
 
     try:
+        def _log_tokens(response, label=""):
+            try:
+                import frappe
+                from voice_app.utils.activity_logger import ActivityLogger
+                act_logger = ActivityLogger("TokenLog", "voice_app")
+                act_logger.log_ai_call(response, label)
+            except Exception as e:
+                print(f"[_log_tokens] Error: {e}")
+
         response = client.chat.completions.create(
             model=model_type,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=2000,
         )
+        _log_tokens(response, "voice_app.task_extractor")
         raw = response.choices[0].message.content.strip()
 
         # Clean JSON
@@ -871,12 +881,22 @@ def clean_transcript_llm(results, model_type="gpt-4o-mini"):
 """ + "\n".join(lines)
 
     try:
+        def _log_tokens(response, label=""):
+            try:
+                import frappe
+                from voice_app.utils.activity_logger import ActivityLogger
+                act_logger = ActivityLogger("TokenLog", "voice_app")
+                act_logger.log_ai_call(response, label)
+            except Exception as e:
+                print(f"[_log_tokens] Error: {e}")
+
         response = client.chat.completions.create(
             model=model_type,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=4000,
         )
+        _log_tokens(response, "voice_app.clean_transcript")
         raw = response.choices[0].message.content.strip()
         raw = re.sub(r"```json\s*", "", raw)
         raw = re.sub(r"```", "", raw).strip()
