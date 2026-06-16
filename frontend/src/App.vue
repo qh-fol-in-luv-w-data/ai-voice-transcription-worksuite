@@ -225,7 +225,7 @@ const dict = {
     voice_task_empty: "Chưa có câu lệnh giọng nói nào được phân tích...",
     voice_task_sync_success: "✅ Đồng bộ Task thành công!",
     voice_task_sync_error: "❌ Đồng bộ Task thất bại: ",
-    voice_task_placeholder: "Ví dụ: 'Tạo nhiệm vụ thiết kế giao diện cho dự án AI Worksuite bắt đầu từ ngày mai đến hết thứ sáu tuần này, mô tả là cần làm giao diện thật đẹp mắt.'"
+    voice_task_placeholder: "Ví dụ: 'Tạo nhiệm vụ thiết kế giao diện cho dự án 2AS Worksuite bắt đầu từ ngày mai đến hết thứ sáu tuần này, mô tả là cần làm giao diện thật đẹp mắt.'"
   },
   en: {
     title: "Advanced Edition",
@@ -290,7 +290,7 @@ const dict = {
     voice_task_empty: "No voice commands parsed yet...",
     voice_task_sync_success: "✅ Task synced successfully!",
     voice_task_sync_error: "❌ Failed to sync task: ",
-    voice_task_placeholder: "Example: 'Create a task to design the UI for AI Worksuite project starting tomorrow until this Friday, description is to make it look premium.'"
+    voice_task_placeholder: "Example: 'Create a task to design the UI for 2AS Worksuite project starting tomorrow until this Friday, description is to make it look premium.'"
   }
 }
 
@@ -941,8 +941,8 @@ onMounted(async () => {
     <!-- SIDEBAR -->
     <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
       <!-- Logo -->
-      <div class="h-16 flex items-center px-6 border-b border-border">
-         <h1 class="font-bold text-lg tracking-tight" style="color: hsl(var(--foreground));">AI CT Worksuit <span class="text-muted-foreground font-normal text-sm">v3.0</span></h1>
+      <div class="h-16 flex items-center px-4 border-b border-border">
+         <h1 class="font-bold text-lg tracking-tight text-primary">2AS Worksuite</h1>
       </div>
 
       <!-- Navigation Menu -->
