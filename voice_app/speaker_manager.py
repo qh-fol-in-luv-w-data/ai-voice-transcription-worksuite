@@ -85,7 +85,7 @@ class SpeakerDB:
 
     def identify(self, embedding, allowed_names=None):
         if not self.speakers:
-            return None, 0.0, "", None
+            return "Người lạ", 0.0, "", None
         
         best_name = "Người lạ"
         best_sim = 0.0
