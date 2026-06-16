@@ -992,8 +992,8 @@ onMounted(async () => {
     <div class="flex-1 flex flex-col h-full overflow-hidden relative">
       
       <!-- Topbar -->
-      <header class="h-[72px] w-full border-b border-border bg-background/80 backdrop-blur shrink-0 z-40 flex items-center justify-center">
-        <div class="w-full max-w-5xl mx-auto px-8 flex items-center justify-end gap-6">
+      <header class="h-[72px] w-full flex items-center justify-end px-8 border-b border-border bg-background/80 backdrop-blur shrink-0 z-40">
+        <div class="flex items-center gap-6">
           <!-- Toggle Buttons -->
           <button @click="toggleDark" class="btn-ghost-icon" style="color: hsl(var(--foreground));">
             <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
