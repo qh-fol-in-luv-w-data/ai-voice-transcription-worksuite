@@ -726,11 +726,11 @@ def map_and_enroll_speakers():
                     max_duration = dur
                     longest_segment = seg
         
-        # Chỉ lấy nếu đoạn dài > 2.0s
-        if longest_segment and max_duration >= 2.0:
+        # Chỉ lấy nếu đoạn dài > 3.0s
+        if longest_segment and max_duration >= 3.0:
             needs_enrollment[new_speaker] = longest_segment
         else:
-            errors.append(f"{new_speaker} (Audio quá ngắn, cần > 2s)")
+            errors.append(f"{new_speaker} (Audio quá ngắn, cần > 3s)")
             
     if not needs_enrollment:
         return {
