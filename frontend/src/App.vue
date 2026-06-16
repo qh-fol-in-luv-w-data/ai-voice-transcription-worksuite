@@ -90,8 +90,8 @@ const updateIdentities = async () => {
     // Update backend if meeting exists
     if (currentMeetingName.value) {
       try {
-        await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
         const enrollRes = await enrollMappedSpeakers(currentMeetingName.value, mappingsToSave)
+        await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
         
         let msg = '✅ Đã cập nhật danh tính thành công!\n'
         if (enrollRes && typeof enrollRes === 'object') {
@@ -869,8 +869,11 @@ const syncToERP = async () => {
     if (res.status === 'success') {
       const report = res.report
       const created = report.created_tasks ? report.created_tasks.length : 0
-      const errs = report.errors ? report.errors.length : 0
-      erpStatus.value = dict[uiLang.value].status_sync_ok(created, errs)
+      const errList = report.errors || []
+      erpStatus.value = dict[uiLang.value].status_sync_ok(created, errList.length)
+      if (errList.length > 0) {
+        erpStatus.value += '\n' + errList.join('\n')
+      }
     } else {
       erpStatus.value = t('status_sync_fail') + res.message
     }
@@ -1270,10 +1273,14 @@ onMounted(async () => {
                      <template #icon><Document /></template>
                      {{ t('export_docx') }}
                   </el-button>
+                  <el-button type="primary" plain @click="addTask">
+                     <template #icon><Plus /></template>
+                     {{ t('add_task') }}
+                  </el-button>
                 </div>
               </div>
             </template>
-            <el-table :data="tasks" style="width: 100%" border size="small">
+            <el-table :data="tasks" style="width: 100%" border size="small" class="task-table" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
               <el-table-column header-align="center" type="index" label="#" width="50" align="center" />
               <el-table-column header-align="center" :label="t('col_name')" min-width="200">
                 <template #default="{ row }">
@@ -1324,12 +1331,16 @@ onMounted(async () => {
               </el-table-column>
             </el-table>
             <template #footer>
-               <div class="flex justify-between items-center w-full">
-                 <span class="text-sm text-muted-foreground font-mono" v-if="erpStatus">{{ erpStatus }}</span>
-                 <span v-else></span>
-                 <el-button type="primary" @click="syncToERP" :loading="isSyncing" :disabled="tasks.length === 0">
-                    {{ t('btn_sync') }}
-                 </el-button>
+               <div class="flex flex-col gap-3 w-full">
+                 <div v-if="erpStatus"
+                   class="w-full p-3 rounded-lg text-sm border font-mono whitespace-pre-line"
+                   :class="erpStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (erpStatus.includes('⏳') ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')"
+                 >{{ erpStatus }}</div>
+                 <div class="flex justify-end">
+                   <el-button type="primary" @click="syncToERP" :loading="isSyncing" :disabled="tasks.length === 0">
+                     {{ t('btn_sync') }}
+                   </el-button>
+                 </div>
                </div>
             </template>
           </el-card>
@@ -1549,25 +1560,31 @@ onMounted(async () => {
                    </div>
 
                    <!-- Form Fields Table -->
-                   <el-table :data="[parsedVoiceTask]" style="width: 100%" border size="small">
+                   <el-table :data="[parsedVoiceTask]" style="width: 100%" border size="small" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
                       <el-table-column :label="t('col_name')" min-width="200" header-align="center">
                         <template #default="{ row }">
-                          <el-input v-model="row.title" />
+                          <div :class="{ 'missing-field': !row.title }">
+                            <el-input v-model="row.title" placeholder="⚠️ Chưa có tên task" />
+                          </div>
                         </template>
                       </el-table-column>
                       <el-table-column :label="t('col_assignee')" min-width="180" header-align="center">
                         <template #default="{ row }">
-                          <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..." style="width: 100%">
-                            <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
-                          </el-select>
+                          <div :class="{ 'missing-field': voiceTaskMissingFields.includes('assignee') }">
+                            <el-select v-model="row.assignee_display" filterable placeholder="⚠️ Chưa có người thực hiện" style="width: 100%">
+                              <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
+                            </el-select>
+                          </div>
                         </template>
                       </el-table-column>
                       <el-table-column :label="t('col_project')" min-width="150" header-align="center">
                         <template #default="{ row }">
-                          <el-select v-model="row.project" style="width: 100%">
-                            <el-option label="[Không có]" value="" />
-                            <el-option v-for="p in voiceTaskProjects" :key="p.name" :label="p.project_name ? p.project_name : p.name" :value="p.name" />
-                          </el-select>
+                          <div :class="{ 'missing-field': voiceTaskMissingFields.includes('project') }">
+                            <el-select v-model="row.project" style="width: 100%" placeholder="⚠️ Chưa có dự án">
+                              <el-option label="[Không có]" value="" />
+                              <el-option v-for="p in voiceTaskProjects" :key="p.name" :label="p.project_name ? p.project_name : p.name" :value="p.name" />
+                            </el-select>
+                          </div>
                         </template>
                       </el-table-column>
                       <el-table-column header-align="center" :label="t('col_start')" width="130">
@@ -1577,7 +1594,9 @@ onMounted(async () => {
                       </el-table-column>
                       <el-table-column header-align="center" :label="t('col_due')" width="130">
                         <template #default="{ row }">
-                          <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                          <div :class="{ 'missing-field': voiceTaskMissingFields.includes('end_date') }">
+                            <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" placeholder="⚠️ Chưa có hạn chót" />
+                          </div>
                         </template>
                       </el-table-column>
                       <el-table-column header-align="center" :label="t('col_desc')" min-width="250">
@@ -2100,4 +2119,17 @@ body {
 .log-view::-webkit-scrollbar-track { background: hsl(var(--muted)); border-radius: 6px; }
 .log-view::-webkit-scrollbar-thumb { background: hsl(var(--primary) / 0.8); border-radius: 6px; border: 2px solid hsl(var(--background)); }
 .log-view::-webkit-scrollbar-thumb:hover { background: hsl(var(--primary)); }
+
+/* Missing field highlight in voice-to-task table */
+.missing-field { border-radius: 6px; outline: 2px solid var(--el-color-danger); outline-offset: 1px; }
+.missing-field .el-input__wrapper,
+.missing-field .el-select .el-input__wrapper,
+.missing-field .el-date-editor { box-shadow: none !important; }
+
+/* Task table: allow row height to grow with content */
+.task-table .el-table__cell { height: auto !important; overflow: visible !important; }
+.task-table .el-table__row td { vertical-align: top; }
+.task-table .el-input__wrapper,
+.task-table .el-select .el-input__wrapper { min-height: 32px; height: auto; }
+.task-table .el-textarea__inner { min-height: 56px !important; resize: vertical; }
 </style>

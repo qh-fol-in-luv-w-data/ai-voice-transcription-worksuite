@@ -1,16 +1,80 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import {
   audioFile, language, modelType, isTranscribing, transcribeStatus, transcriptResults,
   isCleaned, transcriptText, isExtracting, extractStatus, isCleaning,
-  tasks, selectedAttendees, isReanalyzing, dict, uiLang, 
+  tasks, selectedAttendees, isReanalyzing, dict, uiLang,
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
+
+// ── STRANGER MAPPING ─────────────────────────────────────────────────────────
+const speakerMapping = ref({})
+const isEnrollingMapped = ref(false)
+
+const unknownSpeakers = computed(() => {
+  const speakers = new Set()
+  for (const seg of transcriptResults.value) {
+    if (seg[2] && seg[2].includes('Người lạ')) {
+      speakers.add(seg[2])
+    }
+  }
+  return Array.from(speakers)
+})
+
+const employeeOptions = computed(() =>
+  dbEmployees.value.map(emp => ({
+    value: emp.employee_name + ' (' + emp.name + ')',
+    label: emp.employee_name + ' (' + emp.name + ')' + (emp.user_id ? ' — ' + emp.user_id : '')
+  }))
+)
+
+const enrollMapped = async () => {
+  const validMappings = {}
+  for (const [spk, name] of Object.entries(speakerMapping.value)) {
+    if (name) validMappings[spk] = name
+  }
+  if (Object.keys(validMappings).length === 0) {
+    alert('Chưa chọn tên cho người lạ nào!')
+    return
+  }
+  isEnrollingMapped.value = true
+  try {
+    // Enroll trước khi đổi tên để backend còn tìm được segment theo tên cũ
+    if (currentMeetingName.value) {
+      const res = await enrollMappedSpeakers(currentMeetingName.value, validMappings)
+      const enrolled = res?.enrolled || []
+      const errors = res?.errors || []
+      const skipped = res?.skipped || []
+      let msg = `✅ Đã cập nhật tên.`
+      if (enrolled.length) msg += ` Đăng ký giọng: ${enrolled.join(', ')}.`
+      if (skipped.length) msg += ` Đã có sẵn: ${skipped.join(', ')}.`
+      if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
+      alert(msg)
+    } else {
+      alert('✅ Đã cập nhật tên.')
+    }
+    // Đổi tên sau khi enroll xong
+    for (const seg of transcriptResults.value) {
+      if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
+    }
+    for (const seg of originalTranscriptResults.value) {
+      if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
+    }
+    if (currentMeetingName.value) {
+      await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+    }
+    speakerMapping.value = {}
+  } catch(e) {
+    alert('❌ Lỗi: ' + e.message)
+  } finally {
+    isEnrollingMapped.value = false
+  }
+}
 
 const languages = [
   { val: 'vi', label: 'Tiếng Việt' },
@@ -182,6 +246,41 @@ const startExtractTasks = async () => {
              class="p-4 rounded-lg text-sm border font-medium flex items-center shadow-inner"
              :class="transcribeStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (transcribeStatus.includes('⏳') ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')">
            {{ transcribeStatus }}
+        </div>
+      </div>
+    </div>
+
+    <!-- STRANGER MAPPING CARD -->
+    <div v-if="unknownSpeakers.length > 0" class="shadcn-card" style="border-color: hsl(var(--primary)/0.5); border-width: 2px;">
+      <div class="card-header border-b border-border bg-muted/5">
+        <h3 class="card-title text-base font-semibold flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m19 11-2 2-2-2"/><path d="m15 15 2-2 2 2"/></svg>
+          Gán tên người tham dự
+        </h3>
+        <p class="card-description">AI phát hiện giọng nói chưa xác định. Chọn tên nhân viên thực tế để gán vào biên bản và đăng ký vào hệ thống.</p>
+      </div>
+      <div class="card-content p-4 flex flex-col gap-3">
+        <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-background border border-border p-3 rounded-lg">
+          <span class="font-bold text-sm min-w-[140px]">{{ spk }}</span>
+          <el-select
+            v-model="speakerMapping[spk]"
+            filterable
+            clearable
+            placeholder="Chọn nhân viên..."
+            style="flex: 1"
+          >
+            <el-option
+              v-for="opt in employeeOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </div>
+        <div class="flex justify-end mt-1">
+          <el-button type="primary" :loading="isEnrollingMapped" @click="enrollMapped">
+            Cập nhật danh tính & Đăng ký giọng
+          </el-button>
         </div>
       </div>
     </div>
