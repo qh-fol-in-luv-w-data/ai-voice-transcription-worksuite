@@ -1,7 +1,5 @@
 <script setup>
 import { defineProps, defineEmits, computed } from 'vue'
-import Multiselect from '@vueform/multiselect'
-import '@vueform/multiselect/themes/default.css'
 
 const props = defineProps({
   isOpen: Boolean,
@@ -48,164 +46,218 @@ const employeeOptions = computed(() => {
     label: emp.employee_name + ' (' + emp.name + ')' + (emp.user_id ? ' - ' + emp.user_id : '')
   }))
 })
+
+const onAttendeeSelect = (val) => {
+  if(val) { 
+    emit('toggle-attendee', val);
+  }
+}
 </script>
 
 <template>
-  <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-    <div class="bg-background border border-border rounded-xl shadow-2xl w-[95%] max-w-7xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+  <el-dialog
+    :model-value="isOpen"
+    @update:model-value="(val) => { if(!val) emit('close') }"
+    title="Kết quả trích xuất Task"
+    width="95%"
+    top="5vh"
+    destroy-on-close
+    class="task-modal"
+  >
+    <div class="flex-col space-y-6">
       
-      <!-- HEADER -->
-      <div class="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/10 shrink-0">
-        <h2 class="text-xl font-bold text-foreground">Kết quả trích xuất Task</h2>
-        <button @click="emit('close')" class="btn-ghost-icon hover:bg-muted/30">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
-      </div>
-
-      <!-- BODY -->
-      <div class="flex-1 overflow-y-auto p-6 space-y-6">
+      <!-- ATTENDEES -->
+      <el-card shadow="never">
+        <template #header>
+          <div class="flex justify-between items-center w-full">
+            <div>
+              <h3 class="text-lg font-medium m-0 flex items-center gap-2">
+                <el-icon><User /></el-icon>
+                {{ t('attendees_title') }}
+              </h3>
+              <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('attendees_desc') }}</p>
+            </div>
+            <el-button
+              v-if="selectedAttendees.length > 0"
+              type="primary"
+              :loading="isReanalyzing"
+              @click="emit('reanalyze')"
+            >
+              <template #icon v-if="!isReanalyzing">
+                <el-icon><RefreshRight /></el-icon>
+              </template>
+              {{ isReanalyzing ? t('reanalyzing') : t('btn_reanalyze') }}
+            </el-button>
+          </div>
+        </template>
         
-        <!-- ATTENDEES -->
-        <div class="shadcn-card border-primary/30">
-            <div class="card-header border-b border-border bg-primary/5">
-              <div class="flex justify-between items-center w-full">
-                <div>
-                  <h3 class="card-title flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                    {{ t('attendees_title') }}
-                  </h3>
-                  <p class="card-description">{{ t('attendees_desc') }}</p>
-                </div>
-                <button
-                  v-if="selectedAttendees.length > 0"
-                  @click="emit('reanalyze')"
-                  :disabled="isReanalyzing"
-                  class="shadcn-btn shadcn-btn-primary"
-                >
-                  <svg v-if="!isReanalyzing" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                  {{ isReanalyzing ? t('reanalyzing') : t('btn_reanalyze') }}
-                </button>
-              </div>
-            </div>
-            <div class="card-content p-4">
-              <div class="flex flex-wrap items-center gap-2">
-                <!-- Tags -->
-                <span v-for="name in selectedAttendees" :key="name" class="attendee-chip attendee-chip--active">
-                  <span class="attendee-avatar">{{ name.charAt(0).toUpperCase() }}</span>
-                  <span>{{ name }}</span>
-                  <button @click="emit('remove-attendee', name)" class="attendee-remove" title="Xóa">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                  </button>
-                </span>
+        <div class="flex flex-wrap items-center gap-2">
+          <el-tag
+            v-for="name in selectedAttendees"
+            :key="name"
+            closable
+            size="large"
+            @close="emit('remove-attendee', name)"
+            type="primary"
+            effect="light"
+            round
+          >
+            {{ name }}
+          </el-tag>
 
-                <!-- Dropdown -->
-                <input
-                  list="voice_db_speakers_list_modal"
-                  @change="(e) => { 
-                    const val = e.target.value.trim();
-                    if(val) { 
-                      const valid = voiceDbSpeakers.find(s => s.speaker_name === val);
-                      if (valid) emit('toggle-attendee', val);
-                      e.target.value = '';
-                    }
-                  }"
-                  :disabled="voiceDbSpeakers.length === 0"
-                  class="attendee-add-input cursor-text"
-                  :placeholder="voiceDbSpeakers.length > 0 ? '+ Tìm & thêm người...' : 'Trống'"
+          <el-select
+            filterable
+            placeholder="+ Tìm & thêm người..."
+            style="width: 250px"
+            :disabled="voiceDbSpeakers.length === 0"
+            @change="onAttendeeSelect"
+            clearable
+          >
+            <el-option
+              v-for="spk in voiceDbSpeakers"
+              :key="spk.speaker_name"
+              :label="spk.speaker_name + (spk.email ? ' - ' + spk.email : '')"
+              :value="spk.speaker_name"
+            />
+          </el-select>
+        </div>
+      </el-card>
+
+      <!-- TASK LIST -->
+      <el-card shadow="never">
+        <template #header>
+          <div class="flex justify-between items-center">
+            <div>
+              <h3 class="text-lg font-medium m-0">{{ t('task_list') }}</h3>
+              <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('task_desc') }}</p>
+            </div>
+            <div class="flex gap-2">
+              <el-button v-if="excelUrl" plain @click="downloadFile(excelUrl, 'Task ngày ' + currentLocalDate() + '.xlsx')">
+                <el-icon class="mr-1"><Download /></el-icon>
+                {{ t('export_xlsx') }}
+              </el-button>
+              <el-button v-if="docxUrl" plain @click="downloadFile(docxUrl, 'Biên bản họp ngày ' + currentLocalDate() + '.docx')">
+                <el-icon class="mr-1"><Document /></el-icon>
+                {{ t('export_docx') }}
+              </el-button>
+              <el-button type="primary" plain @click="emit('add-task')">
+                <el-icon class="mr-1"><Plus /></el-icon>
+                {{ t('add_task') }}
+              </el-button>
+            </div>
+          </div>
+        </template>
+
+        <el-table :data="tasks" style="width: 100%" border stripe size="large">
+          <el-table-column type="index" label="#" width="50" align="center" />
+          
+          <el-table-column :label="t('col_name')" min-width="200">
+            <template #default="{ row }">
+              <el-input v-model="row.title" placeholder="Tên nhiệm vụ" />
+            </template>
+          </el-table-column>
+          
+          <el-table-column :label="t('col_assignee')" min-width="220">
+            <template #default="{ row }">
+              <el-select v-model="row.assignee_display" filterable placeholder="Tìm người...">
+                <el-option
+                  v-for="item in employeeOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
                 />
-                <datalist id="voice_db_speakers_list_modal">
-                  <option v-for="spk in voiceDbSpeakers" :key="spk.speaker_name" :value="spk.speaker_name">
-                    {{ spk.email ? spk.email : '' }}
-                  </option>
-                </datalist>
-              </div>
-            </div>
-        </div>
+              </el-select>
+            </template>
+          </el-table-column>
 
-        <!-- TASK LIST -->
-        <div class="shadcn-card">
-             <div class="card-header border-b border-border flex justify-between items-center bg-muted/10">
-                <div>
-                  <h3 class="card-title">{{ t('task_list') }}</h3>
-                  <p class="card-description">{{ t('task_desc') }}</p>
-                </div>
-                <div class="flex gap-2">
-                  <button v-if="excelUrl" @click="downloadFile(excelUrl, 'Task ngày ' + currentLocalDate() + '.xlsx')" class="shadcn-btn shadcn-btn-ghost">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                     {{ t('export_xlsx') }}
-                  </button>
-                  <button v-if="docxUrl" @click="downloadFile(docxUrl, 'Biên bản họp ngày ' + currentLocalDate() + '.docx')" class="shadcn-btn shadcn-btn-ghost">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                     {{ t('export_docx') }}
-                  </button>
-                  <button @click="emit('add-task')" class="shadcn-btn shadcn-btn-outline">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                     {{ t('add_task') }}
-                  </button>
-                </div>
-             </div>
-             <div class="card-content p-0 bg-background overflow-x-auto">
-                <table class="shadcn-table w-full text-sm min-w-max">
-                   <thead class="bg-muted/20 border-b border-border">
-                      <tr>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-12">#</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-64">{{ t('col_name') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-48">{{ t('col_assignee') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-48">{{ t('col_project') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-32">{{ t('col_start') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-32">{{ t('col_due') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-24">{{ t('col_weight') }}</th>
-                         <th class="p-4 text-left font-medium text-muted-foreground w-72">{{ t('col_desc') }}</th>
-                         <th class="p-4 text-center font-medium text-muted-foreground w-16">{{ t('col_del') }}</th>
-                      </tr>
-                   </thead>
-                   <tbody>
-                      <tr v-for="(task, idx) in tasks" :key="idx" class="border-b border-border hover:bg-muted/10 transition-colors">
-                         <td class="p-4 font-mono text-xs text-muted-foreground">{{ idx + 1 }}</td>
-                         <td class="p-3"><input v-model="task.title" class="shadcn-table-input" /></td>
-                         <td class="p-3" style="min-width: 250px;">
-                           <Multiselect
-                             v-model="task.assignee_display"
-                             :options="employeeOptions"
-                             placeholder="Tìm người..."
-                             :searchable="true"
-                           />
-                         </td>
-                         <td class="p-3" style="min-width: 250px;">
-                            <Multiselect
-                              v-model="task.project"
-                              :options="getProjectsForHR(task.assignee_display).map(p => ({ value: p[1], label: p[0] }))"
-                              placeholder="Trống"
-                              :searchable="true"
-                            />
-                         </td>
-                         <td class="p-3"><input v-model="task.start_date" type="date" class="shadcn-table-input px-1 text-xs" /></td>
-                         <td class="p-3"><input v-model="task.due_date" type="date" class="shadcn-table-input px-1 text-xs" /></td>
-                         <td class="p-3"><input v-model="task.weight" type="number" min="0" max="100" class="shadcn-table-input px-1 text-xs" /></td>
-                         <td class="p-3"><textarea v-model="task.description" class="shadcn-table-input resize-y min-h-[60px] p-2 text-xs"></textarea></td>
-                         <td class="p-4 text-center">
-                            <button @click="emit('remove-task', idx)" class="btn-ghost-icon text-destructive hover:bg-destructive/10">
-                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                            </button>
-                         </td>
-                      </tr>
-                   </tbody>
-                </table>
-             </div>
-        </div>
+          <el-table-column :label="t('col_project')" min-width="220">
+            <template #default="{ row }">
+              <el-select v-model="row.project" filterable placeholder="Trống" clearable>
+                <el-option
+                  v-for="p in getProjectsForHR(row.assignee_display)"
+                  :key="p[1]"
+                  :label="p[0]"
+                  :value="p[1]"
+                />
+              </el-select>
+            </template>
+          </el-table-column>
 
-      </div>
+          <el-table-column :label="t('col_start')" width="160">
+            <template #default="{ row }">
+              <el-date-picker
+                v-model="row.start_date"
+                type="date"
+                placeholder="Bắt đầu"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </template>
+          </el-table-column>
 
-      <!-- FOOTER -->
-      <div class="p-4 border-t border-border bg-muted/20 flex justify-end gap-3 shrink-0">
-        <button @click="emit('close')" class="shadcn-btn shadcn-btn-ghost px-6">Đóng</button>
-        <button @click="emit('sync-erp')" class="shadcn-btn shadcn-btn-primary px-8">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
-          {{ t('btn_sync') }}
-        </button>
-      </div>
-      
+          <el-table-column :label="t('col_due')" width="160">
+            <template #default="{ row }">
+              <el-date-picker
+                v-model="row.due_date"
+                type="date"
+                placeholder="Hạn chót"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </template>
+          </el-table-column>
+
+          <el-table-column :label="t('col_weight')" width="100">
+            <template #default="{ row }">
+              <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
+            </template>
+          </el-table-column>
+
+          <el-table-column :label="t('col_desc')" min-width="250">
+            <template #default="{ row }">
+              <el-input v-model="row.description" type="textarea" :rows="2" resize="vertical" placeholder="Mô tả chi tiết" />
+            </template>
+          </el-table-column>
+
+          <el-table-column :label="t('col_del')" width="70" align="center" fixed="right">
+            <template #default="{ $index }">
+              <el-button type="danger" circle @click="emit('remove-task', $index)">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+      </el-card>
+
     </div>
-  </div>
+
+    <template #footer>
+      <div class="dialog-footer">
+        <el-button @click="emit('close')">Đóng</el-button>
+        <el-button type="primary" @click="emit('sync-erp')">
+          <el-icon class="mr-1"><UploadFilled /></el-icon>
+          {{ t('btn_sync') }}
+        </el-button>
+      </div>
+    </template>
+  </el-dialog>
 </template>
+
+<style scoped>
+.task-modal :deep(.el-dialog__body) {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.space-y-6 > * + * {
+  margin-top: 1.5rem;
+}
+.m-0 {
+  margin: 0;
+}
+.mt-1 {
+  margin-top: 0.25rem;
+}
+</style>

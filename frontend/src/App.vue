@@ -2,10 +2,7 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees } from './api'
 import { initSession, useSession } from './utils/session'
-import { VueDatePicker } from '@vuepic/vue-datepicker';
-import '@vuepic/vue-datepicker/dist/main.css';
-import Multiselect from '@vueform/multiselect';
-import '@vueform/multiselect/themes/default.css';
+
 import CTSplashScreen from './components/CTSplashScreen.vue'
 import CTAccessDenied from './components/CTAccessDenied.vue'
 
@@ -1027,21 +1024,23 @@ onMounted(async () => {
       <template v-if="activeTab === 'transcribe'">
         <div class="w-full flex flex-col gap-8 pb-10 mt-2">
           <!-- TRANSCRIBE SETTINGS CARD -->
-          <div class="shadcn-card glow-effect">
-            <div class="card-header border-b border-border bg-muted/10">
-              <h3 class="card-title">{{ t('audio_processing') }}</h3>
-              <p class="card-description">{{ t('audio_desc') }}</p>
-            </div>
+          <el-card shadow="never" class="glow-effect">
+            <template #header>
+              <div>
+                <h3 class="text-lg font-medium m-0">{{ t('audio_processing') }}</h3>
+                <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('audio_desc') }}</p>
+              </div>
+            </template>
             
-            <div class="card-content flex flex-col gap-6 mt-6">
+            <div class="flex flex-col gap-6">
                <div class="flex flex-col gap-1.5">
                  <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">{{ t('target_lang') }}</label>
-                 <select v-model="language" class="h-10 bg-transparent max-w-xs cursor-pointer font-medium transition-colors" style="color: inherit; background: transparent url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E&quot;) no-repeat right center; background-size: 16px; padding-right: 24px; border: none; outline: none; box-shadow: none; padding-left: 0; font-size: 1rem; -webkit-appearance: none; -moz-appearance: none; appearance: none;">
-                   <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
-                 </select>
+                 <el-select v-model="language" style="width: 200px">
+                   <el-option v-for="l in languages" :key="l.val" :label="l.label" :value="l.val" />
+                 </el-select>
                </div>
                
-               <div class="h-px bg-border my-2"></div>
+               <el-divider class="my-2" />
                
                <!-- Meeting Info -->
                <div class="flex flex-col gap-3">
@@ -1049,285 +1048,289 @@ onMounted(async () => {
                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                    <div class="flex flex-col gap-1.5" style="min-width: 220px;">
                      <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Ngày giờ bắt đầu</label>
-                     <VueDatePicker v-model="meetingStartTime" class="text-sm" auto-apply :enable-time-picker="true" format="dd/MM/yyyy HH:mm" />
+                     <el-date-picker v-model="meetingStartTime" type="datetime" format="DD/MM/YYYY HH:mm" style="width: 100%" />
                    </div>
                    <div class="flex flex-col gap-1.5" style="min-width: 220px;">
                      <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Địa điểm</label>
-                     <input type="text" v-model="meetingLocation" placeholder="Nhập địa điểm..." class="h-[38px] bg-background border border-border rounded-md px-3 text-sm focus:outline-none focus:border-primary transition-colors" />
+                     <el-input v-model="meetingLocation" placeholder="Nhập địa điểm..." />
                    </div>
                    <div class="flex flex-col gap-1.5" style="min-width: 220px;">
                      <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Người chủ trì</label>
-                     <Multiselect
-                       v-model="meetingChairperson"
-                       :options="employeeOptions"
-                       placeholder="Chọn người chủ trì..."
-                       :searchable="true"
-                     />
+                     <el-select v-model="meetingChairperson" filterable placeholder="Chọn người chủ trì..." style="width: 100%">
+                       <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
+                     </el-select>
                    </div>
                  </div>
                </div>
                
-               <div class="h-px bg-border my-2"></div>
+               <el-divider class="my-2" />
                
-               <div class="upload-zone" :class="{ 'active': audioFile }">
-                 <input type="file" id="audio-upload" @change="handleFileChange" accept="audio/*" class="hidden-input" />
-                 <label for="audio-upload" class="upload-label py-12">
-                   <svg class="mb-4 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96M14 13v4h-4v-4H7l5-5 5 5z"></path></svg>
-                   <p class="text-base font-medium mb-1">Drag & drop a file here, or click to select</p>
-                   <span class="upload-primary-text text-sm">{{ audioFile ? audioFile.name : t('upload_support') }}</span>
-                 </label>
-               </div>
+               <el-upload
+                 drag
+                 action="#"
+                 :auto-upload="false"
+                 :show-file-list="false"
+                 accept="audio/*"
+                 @change="file => handleFileChange({ target: { files: [file.raw] } })"
+                 class="upload-zone w-full"
+               >
+                 <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+                 <div class="el-upload__text">
+                   Drag & drop a file here, or click to select
+                   <div class="mt-2 text-primary font-medium">{{ audioFile ? audioFile.name : t('upload_support') }}</div>
+                 </div>
+               </el-upload>
             </div>
             
-            <div class="card-footer border-t border-border bg-muted/20 flex flex-col gap-3 mt-4">
-               <button @click="startTranscribe" :disabled="isTranscribing || !audioFile" class="shadcn-btn shadcn-btn-primary w-full h-12 text-lg">
+            <template #footer>
+               <el-button type="primary" size="large" class="w-full h-12 text-lg" @click="startTranscribe" :loading="isTranscribing" :disabled="!audioFile">
                   {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
-               </button>
-               <div v-if="transcribeStatus && !isTranscribing" class="text-center text-sm font-medium mt-1 text-primary">
+               </el-button>
+               <div v-if="transcribeStatus && !isTranscribing" class="text-center text-sm font-medium mt-2 text-primary">
                   {{ transcribeStatus }}
                </div>
-            </div>
-          </div>
+            </template>
+          </el-card>
           
           <!-- AI FILTER + EXTRACT BUTTON ROW -->
           <div v-if="transcriptResults.length > 0" class="flex flex-wrap gap-3 items-center mt-2">
-            <button
+            <el-button
               @click="startCleanTranscript"
-              :disabled="isCleaning"
-              class="shadcn-btn flex-1"
-              :class="isCleaned ? 'shadcn-btn-outline border-primary text-primary' : 'shadcn-btn-outline'"
+              :loading="isCleaning"
+              :type="isCleaned ? 'primary' : 'default'"
+              :plain="isCleaned"
+              size="large"
+              class="flex-1"
               style="min-width:180px;"
             >
-              <svg v-if="isCleaning" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-              <svg v-else-if="isCleaned" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M3 7v6h6"/><path d="M21 17v-6h-6"/><path d="M18.37 7.63A9 9 0 0 0 5.41 5.41L3 8"/><path d="M5.63 16.37A9 9 0 0 0 18.59 18.59L21 16"/></svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+              <template #icon v-if="!isCleaning">
+                <el-icon v-if="isCleaned"><RefreshLeft /></el-icon>
+                <el-icon v-else><MagicStick /></el-icon>
+              </template>
               {{ isCleaning ? 'Đang lọc AI...' : (isCleaned ? '↩ Hoàn tác lọc' : '✨ AI Lọc hội thoại') }}
-            </button>
-            <button @click="startExtractTasks" :disabled="isExtracting || transcriptResults.length === 0" class="shadcn-btn shadcn-btn-primary flex-1" :style="{ opacity: transcriptResults.length === 0 ? 0.5 : 1 }" style="min-width:180px;">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            </el-button>
+            <el-button 
+              type="primary" 
+              size="large"
+              @click="startExtractTasks" 
+              :loading="isExtracting"
+              :disabled="transcriptResults.length === 0" 
+              class="flex-1" 
+              style="min-width:180px;"
+            >
+              <template #icon v-if="!isExtracting"><Connection /></template>
               {{ isExtracting ? t('extracting') : t('extract_task') }}
-            </button>
+            </el-button>
           </div>
-          <div v-if="extractStatus" class="text-primary text-sm font-medium text-center bg-primary/10 py-2 rounded-md border border-primary/20">
-            {{ extractStatus }}
-          </div>
+          <el-alert v-if="extractStatus" :title="extractStatus" type="success" :closable="false" center />
 
           <!-- TRANSCRIPT RESULTS -->
-          <div v-if="transcriptResults.length > 0" class="shadcn-card">
-            <div class="card-header border-b border-border flex justify-between items-center bg-muted/10">
-              <div>
-                <h3 class="card-title">{{ t('transcript_result') }}</h3>
-                <p class="card-description">{{ t('transcript_desc') }}</p>
+          <el-card v-if="transcriptResults.length > 0" shadow="never">
+            <template #header>
+              <div class="flex justify-between items-center">
+                <div>
+                  <h3 class="text-lg font-medium m-0">{{ t('transcript_result') }}</h3>
+                  <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('transcript_desc') }}</p>
+                </div>
               </div>
-            </div>
-            <div class="card-content p-0">
-               <div class="log-view p-6 space-y-6 max-h-[250px] overflow-auto">
-                  <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry">
-                     <div class="log-meta">
-                        <span class="log-speaker">{{ seg[2] }}</span>
-                        <span class="log-time">[{{ seg[0].toFixed(2) }}s]</span>
-                     </div>
-                     <p class="log-text">{{ seg[3] }}</p>
+            </template>
+            <div class="log-view p-6 space-y-6 max-h-[250px] overflow-auto">
+               <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry">
+                  <div class="log-meta">
+                     <span class="log-speaker">{{ seg[2] }}</span>
+                     <span class="log-time">[{{ seg[0].toFixed(2) }}s]</span>
                   </div>
+                  <p class="log-text">{{ seg[3] }}</p>
                </div>
             </div>
-          </div>
+          </el-card>
 
           <!-- ATTENDEES PANEL -->
-          <div v-if="transcriptResults.length > 0" class="shadcn-card" style="border-color: hsl(var(--primary)/0.3);">
-            <div class="card-header border-b border-border" style="background: hsl(var(--primary)/0.05);">
-              <div class="flex-between">
+          <el-card v-if="transcriptResults.length > 0" shadow="never" style="border-color: var(--el-border-color)">
+            <template #header>
+              <div class="flex justify-between items-center">
                 <div>
-                  <h3 class="card-title flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                  <h3 class="text-lg font-medium m-0 flex items-center gap-2">
+                    <el-icon><User /></el-icon>
                     {{ t('attendees_title') }}
                   </h3>
-                  <p class="card-description">{{ t('attendees_desc') }}</p>
+                  <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('attendees_desc') }}</p>
                 </div>
-                <button
+                <el-button
                   v-if="selectedAttendees.length > 0"
+                  type="primary"
                   @click="reAnalyzeWithAttendees"
-                  :disabled="isReanalyzing || !audioFile"
-                  class="shadcn-btn shadcn-btn-primary"
+                  :loading="isReanalyzing"
+                  :disabled="!audioFile"
                 >
-                  <svg v-if="!isReanalyzing" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-                  <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  <template #icon v-if="!isReanalyzing"><RefreshRight /></template>
                   {{ isReanalyzing ? t('reanalyzing') : t('btn_reanalyze') }}
-                </button>
+                </el-button>
               </div>
-            </div>
-            <div class="card-content p-4">
-              <div class="flex flex-wrap items-center gap-2">
-                <!-- Tags -->
-                <span
-                  v-for="name in selectedAttendees"
-                  :key="name"
-                  class="attendee-chip attendee-chip--active"
-                >
-                  <span class="attendee-avatar">{{ name.charAt(0).toUpperCase() }}</span>
-                  <span>{{ name }}</span>
-                  <button @click="removeAttendee(name)" class="attendee-remove" title="Xóa">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                  </button>
-                </span>
+            </template>
+            <div class="flex flex-wrap items-center gap-2">
+              <el-tag
+                v-for="name in selectedAttendees"
+                :key="name"
+                closable
+                size="large"
+                @close="removeAttendee(name)"
+                effect="light"
+              >
+                {{ name }}
+              </el-tag>
 
-                <!-- Dropdown (Searchable Input) -->
-                <input
-                  list="voice_db_speakers_list"
-                  @change="(e) => { 
-                    const val = e.target.value.trim();
-                    if(val) { 
-                      const valid = voiceDbSpeakers.find(s => s.speaker_name === val);
-                      if (valid) {
-                        toggleAttendee(val);
-                      }
-                      e.target.value = '';
-                    }
-                  }"
-                  :disabled="voiceDbSpeakers.length === 0"
-                  class="attendee-add-input cursor-text"
-                  :placeholder="voiceDbSpeakers.length > 0 ? '+ Tìm & thêm người...' : 'Trống'"
-                />
-                <datalist id="voice_db_speakers_list">
-                  <option
-                    v-for="spk in voiceDbSpeakers"
-                    :key="spk.speaker_name"
-                    :value="spk.speaker_name"
-                  >{{ spk.email ? spk.email : '' }}</option>
-                </datalist>
-              </div>
-              
-              <p v-if="selectedAttendees.length === 0" class="text-xs text-muted-foreground italic mt-3">Chưa chọn ai. Thêm người vào danh sách để phân tích chính xác hơn.</p>
+              <el-select
+                :model-value="''"
+                filterable
+                placeholder="+ Tìm & thêm người..."
+                style="width: 240px"
+                @change="(val) => { if(val) { toggleAttendee(val); } }"
+                :disabled="voiceDbSpeakers.length === 0"
+              >
+                <el-option
+                  v-for="spk in voiceDbSpeakers"
+                  :key="spk.speaker_name"
+                  :label="spk.speaker_name"
+                  :value="spk.speaker_name"
+                >
+                  <span style="float: left">{{ spk.speaker_name }}</span>
+                  <span style="float: right; color: var(--el-text-color-secondary); font-size: 13px">{{ spk.email }}</span>
+                </el-option>
+              </el-select>
             </div>
-          </div>
+            <p v-if="selectedAttendees.length === 0" class="text-xs text-muted-foreground italic mt-3">Chưa chọn ai. Thêm người vào danh sách để phân tích chính xác hơn.</p>
+          </el-card>
 
           <!-- UNKNOWN SPEAKERS MAPPING -->
-          <div v-if="unknownSpeakers.length > 0" class="shadcn-card" style="border-color: hsl(var(--primary)/0.5); border-width: 2px;">
-            <div class="card-header border-b border-border bg-primary/10">
-              <h3 class="card-title flex items-center gap-2 text-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m19 11-2 2-2-2"/><path d="m15 15 2-2 2 2"/></svg>
-                Gán tên người tham dự
-              </h3>
-              <p class="card-description">AI phát hiện các giọng nói chưa xác định được danh tính. Bạn vui lòng chọn tên nhân viên thực tế để hệ thống ghi chú vào Biên bản và Task.</p>
-            </div>
-            <div class="card-content p-4 flex flex-col gap-4">
-              <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-background border border-border p-3 rounded-lg overflow-visible">
+          <el-card v-if="unknownSpeakers.length > 0" shadow="never" style="border-color: var(--el-color-primary); border-width: 2px;">
+            <template #header>
+              <div>
+                <h3 class="text-lg font-medium m-0 flex items-center gap-2 text-primary">
+                  <el-icon><UserFilled /></el-icon>
+                  Gán tên người tham dự
+                </h3>
+                <p class="text-sm text-muted-foreground m-0 mt-1">AI phát hiện các giọng nói chưa xác định được danh tính. Bạn vui lòng chọn tên nhân viên thực tế để hệ thống ghi chú vào Biên bản và Task.</p>
+              </div>
+            </template>
+            <div class="flex flex-col gap-4">
+              <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-muted/20 p-3 rounded-lg border border-border">
                 <span class="font-bold text-sm min-w-[120px]">{{ spk }}</span>
-                <Multiselect
+                <el-select
                   v-model="speakerMapping[spk]"
-                  :options="employeeOptions"
+                  filterable
                   placeholder="Chọn nhân viên..."
-                  :searchable="true"
                   class="flex-1"
-                />
+                >
+                  <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
+                </el-select>
               </div>
               <div class="flex justify-end mt-2">
-                <button @click="updateIdentities" class="shadcn-btn shadcn-btn-primary">
+                <el-button type="primary" @click="updateIdentities">
                   Cập nhật danh tính
-                </button>
+                </el-button>
               </div>
             </div>
-          </div>
+          </el-card>
 
           <!-- TASK EXTRACTOR -->
-          <div v-if="transcriptResults.length > 0" class="shadcn-card">
-             <div class="card-header border-b border-border flex-between bg-muted/10">
+          <!-- TASK EXTRACTOR -->
+          <el-card v-if="transcriptResults.length > 0" shadow="never">
+            <template #header>
+              <div class="flex justify-between items-center">
                 <div>
-                  <h3 class="card-title">{{ t('task_list') }}</h3>
-                  <p class="card-description">{{ t('task_desc') }}</p>
+                  <h3 class="text-lg font-medium m-0">{{ t('task_list') }}</h3>
+                  <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('task_desc') }}</p>
                 </div>
                 <div class="flex gap-2">
-                  <button v-if="excelUrl && currentMeetingName" @click="downloadViaBackend(currentMeetingName, 'xlsx')" class="shadcn-btn shadcn-btn-ghost">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                  <el-button v-if="excelUrl && currentMeetingName" @click="downloadViaBackend(currentMeetingName, 'xlsx')" plain>
+                     <template #icon><Download /></template>
                      {{ t('export_xlsx') }}
-                  </button>
-                  <button v-if="docxUrl && currentMeetingName" @click="downloadViaBackend(currentMeetingName, 'docx')" class="shadcn-btn shadcn-btn-ghost">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                  </el-button>
+                  <el-button v-if="docxUrl && currentMeetingName" @click="downloadViaBackend(currentMeetingName, 'docx')" plain>
+                     <template #icon><Document /></template>
                      {{ t('export_docx') }}
-                  </button>
+                  </el-button>
                 </div>
-             </div>
-             <div class="card-content p-0 overflow-x-auto">
-                <table class="shadcn-table w-full text-sm" style="table-layout:fixed;">
-                   <colgroup>
-                     <col style="width:3rem" />
-                     <col style="width:22%" />
-                     <col style="width:16%" />
-                     <col style="width:16%" />
-                     <col style="width:10%" />
-                     <col style="width:10%" />
-                     <col style="width:6%" />
-                     <col />
-                     <col style="width:3rem" />
-                   </colgroup>
-                   <thead class="bg-muted/20 border-b border-border sticky top-0 z-10">
-                      <tr>
-                         <th class="p-3 text-left font-medium text-muted-foreground">#</th>
-                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_name') }}</th>
-                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_assignee') }}</th>
-                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_project') }}</th>
-                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_start') }}</th>
-                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_due') }}</th>
-                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_weight') }}</th>
-                         <th class="p-3 text-left font-medium text-muted-foreground">{{ t('col_desc') }}</th>
-                         <th class="p-3 text-center font-medium text-muted-foreground">{{ t('col_del') }}</th>
-                      </tr>
-                   </thead>
-                   <tbody>
-                      <tr v-for="(task, idx) in tasks" :key="idx" class="border-b border-border hover:bg-muted/10 transition-colors">
-                         <td class="p-3 font-mono text-xs text-muted-foreground">{{ idx + 1 }}</td>
-                         <td class="p-2"><input v-model="task.title" :title="task.title" class="shadcn-table-input" style="width:100%;min-width:0" /></td>
-                         <td class="p-2 overflow-visible" style="min-width: 200px;">
-                           <Multiselect
-                             v-model="task.assignee_display"
-                             :options="employeeOptions"
-                             placeholder="Tìm người..."
-                             :searchable="true"
-                             style="min-height: 2.5rem;"
-                           />
-                         </td>
-                         <td class="p-2">
-                            <select v-model="task.project" class="shadcn-table-select" style="width:100%;min-width:0">
-                              <option value="">{{ t('empty_project') }}</option>
-                              <option v-for="p in getProjectsForHR(task.assignee_display)" :key="p[1]" :value="p[1]">
-                                {{ p[0] }}
-                              </option>
-                            </select>
-                         </td>
-                         <td class="p-2"><input v-model="task.start_date" type="date" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
-                         <td class="p-2"><input v-model="task.due_date" type="date" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
-                         <td class="p-2"><input v-model="task.weight" type="number" min="0" max="100" class="shadcn-table-input" style="width:100%;min-width:0;font-size:0.8rem" /></td>
-                         <td class="p-2"><textarea v-model="task.description" class="shadcn-table-input resize-none" style="width:100%;min-width:0;min-height:60px;font-size:0.8rem"></textarea></td>
-                         <td class="p-3 text-center">
-                            <button @click="removeTask(idx)" class="btn-ghost-icon text-destructive hover:bg-destructive/10">
-                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                            </button>
-                         </td>
-                      </tr>
-                   </tbody>
-                </table>
-             </div>
-             <div class="card-footer border-t border-border bg-muted/20 flex-between">
-                <span class="text-sm text-muted-foreground font-mono" v-if="erpStatus">{{ erpStatus }}</span>
-                <span v-else></span>
-                <button @click="syncToERP" :disabled="isSyncing || tasks.length === 0" class="shadcn-btn shadcn-btn-primary">
-                   {{ t('btn_sync') }}
-                </button>
-             </div>
-          </div>
+              </div>
+            </template>
+            <el-table :data="tasks" style="width: 100%" border size="small">
+              <el-table-column type="index" label="#" width="50" align="center" />
+              <el-table-column :label="t('col_name')" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.title" />
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('col_assignee')" min-width="180">
+                <template #default="{ row }">
+                  <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..." style="width: 100%">
+                    <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('col_project')" min-width="150">
+                <template #default="{ row }">
+                  <el-select v-model="row.project" style="width: 100%">
+                    <el-option label="[Không có]" value="" />
+                    <el-option v-for="p in getProjectsForHR(row.assignee_display)" :key="p[1]" :label="p[0]" :value="p[1]" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('col_start')" width="130">
+                <template #default="{ row }">
+                  <el-date-picker v-model="row.start_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('col_due')" width="130">
+                <template #default="{ row }">
+                  <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('col_weight')" width="90">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('col_desc')" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.description" type="textarea" :rows="2" resize="none" />
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('col_del')" width="70" align="center">
+                <template #default="{ $index }">
+                  <el-button type="danger" circle plain @click="removeTask($index)">
+                    <template #icon><Delete /></template>
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <template #footer>
+               <div class="flex justify-between items-center w-full">
+                 <span class="text-sm text-muted-foreground font-mono" v-if="erpStatus">{{ erpStatus }}</span>
+                 <span v-else></span>
+                 <el-button type="primary" @click="syncToERP" :loading="isSyncing" :disabled="tasks.length === 0">
+                    {{ t('btn_sync') }}
+                 </el-button>
+               </div>
+            </template>
+          </el-card>
         </div>
       </template>
 
       <template v-if="activeTab === 'enroll'">
          <div class="w-full flex flex-col gap-8 pb-10 mt-2">
-            <div class="shadcn-card glow-effect">
-                <div class="card-header border-b border-border bg-muted/10">
-                   <h3 class="card-title">{{ t('enroll_title') }}</h3>
-                   <p class="card-description">{{ t('enroll_desc') }}</p>
-                </div>
+            <el-card shadow="never" class="glow-effect">
+                <template #header>
+                   <div class="flex justify-between items-center">
+                     <div>
+                       <h3 class="text-lg font-medium m-0">{{ t('enroll_title') }}</h3>
+                       <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('enroll_desc') }}</p>
+                     </div>
+                   </div>
+                </template>
                 
-                <div class="card-content flex flex-col gap-6 mt-6">
-                    <div class="reading-script bg-muted/20 p-4 rounded-md border border-border mt-2">
+                <div class="flex flex-col gap-6">
+                    <div class="bg-muted/20 p-4 rounded-md border border-border">
                        <h4 class="text-sm font-bold text-primary mb-2">Văn bản mẫu (đọc to và rõ ràng):</h4>
                        <p class="text-sm text-muted-foreground italic leading-relaxed">
                           "Chào hệ thống, tôi đang thực hiện ghi âm để cung cấp mẫu dữ liệu giọng nói cho trợ lý AI. 
@@ -1337,173 +1340,189 @@ onMounted(async () => {
                        </p>
                     </div>
                 
-                    <button @click="toggleRecording" class="shadcn-btn w-full font-bold h-12" :class="isRecording ? 'shadcn-btn-destructive' : 'shadcn-btn-outline'">
-                       <svg v-if="!isRecording" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
-                       <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="mr-2 text-white"><rect width="18" height="18" x="3" y="3" rx="2"></rect></svg>
+                    <el-button @click="toggleRecording" :type="isRecording ? 'danger' : 'default'" :plain="!isRecording" size="large" class="w-full font-bold h-12 text-lg">
+                       <template #icon>
+                         <el-icon v-if="!isRecording"><Microphone /></el-icon>
+                         <el-icon v-else><VideoPause /></el-icon>
+                       </template>
                        {{ isRecording ? t('btn_stop') : t('btn_record') }}
-                    </button>
+                    </el-button>
                     
                     <div v-if="recordedAudioUrl" class="w-full bg-muted/30 p-4 rounded-md border border-border">
                        <audio :src="recordedAudioUrl" controls class="w-full"></audio>
                     </div>
                     
-                    <div class="flex items-center gap-4">
-                        <div class="h-px bg-border flex-1"></div>
-                        <span class="text-xs text-muted-foreground uppercase font-bold tracking-wider">Hoặc</span>
-                        <div class="h-px bg-border flex-1"></div>
-                    </div>
+                    <el-divider>Hoặc</el-divider>
                     
-                    <div class="upload-zone" :class="{ 'active': enrollAudioFile && !recordedAudioUrl }">
-                      <input type="file" id="enroll-audio-upload" @change="handleEnrollFileChange" accept="audio/*" class="hidden-input" />
-                      <label for="enroll-audio-upload" class="upload-label py-12">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-4 text-muted-foreground"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96M14 13v4h-4v-4H7l5-5 5 5z"></path></svg>
-                        <p class="text-base font-medium mb-1">Drag & drop a file here, or click to select</p>
-                        <span class="upload-primary-text text-sm">{{ (enrollAudioFile && !recordedAudioUrl) ? enrollAudioFile.name : 'Supported: .mp3, .wav' }}</span>
-                      </label>
-                    </div>
+                    <el-upload
+                      drag
+                      action="#"
+                      :auto-upload="false"
+                      :show-file-list="false"
+                      accept="audio/*"
+                      @change="file => handleEnrollFileChange({ target: { files: [file.raw] } })"
+                      class="upload-zone w-full"
+                    >
+                      <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+                      <div class="el-upload__text">
+                        Drag & drop a file here, or click to select
+                        <div class="mt-2 text-primary font-medium">{{ (enrollAudioFile && !recordedAudioUrl) ? enrollAudioFile.name : 'Supported: .mp3, .wav' }}</div>
+                      </div>
+                    </el-upload>
                 </div>
                 
-                <div class="card-footer border-t border-border bg-muted/20 flex flex-col gap-3 mt-4">
-                    <button @click="submitEnrollment" :disabled="isEnrolling || !enrollAudioFile" class="shadcn-btn shadcn-btn-primary w-full h-12 text-lg">
+                <template #footer>
+                    <el-button @click="submitEnrollment" type="primary" size="large" :loading="isEnrolling" :disabled="!enrollAudioFile" class="w-full h-12 text-lg">
                        {{ isEnrolling ? "⏳ Đang xử lý..." : t('btn_enroll') }}
-                    </button>
-                    <div v-if="enrollStatus" class="text-center text-sm font-medium mt-1" :class="enrollStatus.includes('✅') ? 'text-primary' : 'text-destructive'">
+                    </el-button>
+                    <div v-if="enrollStatus" class="text-center text-sm font-medium mt-2" :class="enrollStatus.includes('✅') ? 'text-primary' : 'text-danger'">
                        {{ enrollStatus }}
                     </div>
-                </div>
-            </div>
+                </template>
+            </el-card>
          </div>
       </template>
 
       <template v-if="activeTab === 'voice_task'">
          <div class="w-full flex flex-col gap-8 pb-10 mt-2">
             <!-- VOICE TASK SETTINGS CARD -->
-            <div class="shadcn-card glow-effect">
-                <div class="card-header border-b border-border bg-muted/10">
-                   <h3 class="card-title">{{ t('voice_task_title') }}</h3>
-                   <p class="card-description">{{ t('voice_task_desc') }}</p>
-                </div>
+            <el-card shadow="never" class="glow-effect">
+                <template #header>
+                   <div class="flex justify-between items-center">
+                     <div>
+                       <h3 class="text-lg font-medium m-0">{{ t('voice_task_title') }}</h3>
+                       <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('voice_task_desc') }}</p>
+                     </div>
+                   </div>
+                </template>
                 
-                <div class="card-content flex flex-col gap-6 mt-6">
-                    <div class="reading-script bg-primary/5 p-4 rounded-md border border-primary/20">
+                <div class="flex flex-col gap-6">
+                    <div class="bg-primary/5 p-4 rounded-md border border-primary/20">
                        <h4 class="text-sm font-bold text-primary mb-2">Gợi ý câu lệnh mẫu:</h4>
                        <p class="text-sm text-muted-foreground italic leading-relaxed font-sans">
                           "{{ t('voice_task_placeholder') }}"
                        </p>
                     </div>
                 
-                    <button @click="toggleVoiceTaskRecording" class="shadcn-btn w-full font-bold h-12 transition-all cursor-pointer" :class="voiceTaskIsRecording ? 'shadcn-btn-destructive pulse-animation' : 'shadcn-btn-outline'">
-                       <svg v-if="!voiceTaskIsRecording" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
-                       <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="mr-2 text-white"><rect width="18" height="18" x="3" y="3" rx="2"></rect></svg>
+                    <el-button @click="toggleVoiceTaskRecording" :type="voiceTaskIsRecording ? 'danger' : 'default'" :plain="!voiceTaskIsRecording" size="large" class="w-full font-bold h-12 text-lg transition-all">
+                       <template #icon>
+                         <el-icon v-if="!voiceTaskIsRecording"><Microphone /></el-icon>
+                         <el-icon v-else><VideoPause /></el-icon>
+                       </template>
                        {{ voiceTaskIsRecording ? t('btn_stop') : t('btn_record') }}
-                    </button>
+                    </el-button>
                     
-
+                    <el-divider>Hoặc</el-divider>
                     
-                    <div class="flex items-center gap-4">
-                        <div class="h-px bg-border flex-1"></div>
-                        <span class="text-xs text-muted-foreground uppercase font-bold tracking-wider">Hoặc</span>
-                        <div class="h-px bg-border flex-1"></div>
-                    </div>
-                    
-                    <div class="upload-zone" :class="{ 'active': voiceTaskAudioFile && !voiceTaskRecordedUrl }">
-                      <input type="file" id="voice-task-audio-upload" @change="handleVoiceTaskFileChange" accept="audio/*" class="hidden-input" />
-                      <label for="voice-task-audio-upload" class="upload-label py-12">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mb-4 text-muted-foreground"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96M14 13v4h-4v-4H7l5-5 5 5z"></path></svg>
-                        <p class="text-base font-medium mb-1">Kéo thả file vào đây hoặc bấm để chọn</p>
-                        <span class="upload-primary-text text-sm">{{ (voiceTaskAudioFile && !voiceTaskRecordedUrl) ? voiceTaskAudioFile.name : 'Hỗ trợ: .mp3, .wav' }}</span>
-                      </label>
-                    </div>
+                    <el-upload
+                      drag
+                      action="#"
+                      :auto-upload="false"
+                      :show-file-list="false"
+                      accept="audio/*"
+                      @change="file => handleVoiceTaskFileChange({ target: { files: [file.raw] } })"
+                      class="upload-zone w-full"
+                    >
+                      <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+                      <div class="el-upload__text">
+                        Kéo thả file vào đây hoặc bấm để chọn
+                        <div class="mt-2 text-primary font-medium">{{ (voiceTaskAudioFile && !voiceTaskRecordedUrl) ? voiceTaskAudioFile.name : 'Hỗ trợ: .mp3, .wav' }}</div>
+                      </div>
+                    </el-upload>
                 </div>
                 
-                <div class="card-footer border-t border-border bg-muted/20 flex flex-col gap-3 mt-4">
-                    <button @click="submitVoiceTask" :disabled="isVoiceTaskProcessing || !voiceTaskAudioFile" class="shadcn-btn shadcn-btn-primary w-full h-12 text-lg">
+                <template #footer>
+                    <el-button @click="submitVoiceTask" type="primary" size="large" :loading="isVoiceTaskProcessing" :disabled="!voiceTaskAudioFile" class="w-full h-12 text-lg">
                        {{ isVoiceTaskProcessing ? t('voice_task_parsing') : 'Bắt đầu xử lý lệnh giọng nói' }}
-                    </button>
-                    <div v-if="voiceTaskStatus" class="text-center text-sm font-medium mt-1" :class="voiceTaskStatus.includes('✅') ? 'text-primary' : 'text-destructive'">
+                    </el-button>
+                    <div v-if="voiceTaskStatus" class="text-center text-sm font-medium mt-2" :class="voiceTaskStatus.includes('✅') ? 'text-primary' : 'text-danger'">
                        {{ voiceTaskStatus }}
                     </div>
-                </div>
-            </div>
+                </template>
+            </el-card>
 
 
 
             <!-- AI ASSISTANT CHAT BUBBLE (LUÔN HIỆN KHI CÓ TASK ĐỂ CHỈNH SỬA) -->
-            <div v-if="parsedVoiceTask" class="shadcn-card border-primary/40 glow-effect" style="background: hsla(var(--primary)/0.03); backdrop-filter: blur(10px); margin-top: 1rem;">
-                <div class="card-header border-b border-border bg-primary/5 flex items-center gap-3">
-                   <div class="avatar flex items-center justify-center text-white font-bold" style="background: linear-gradient(135deg, #a855f7, #6366f1); width: 36px; height: 36px; border-radius: 50%;">🤖</div>
-                   <div>
-                      <h3 class="card-title text-primary flex items-center gap-2">Trợ lý AI</h3>
-                      <p v-if="voiceTaskMissingFields && voiceTaskMissingFields.length > 0" class="card-description text-destructive font-medium">Phát hiện thông tin tạo Task chưa đầy đủ</p>
-                      <p v-else class="card-description" style="color: #10b981; font-weight: 500;">Thông tin đã đầy đủ, bạn có thể lưu hoặc tiếp tục tinh chỉnh</p>
+            <el-card v-if="parsedVoiceTask" shadow="hover" style="background: hsla(var(--primary)/0.03); margin-top: 1rem; border-color: var(--el-color-primary-light-7);">
+                <template #header>
+                   <div class="flex items-center gap-3">
+                     <el-avatar :size="36" style="background: linear-gradient(135deg, #a855f7, #6366f1); font-size: 18px;">🤖</el-avatar>
+                     <div>
+                        <h3 class="text-primary font-medium m-0 flex items-center gap-2">Trợ lý AI</h3>
+                        <p v-if="voiceTaskMissingFields && voiceTaskMissingFields.length > 0" class="text-sm text-danger m-0 font-medium">Phát hiện thông tin tạo Task chưa đầy đủ</p>
+                        <p v-else class="text-sm m-0" style="color: #10b981; font-weight: 500;">Thông tin đã đầy đủ, bạn có thể lưu hoặc tiếp tục tinh chỉnh</p>
+                     </div>
                    </div>
-                </div>
-                <div class="card-content flex flex-col gap-4 mt-4">
+                </template>
+                <div class="flex flex-col gap-4">
                    <!-- Missing Fields Badges -->
                    <div v-if="voiceTaskMissingFields && voiceTaskMissingFields.length > 0" class="flex flex-wrap gap-2 items-center">
                       <span class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Thông tin còn thiếu:</span>
-                      <span v-if="voiceTaskMissingFields.includes('project')" class="attendee-chip attendee-chip--active bg-destructive/10 border-destructive/30 text-destructive font-bold flex items-center gap-1.5 px-3 py-1 text-xs rounded-full" style="border-color: rgba(239, 68, 68, 0.4); color: rgb(239, 68, 68); background: rgba(239, 68, 68, 0.1);">
-                         ⚠️ Thiếu Dự án
-                      </span>
-                      <span v-if="voiceTaskMissingFields.includes('assignee')" class="attendee-chip attendee-chip--active bg-destructive/10 border-destructive/30 text-destructive font-bold flex items-center gap-1.5 px-3 py-1 text-xs rounded-full" style="border-color: rgba(239, 68, 68, 0.4); color: rgb(239, 68, 68); background: rgba(239, 68, 68, 0.1);">
-                         ⚠️ Thiếu Người phụ trách
-                      </span>
-                      <span v-if="voiceTaskMissingFields.includes('end_date')" class="attendee-chip attendee-chip--active bg-destructive/10 border-destructive/30 text-destructive font-bold flex items-center gap-1.5 px-3 py-1 text-xs rounded-full" style="border-color: rgba(239, 68, 68, 0.4); color: rgb(239, 68, 68); background: rgba(239, 68, 68, 0.1);">
-                         ⚠️ Thiếu Hạn chót
-                      </span>
+                      <el-tag v-if="voiceTaskMissingFields.includes('project')" type="danger" effect="light" round>
+                         <el-icon><Warning /></el-icon> Thiếu Dự án
+                      </el-tag>
+                      <el-tag v-if="voiceTaskMissingFields.includes('assignee')" type="danger" effect="light" round>
+                         <el-icon><Warning /></el-icon> Thiếu Người phụ trách
+                      </el-tag>
+                      <el-tag v-if="voiceTaskMissingFields.includes('end_date')" type="danger" effect="light" round>
+                         <el-icon><Warning /></el-icon> Thiếu Hạn chót
+                      </el-tag>
                    </div>
 
                    <!-- AI Clarification Question -->
-                   <div class="p-4 bg-background/50 border border-border rounded-lg leading-relaxed text-base font-medium font-sans">
+                   <div class="p-4 bg-background border border-border rounded-lg leading-relaxed text-base font-medium font-sans">
                       "{{ (voiceTaskMissingFields && voiceTaskMissingFields.length > 0) ? voiceTaskClarification : 'Tất cả thông tin cốt lõi đã sẵn sàng! Bạn muốn bổ sung hay thay đổi gì nữa không?' }}"
                    </div>
 
-                   <div class="h-px bg-border my-1"></div>
+                   <el-divider style="margin: 4px 0" />
 
                    <!-- Voice Refinement input -->
                    <div class="flex flex-col gap-3">
                       <span class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Nói hoặc tải lên câu lệnh để chỉnh sửa:</span>
                       
-                      <button @click="toggleVoiceTaskRefineRecording" class="shadcn-btn w-full font-bold h-11 transition-all cursor-pointer" :class="voiceTaskRefineIsRecording ? 'shadcn-btn-destructive pulse-animation' : 'shadcn-btn-outline'">
-                         <svg v-if="!voiceTaskRefineIsRecording" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
-                         <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="mr-2 text-white"><rect width="18" height="18" x="3" y="3" rx="2"></rect></svg>
+                      <el-button @click="toggleVoiceTaskRefineRecording" :type="voiceTaskRefineIsRecording ? 'danger' : 'default'" :plain="!voiceTaskRefineIsRecording" size="large" class="w-full font-bold h-11 transition-all">
+                         <template #icon>
+                           <el-icon v-if="!voiceTaskRefineIsRecording"><Microphone /></el-icon>
+                           <el-icon v-else><VideoPause /></el-icon>
+                         </template>
                          {{ voiceTaskRefineIsRecording ? 'Dừng ghi âm bổ sung' : 'Nói để bổ sung/chỉnh sửa thông tin' }}
-                      </button>
+                      </el-button>
 
                       <div v-if="voiceTaskRefineRecordedUrl" class="w-full bg-background p-3 rounded-md border border-border flex items-center gap-4">
                          <audio :src="voiceTaskRefineRecordedUrl" controls class="flex-1"></audio>
                       </div>
 
-                      <div class="flex items-center gap-4 py-1">
-                         <div class="h-px bg-border flex-1"></div>
-                         <span class="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Hoặc chọn file</span>
-                         <div class="h-px bg-border flex-1"></div>
-                      </div>
+                      <el-divider>Hoặc chọn file</el-divider>
 
                       <div class="flex items-center gap-3">
                          <input type="file" id="voice-task-refine-upload" @change="handleVoiceTaskRefineFileChange" accept="audio/*" style="display:none" />
-                         <label for="voice-task-refine-upload" class="shadcn-btn shadcn-btn-outline flex-1 cursor-pointer">
-                            📁 {{ voiceTaskRefineAudioFile ? voiceTaskRefineAudioFile.name : 'Chọn file ghi âm bổ sung' }}
+                         <label for="voice-task-refine-upload" class="flex-1">
+                            <el-button tag="span" style="width: 100%" size="large" plain>
+                               <template #icon><Folder /></template>
+                               {{ voiceTaskRefineAudioFile ? voiceTaskRefineAudioFile.name : 'Chọn file ghi âm bổ sung' }}
+                            </el-button>
                          </label>
-                         <button @click="submitVoiceTaskRefine" :disabled="isVoiceTaskProcessing || !voiceTaskRefineAudioFile" class="shadcn-btn shadcn-btn-primary flex-1">
-                            🚀 Gửi yêu cầu chỉnh sửa
-                         </button>
+                         <el-button @click="submitVoiceTaskRefine" type="primary" size="large" :loading="isVoiceTaskProcessing" :disabled="!voiceTaskRefineAudioFile" class="flex-1">
+                            <template #icon><Position /></template>
+                            Gửi yêu cầu chỉnh sửa
+                         </el-button>
                       </div>
                    </div>
                 </div>
-            </div>
+            </el-card>
 
             <!-- PARSED TASK CARD (PREVIEW & EDIT) -->
-            <div v-if="parsedVoiceTask" class="shadcn-card border-primary/30" style="background: hsl(var(--card)); margin-top: 1rem;">
-                <div class="card-header border-b border-border bg-primary/5">
-                   <h3 class="card-title text-primary flex items-center gap-2">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"/><path d="m18 22 4-4-6-6-4 4Z"/><path d="m8.5 2.5 13 13"/></svg>
+            <el-card v-if="parsedVoiceTask" shadow="never" style="margin-top: 1rem; border-color: var(--el-color-primary-light-7);">
+                <template #header>
+                   <h3 class="text-primary text-lg font-medium m-0 flex items-center gap-2">
+                     <el-icon><EditPen /></el-icon>
                       Xem trước và hiệu chỉnh Task tạo từ AI
                    </h3>
-                   <p class="card-description">Các thông tin được trích xuất tự động qua OpenAI. Vui lòng xác nhận trước khi lưu.</p>
-                </div>
+                   <p class="text-sm text-muted-foreground m-0 mt-1">Các thông tin được trích xuất tự động qua OpenAI. Vui lòng xác nhận trước khi lưu.</p>
+                </template>
                 
-                <div class="card-content flex flex-col gap-6 mt-6">
+                <div class="flex flex-col gap-6">
                    <!-- Transcript Text -->
                    <div class="flex flex-col gap-1.5 p-3 bg-muted/20 rounded-md border border-border">
                      <span class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Văn bản chuyển đổi từ giọng nói (STT):</span>
@@ -1511,89 +1530,89 @@ onMounted(async () => {
                    </div>
 
                    <!-- Form Fields Table -->
-                   <div class="overflow-x-auto border border-border rounded-lg bg-card mt-2">
-                     <table class="shadcn-table w-full text-sm">
-                        <thead class="bg-muted/20 border-b border-border">
-                           <tr>
-                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[200px]">{{ t('col_name') }}</th>
-                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[180px]">{{ t('col_assignee') }}</th>
-                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[200px]">{{ t('col_project') }}</th>
-                              <th class="p-4 text-left font-medium text-muted-foreground w-36">{{ t('col_start') }}</th>
-                              <th class="p-4 text-left font-medium text-muted-foreground w-36">{{ t('col_due') }}</th>
-                              <th class="p-4 text-left font-medium text-muted-foreground min-w-[250px]">{{ t('col_desc') }}</th>
-                           </tr>
-                        </thead>
-                        <tbody>
-                           <tr class="border-b border-border hover:bg-muted/10 transition-colors">
-                              <td class="p-3"><input v-model="parsedVoiceTask.title" class="shadcn-table-input" /></td>
-                              <td class="p-3 overflow-visible" style="min-width: 200px;">
-                                <Multiselect
-                                  v-model="parsedVoiceTask.assignee_display"
-                                  :options="employeeOptions"
-                                  placeholder="Tìm người..."
-                                  :searchable="true"
-                                  style="min-height: 2.5rem;"
-                                />
-                              </td>
-                              <td class="p-3">
-                                <select v-model="parsedVoiceTask.project" class="shadcn-table-select">
-                                  <option value="">{{ t('empty_project') }}</option>
-                                  <option v-for="p in voiceTaskProjects" :key="p.name" :value="p.name">
-                                    {{ p.project_name ? p.project_name : p.name }}
-                                  </option>
-                                </select>
-                              </td>
-                              <td class="p-3"><input v-model="parsedVoiceTask.start_date" type="date" class="shadcn-table-input px-2" /></td>
-                              <td class="p-3"><input v-model="parsedVoiceTask.due_date" type="date" class="shadcn-table-input px-2" /></td>
-                              <td class="p-3"><textarea v-model="parsedVoiceTask.description" class="shadcn-table-input resize-y min-h-[80px] py-2"></textarea></td>
-                           </tr>
-                        </tbody>
-                     </table>
-                   </div>
+                   <el-table :data="[parsedVoiceTask]" style="width: 100%" border size="small">
+                      <el-table-column :label="t('col_name')" min-width="200">
+                        <template #default="{ row }">
+                          <el-input v-model="row.title" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column :label="t('col_assignee')" min-width="180">
+                        <template #default="{ row }">
+                          <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..." style="width: 100%">
+                            <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
+                          </el-select>
+                        </template>
+                      </el-table-column>
+                      <el-table-column :label="t('col_project')" min-width="150">
+                        <template #default="{ row }">
+                          <el-select v-model="row.project" style="width: 100%">
+                            <el-option label="[Không có]" value="" />
+                            <el-option v-for="p in voiceTaskProjects" :key="p.name" :label="p.project_name ? p.project_name : p.name" :value="p.name" />
+                          </el-select>
+                        </template>
+                      </el-table-column>
+                      <el-table-column :label="t('col_start')" width="130">
+                        <template #default="{ row }">
+                          <el-date-picker v-model="row.start_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column :label="t('col_due')" width="130">
+                        <template #default="{ row }">
+                          <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column :label="t('col_desc')" min-width="250">
+                        <template #default="{ row }">
+                          <el-input v-model="row.description" type="textarea" :rows="3" resize="none" />
+                        </template>
+                      </el-table-column>
+                   </el-table>
                 </div>
 
-                <div class="card-footer border-t border-border bg-muted/20 flex-between">
-                   <span class="text-sm font-semibold font-mono" :class="voiceTaskSyncStatus.includes('✅') ? 'text-primary' : 'text-destructive'">{{ voiceTaskSyncStatus }}</span>
-                   <button @click="syncVoiceTaskToERP" :disabled="isVoiceTaskSyncing" class="shadcn-btn shadcn-btn-primary h-11 px-8 text-base cursor-pointer">
-                      {{ isVoiceTaskSyncing ? '⏳ Đang đồng bộ...' : 'Tạo & Đồng bộ Task lên ERPNext' }}
-                   </button>
-                </div>
-            </div>
+                <template #footer>
+                   <div class="flex justify-between items-center w-full">
+                     <span class="text-sm font-semibold font-mono" :class="voiceTaskSyncStatus.includes('✅') ? 'text-primary' : 'text-danger'">{{ voiceTaskSyncStatus }}</span>
+                     <el-button @click="syncVoiceTaskToERP" type="primary" size="large" :loading="isVoiceTaskSyncing">
+                        {{ isVoiceTaskSyncing ? '⏳ Đang đồng bộ...' : 'Tạo & Đồng bộ Task lên ERPNext' }}
+                     </el-button>
+                   </div>
+                </template>
+            </el-card>
          </div>
       </template>
 
       <template v-if="activeTab === 'view_meeting'">
          <div class="w-full flex flex-col gap-8 pb-10 mt-2">
-            <div class="shadcn-card glow-effect">
-                <div class="card-header border-b border-border bg-muted/10">
-                  <h3 class="card-title">{{ currentMeeting?.title }}</h3>
-                  <p class="card-description">{{ currentMeeting?.date }} &middot; Trạng thái: {{ currentMeeting?.status }}</p>
-                </div>
+            <el-card shadow="never" class="glow-effect">
+                <template #header>
+                  <h3 class="text-lg font-medium m-0">{{ currentMeeting?.title }}</h3>
+                  <p class="text-sm text-muted-foreground m-0 mt-1">{{ currentMeeting?.date }} &middot; Trạng thái: {{ currentMeeting?.status }}</p>
+                </template>
                 
-                <div class="card-content flex flex-col gap-6 mt-6">
+                <div class="flex flex-col gap-6">
                   <!-- Actions -->
                   <div class="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-lg border border-border">
-                     <a v-if="currentMeeting?.audio_file" :href="currentMeeting.audio_file" target="_blank" class="shadcn-btn shadcn-btn-outline flex items-center gap-2">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                     <el-button v-if="currentMeeting?.audio_file" tag="a" :href="currentMeeting.audio_file" target="_blank" plain>
+                       <template #icon><VideoPlay /></template>
                        Nghe lại Audio
-                     </a>
+                     </el-button>
                      
-                     <button v-if="currentMeeting?.minute_docx" @click="downloadViaBackend(currentMeeting.name, 'docx')" class="shadcn-btn shadcn-btn-outline flex items-center gap-2 text-primary border-primary/20 hover:bg-primary/10">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                     <el-button v-if="currentMeeting?.minute_docx" @click="downloadViaBackend(currentMeeting.name, 'docx')" type="primary" plain>
+                       <template #icon><Document /></template>
                        Tải Biên bản (Word)
-                     </button>
+                     </el-button>
                      
-                     <button v-if="currentMeeting?.task_xlsx" @click="downloadViaBackend(currentMeeting.name, 'xlsx')" class="shadcn-btn shadcn-btn-outline flex items-center gap-2 text-green-500 border-green-500/20 hover:bg-green-500/10">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M8 13h2"></path><path d="M8 17h2"></path><path d="M14 13h2"></path><path d="M14 17h2"></path></svg>
+                     <el-button v-if="currentMeeting?.task_xlsx" @click="downloadViaBackend(currentMeeting.name, 'xlsx')" type="success" plain>
+                       <template #icon><Download /></template>
                        Tải Tasks (Excel)
-                     </button>
+                     </el-button>
                   </div>
 
                   <!-- Parsed JSON Transcript (raw_results) -->
                   <div class="mt-4" v-if="currentMeeting?.raw_results">
                     <h4 class="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Nội dung hội thoại</h4>
                     <div class="bg-muted/10 border border-border rounded-lg max-h-[550px] overflow-y-auto">
-                      <div class="log-view p-6 space-y-4">
+                      <div class="p-6 space-y-4">
                         <div
                           v-for="(seg, idx) in parseMeetingSegments(currentMeeting.raw_results)"
                           :key="idx"
@@ -1630,7 +1649,7 @@ onMounted(async () => {
                     </div>
                   </div>
                 </div>
-            </div>
+            </el-card>
          </div>
       </template>
 
