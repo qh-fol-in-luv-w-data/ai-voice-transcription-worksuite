@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
-import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees } from './api'
+import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
 import { initSession, useSession } from './utils/session'
 
 import CTSplashScreen from './components/CTSplashScreen.vue'
@@ -71,8 +71,11 @@ const unknownSpeakers = computed(() => {
 
 const updateIdentities = async () => {
   let changed = false
+  const mappingsToSave = {}
+  
   for (const seg of transcriptResults.value) {
     if (speakerMapping.value[seg[2]]) {
+      mappingsToSave[seg[2]] = speakerMapping.value[seg[2]]
       seg[2] = speakerMapping.value[seg[2]]
       changed = true
     }
@@ -88,11 +91,30 @@ const updateIdentities = async () => {
     if (currentMeetingName.value) {
       try {
         await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+        const enrollRes = await enrollMappedSpeakers(currentMeetingName.value, mappingsToSave)
+        
+        let msg = '✅ Đã cập nhật danh tính thành công!\n'
+        if (enrollRes && typeof enrollRes === 'object') {
+           if (enrollRes.enrolled && enrollRes.enrolled.length > 0) {
+             msg += `\n🎙️ Đã tự động lưu ${enrollRes.enrolled.length} mẫu giọng mới.`
+             // refresh voice db speakers so they show up in UI
+             await fetchEnrolledSpeakers()
+           }
+           if (enrollRes.skipped && enrollRes.skipped.length > 0) {
+             msg += `\n⏭️ Đã bỏ qua ${enrollRes.skipped.length} nhân viên (đã có mẫu giọng).`
+           }
+           if (enrollRes.errors && enrollRes.errors.length > 0) {
+             msg += `\n⚠️ Không thể lấy mẫu giọng cho ${enrollRes.errors.length} người (âm thanh quá ngắn).`
+           }
+        }
+        alert(msg)
       } catch(e) {
         console.warn('Could not save updated identities to server', e)
+        alert('✅ Đã cập nhật danh tính thành công trên giao diện, nhưng có lỗi lưu lên server.')
       }
+    } else {
+      alert('✅ Đã cập nhật danh tính thành công!')
     }
-    alert('✅ Đã cập nhật danh tính thành công!')
   } else {
     alert('Chưa có thay đổi nào được áp dụng.')
   }

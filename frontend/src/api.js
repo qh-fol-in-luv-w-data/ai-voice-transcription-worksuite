@@ -104,6 +104,14 @@ export async function updateMeetingResults(meetingName, results) {
   return res.data.message
 }
 
+export async function enrollMappedSpeakers(meetingName, mappings) {
+  const res = await api.post('/api/method/voice_app.api.map_and_enroll_speakers', {
+    meeting_name: meetingName,
+    mappings: mappings
+  })
+  return res.data.message
+}
+
 export async function voiceToTask(file, existingTask = null) {
   const formData = new FormData()
   formData.append('file', file)
