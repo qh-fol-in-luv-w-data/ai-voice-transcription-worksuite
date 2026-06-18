@@ -52,7 +52,7 @@ export const isTaskModalOpen = ref(false)
 // Dictionary for i18n
 export const dict = {
   vi: {
-    title: "Phiên bản Tiên tiến",
+    title: "2AS Worksuite",
     audio_processing: "Xử lý Âm thanh",
     audio_desc: "Tải lên file ghi âm để dịch và nhận diện người nói.",
     upload_empty: "Chọn hoặc thả file âm thanh vào đây",
@@ -108,7 +108,7 @@ export const dict = {
     no_history: "Chưa có lịch sử"
   },
   en: {
-    title: "Advanced Edition",
+    title: "2AS Worksuite",
     audio_processing: "Audio Processing",
     audio_desc: "Upload an audio file to transcribe and identify speakers.",
     upload_empty: "Click or drag audio file here",
