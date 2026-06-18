@@ -9,7 +9,7 @@ export const activeTab = ref('transcribe')
 
 // Global App State
 export const audioFile = ref(null)
-export const language = ref('vi')
+export const language = ref('auto')
 export const modelType = ref('gpt-4o')
 
 export const isTranscribing = ref(false)
