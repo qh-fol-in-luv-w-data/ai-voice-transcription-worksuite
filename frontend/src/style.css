@@ -711,3 +711,37 @@ body {
 .log-view::-webkit-scrollbar-track { background: hsl(var(--muted)); border-radius: 6px; }
 .log-view::-webkit-scrollbar-thumb { background: hsl(var(--primary) / 0.8); border-radius: 6px; border: 2px solid hsl(var(--background)); }
 .log-view::-webkit-scrollbar-thumb:hover { background: hsl(var(--primary)); }
+
+/* Override CSS for dark mode - Multiselect and Table Inputs */
+.dark {
+  --ms-bg: hsl(var(--input));
+  --ms-font-color: hsl(var(--foreground));
+  --ms-dropdown-bg: hsl(var(--card));
+  --ms-option-color-pointed: hsl(var(--foreground));
+  --ms-option-bg-pointed: hsl(var(--muted));
+  --ms-option-color-selected: hsl(var(--primary-foreground));
+  --ms-option-bg-selected: hsl(var(--primary));
+  --ms-option-color-selected-pointed: hsl(var(--primary-foreground));
+  --ms-option-bg-selected-pointed: hsl(var(--primary));
+  --ms-dropdown-border-color: hsl(var(--border));
+  --ms-border-color: transparent;
+  --ms-clear-color: hsl(var(--foreground));
+  --ms-clear-color-hover: hsl(var(--destructive));
+  --ms-caret-color: hsl(var(--foreground));
+  --ms-tag-bg: hsl(var(--primary));
+  --ms-tag-color: hsl(var(--primary-foreground));
+  --ms-placeholder-color: hsl(var(--muted-foreground));
+}
+
+.dark .multiselect {
+  --ms-bg: transparent;
+  --ms-border-color: transparent;
+}
+.dark .multiselect.is-open {
+  --ms-bg: hsl(var(--background));
+}
+
+.dark .shadcn-table-input,
+.dark .shadcn-table-select {
+  color: hsl(var(--foreground)) !important;
+}

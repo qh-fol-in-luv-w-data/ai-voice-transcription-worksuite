@@ -192,12 +192,22 @@ Nội dung biên bản họp:
 """ + state["doc_text"]
 
     try:
+        def _log_tokens(response, label=""):
+            try:
+                import frappe
+                from voice_app.utils.activity_logger import ActivityLogger
+                act_logger = ActivityLogger("TokenLog", "voice_app")
+                act_logger.log_ai_call(response, label)
+            except Exception as e:
+                print(f"[_log_tokens] Error: {e}")
+
         response = client.chat.completions.create(
             model=model_type,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=2000,
         )
+        _log_tokens(response, "voice_app.task_extractor")
         raw = response.choices[0].message.content.strip()
 
         # Clean JSON
@@ -695,7 +705,25 @@ def create_tasks_to_erp(tasks_list):
             "X-Frappe-Site-Name":  base_url.replace("https://", "").replace("http://", ""),
         })
 
+    # Fetch existing tasks to check duplicates
+    existing_tasks = []
+    try:
+        resp_existing = session.get(
+            f"{base_url}/api/resource/Task",
+            params={
+                "fields": '["name", "subject", "project", "custom_assignee"]',
+                "filters": '[["status", "in", ["Open", "Working"]]]',
+                "limit": 5000,
+            },
+            timeout=15
+        )
+        if resp_existing.status_code == 200:
+            existing_tasks = resp_existing.json().get("data", [])
+    except Exception as e:
+        print(f"Lỗi lấy existing tasks: {e}")
+
     created, errors = [], []
+    has_error = False
     
     for item in tasks_list:
         
@@ -714,8 +742,24 @@ def create_tasks_to_erp(tasks_list):
         elif display_val.startswith("HR_EMP_") or display_val.startswith("HR-EMP-"):
             hr_code = display_val.strip()
             
+        subject = item.get("title", "Task không tên")
+            
+        # Check duplicate
+        is_duplicate = False
+        for ex in existing_tasks:
+            if ex.get("subject") == subject and ex.get("project") == project_id and ex.get("custom_assignee") == hr_code:
+                is_duplicate = True
+                break
+                
+        if is_duplicate:
+            err = f"'{subject[:40]}': Đã tồn tại (Trùng lặp)"
+            print(f"   ⚠️ {err}")
+            errors.append(err)
+            has_error = True
+            break
+            
         payload = {
-            "subject":        item.get("title", "Task không tên"),
+            "subject":        subject,
             "status":         "Open",
             "description":    item.get("description", ""),
             "task_weight":    float(item.get("weight", 0) or 0),
@@ -750,7 +794,8 @@ def create_tasks_to_erp(tasks_list):
                 err = f"'{item.get('title', '')[:40]}': HTTP {resp.status_code} - {resp.text[:300]}"
                 print(f"   ❌ {err}")
                 errors.append(err)
-                continue
+                has_error = True
+                break
 
             task_name = resp.json().get("data", {}).get("name", "?")
 
@@ -779,9 +824,22 @@ def create_tasks_to_erp(tasks_list):
             print(f"   ✅ Tạo thành công: {task_name}")
 
         except Exception as e:
-            err = f"'{item['title'][:40]}': {str(e)}"
+            err = f"'{item.get('title', '')[:40]}': {str(e)}"
             print(f"   ❌ {err}")
             errors.append(err)
+            has_error = True
+            break
+
+    if has_error and created:
+        print("\n⏪ Rollback: Xoá các task đã tạo vì có lỗi...")
+        for t in created:
+            try:
+                session.delete(f"{base_url}/api/resource/Task/{t['task_name']}", timeout=10)
+                print(f"   Xoá thành công: {t['task_name']}")
+            except Exception as e:
+                print(f"   Lỗi khi xoá {t['task_name']}: {e}")
+        created = []
+        errors.append("Đã rollback các task thành công vì có lỗi xảy ra.")
 
     return {"created_tasks": created, "errors": errors}
 
@@ -871,12 +929,22 @@ def clean_transcript_llm(results, model_type="gpt-4o-mini"):
 """ + "\n".join(lines)
 
     try:
+        def _log_tokens(response, label=""):
+            try:
+                import frappe
+                from voice_app.utils.activity_logger import ActivityLogger
+                act_logger = ActivityLogger("TokenLog", "voice_app")
+                act_logger.log_ai_call(response, label)
+            except Exception as e:
+                print(f"[_log_tokens] Error: {e}")
+
         response = client.chat.completions.create(
             model=model_type,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=4000,
         )
+        _log_tokens(response, "voice_app.clean_transcript")
         raw = response.choices[0].message.content.strip()
         raw = re.sub(r"```json\s*", "", raw)
         raw = re.sub(r"```", "", raw).strip()

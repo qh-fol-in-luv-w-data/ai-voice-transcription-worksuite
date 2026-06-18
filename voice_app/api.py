@@ -35,11 +35,57 @@ def transcribe_audio(language="vi", filter_speakers=None):
             return {"status": "error", "message": err}
 
         # Call ElevenLabs
-        segments, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language)
+        segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language)
         if err:
             return {"status": "error", "message": err}
 
-        # ── DIARIZATION ────────────────────────────────────────────────────────
+        # ── PYANNOTE RE-DIARIZATION ────────────────────────────────────────────
+        # Thay thế speaker_id từ ElevenLabs bằng kết quả pyannote để tách đúng
+        # người nói khi 2 người nói liên tiếp bị ElevenLabs gộp chung
+        if raw_words:
+            try:
+                from voice_app.speaker_manager import run_diarization_subprocess
+                from voice_app.constants import MAX_SPEAKERS
+                diar_segs = run_diarization_subprocess(wav, max_speakers=MAX_SPEAKERS)
+
+                # Gán pyannote speaker cho từng word (theo overlap nhiều nhất)
+                def _find_speaker(w_start, w_end, diar):
+                    best, best_ov = None, 0.0
+                    for d in diar:
+                        ov = min(w_end, d["end"]) - max(w_start, d["start"])
+                        if ov > best_ov:
+                            best_ov, best = ov, d["speaker"]
+                    return best
+
+                for w in raw_words:
+                    spk = _find_speaker(w["start"], w["end"], diar_segs)
+                    if spk:
+                        w["speaker_id"] = spk
+
+                # Re-group words thành segments theo pyannote speaker_id
+                new_segments = []
+                cur = None
+                for w in raw_words:
+                    if not w["text"].strip():
+                        continue
+                    if cur is None or cur["speaker_id"] != w["speaker_id"]:
+                        if cur:
+                            new_segments.append(cur)
+                        cur = {"start": w["start"], "end": w["end"],
+                               "speaker_id": w["speaker_id"], "text": w["text"]}
+                    else:
+                        cur["end"]   = w["end"]
+                        cur["text"] += " " + w["text"]
+                if cur:
+                    new_segments.append(cur)
+
+                segments = new_segments
+                print(f"[Diarization] pyannote OK: {len(diar_segs)} speaker-segs → {len(segments)} segments")
+            except Exception as diar_err:
+                print(f"[Diarization] pyannote failed, fallback to ElevenLabs: {diar_err}")
+                # segments giữ nguyên từ ElevenLabs
+
+        # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
         spk_db = SpeakerDB()
         unique_speakers = {}
         for seg in segments:
@@ -660,6 +706,113 @@ def enroll_voice():
         return {"status": "error", "message": str(e)}
 
 @frappe.whitelist(allow_guest=False)
+def map_and_enroll_speakers():
+    """
+    Tự động trích xuất và lưu mẫu giọng cho các 'Người lạ' được gán danh tính.
+    Nếu nhân viên đã có mẫu giọng thì bỏ qua.
+    Tìm đoạn hội thoại dài nhất của người đó trong meeting để làm mẫu.
+    """
+    import json
+    import os
+    from voice_app.api import convert_to_wav
+    from voice_app.speaker_manager import _extract_embedding_subprocess, SpeakerDB
+    from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+    import requests
+
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+    mappings = payload.get("mappings", {})  # {"Speaker 0": "Nguyen Van A (EMP-001)"}
+    
+    if not meeting_name or not mappings:
+        return {"status": "error", "message": "Thiếu dữ liệu meeting_name hoặc mappings"}
+        
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not meeting or not meeting.raw_results:
+        return {"status": "error", "message": "Không tìm thấy meeting hoặc dữ liệu raw_results"}
+        
+    results = json.loads(meeting.raw_results)
+    audio_path = frappe.get_site_path(meeting.audio_file.strip('/'))
+    
+    # Lấy danh sách nhân viên từ CTERP để trích xuất email
+    employees_dict = {}
+    try:
+        session = requests.Session()
+        base_url = get_worksuite_url()
+        login_resp = session.post(f"{base_url}/api/method/login", json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()}, timeout=10)
+        if login_resp.status_code == 200:
+            emp_resp = session.get(f"{base_url}/api/resource/Employee", params={"fields": '["name","employee_name","user_id"]', "limit_page_length": 5000}, timeout=10)
+            if emp_resp.status_code == 200:
+                for emp in emp_resp.json().get("data", []):
+                    key = f"{emp.get('employee_name')} ({emp.get('name')})"
+                    employees_dict[key] = emp.get('user_id') or "Chưa cập nhật"
+    except Exception as e:
+        frappe.log_error(str(e), "Fetch Employees Error in map_and_enroll")
+
+    enrolled = []
+    skipped = []
+    errors = []
+    
+    # Check what needs to be enrolled first to avoid unnecessary wav conversion
+    needs_enrollment = {}
+    db = SpeakerDB()
+    
+    for old_speaker, new_speaker in mappings.items():
+        existing = frappe.get_all("Voice Speaker", filters={"speaker_name": new_speaker}, fields=["name", "embedding"])
+        if existing and existing[0].get("embedding"):
+            skipped.append(new_speaker)
+            continue
+            
+        longest_segment = None
+        max_duration = 0
+        for seg in results:
+            if seg[2] == old_speaker:
+                dur = seg[1] - seg[0]
+                if dur > max_duration:
+                    max_duration = dur
+                    longest_segment = seg
+        
+        # Chỉ lấy nếu đoạn dài > 2.0s
+        if longest_segment and max_duration >= 2.0:
+            needs_enrollment[new_speaker] = longest_segment
+        else:
+            errors.append(f"{new_speaker} (Audio quá ngắn, cần > 2s)")
+            
+    if not needs_enrollment:
+        return {
+            "status": "success",
+            "enrolled": enrolled,
+            "skipped": skipped,
+            "errors": errors
+        }
+
+    # Convert to wav
+    wav_path, err = convert_to_wav(audio_path)
+    if err:
+        return {"status": "error", "message": f"Lỗi xử lý file âm thanh: {err}"}
+        
+    try:
+        for new_speaker, seg in needs_enrollment.items():
+            start, end = seg[0], seg[1]
+            try:
+                embedding = _extract_embedding_subprocess(wav_path, start, end)
+                email = employees_dict.get(new_speaker, "")
+                db.add_speaker(new_speaker, embedding, email=email, user_info=None)
+                enrolled.append(new_speaker)
+            except Exception as ex:
+                frappe.log_error(str(ex), f"Enroll mapped speaker error for {new_speaker}")
+                errors.append(new_speaker)
+    finally:
+        if os.path.exists(wav_path): os.remove(wav_path)
+        
+    return {
+        "status": "success",
+        "enrolled": enrolled,
+        "skipped": skipped,
+        "errors": errors
+    }
+
+@frappe.whitelist(allow_guest=False)
 def get_current_user():
     return frappe.session.user
 
@@ -805,7 +958,7 @@ def voice_to_task(existing_task=None):
             return {"status": "error", "message": err}
 
         # Gọi ElevenLabs Speech-to-Text
-        segments, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
+        segments, _raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
         if err:
             return {"status": "error", "message": err}
             

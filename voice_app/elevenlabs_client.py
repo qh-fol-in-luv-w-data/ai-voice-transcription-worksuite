@@ -85,38 +85,49 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> tuple:
         chars_used = max(0, chars_after - chars_before)
         chars_remaining = max(0, chars_limit - chars_after)
         
-        # Kết quả trả về chứa .words hoặc .text. Ta cần gộp words thành các đoạn theo speaker
+        # Gộp words thành segments theo speaker, đồng thời giữ lại raw_words để re-diarize
         segments = []
+        raw_words = []
         current_segment = None
-        
+
         if hasattr(result, 'words') and result.words:
             for word in result.words:
+                if word.start is None or word.end is None:
+                    continue
+                # Thu thập raw words (chỉ lấy word type, bỏ space/punct)
+                if word.text and word.text.strip():
+                    raw_words.append({
+                        "start":      word.start,
+                        "end":        word.end,
+                        "text":       word.text,
+                        "speaker_id": word.speaker_id,
+                    })
+                # Gộp segment theo ElevenLabs speaker_id (dùng làm fallback)
                 if current_segment is None or current_segment["speaker_id"] != word.speaker_id:
                     if current_segment is not None:
                         segments.append(current_segment)
-                    
                     current_segment = {
-                        "start": word.start,
-                        "end": word.end,
+                        "start":      word.start,
+                        "end":        word.end,
                         "speaker_id": word.speaker_id,
-                        "text": word.text
+                        "text":       word.text,
                     }
                 else:
-                    current_segment["end"] = word.end
+                    current_segment["end"]   = word.end
                     current_segment["text"] += " " + word.text
-            
+
             if current_segment is not None:
                 segments.append(current_segment)
-        
+
         full_text = result.text if hasattr(result, 'text') else " ".join([s["text"] for s in segments])
-        
+
         if chars_used <= 0 and full_text:
             chars_used = len(full_text)
-            
-        return segments, full_text, None, chars_used, chars_remaining
+
+        return segments, raw_words, full_text, None, chars_used, chars_remaining
 
     except Exception as e:
-        return [], "", f"Lỗi ElevenLabs: {str(e)}", 0, 0
+        return [], [], "", f"Lỗi ElevenLabs: {str(e)}", 0, 0
 
 def check_elevenlabs_balance() -> str:
     api_key = get_elevenlabs_api_key()

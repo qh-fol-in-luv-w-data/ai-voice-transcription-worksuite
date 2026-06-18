@@ -2,106 +2,245 @@
 
 Ứng dụng **AI Voice Transcription** là một phân hệ (App) được xây dựng trên nền tảng **Frappe Framework** kết hợp với **Vue.js 3**. Ứng dụng giúp chuyển đổi âm thanh cuộc họp thành văn bản (Speech-to-Text), tự động nhận diện người nói (Diarization), ứng dụng AI để tóm tắt/lọc hội thoại và tự động trích xuất các công việc (Tasks) để đồng bộ vào hệ thống CTERP (WorkSuite).
 
-## 🚀 Tính năng nổi bật
+## Tính năng nổi bật
 
-- **Chuyển đổi Giọng nói thành Văn bản (STT)**: Hỗ trợ tiếng Việt và nhiều ngôn ngữ khác.
-- **Phân tách người nói (Diarization)**: Tự động nhận diện và gán tên người phát biểu dựa trên mẫu giọng nói (Voice Enrollment).
-- **Trích xuất công việc tự động (Task Extraction)**: Dùng LLM (GPT-4o) để phân tích cuộc họp, phân công người thực hiện, thời hạn và đồng bộ lên ERP.
-- **Xuất Biên bản họp**: Tạo file Word và Excel biên bản họp hoàn chỉnh dựa theo biểu mẫu.
-- **Lọc hội thoại bằng AI**: Xóa bỏ các từ ậm ừ, lấp liếm để biên bản họp trở nên gọn gàng, súc tích.
-
----
-
-## 🛠 Yêu cầu hệ thống
-
-- **Backend**: Python 3.10+, Frappe Framework (Bench)
-- **Frontend**: Node.js 18+, npm
-- **API Keys**: OpenAI, ElevenLabs, HuggingFace (nếu cần)
+- **Chuyển đổi Giọng nói thành Văn bản (STT)**: ElevenLabs Scribe v2, tự động nhận dạng ngôn ngữ (tiếng Việt + tiếng Anh hỗn hợp).
+- **Phân tách người nói (Diarization)**: Pyannote Speaker-Diarization-3.1 chạy local, không cần internet sau khi tải model lần đầu.
+- **Nhận diện & So sánh giọng nói (Voice Enrollment)**: Enroll giọng từng người, hệ thống tự gán tên khi có cuộc họp mới.
+- **Gán tên người lạ**: Khi phát hiện giọng chưa đăng ký, giao diện cho phép map tay và enroll tự động.
+- **Trích xuất công việc tự động (Task Extraction)**: GPT-4o phân tích cuộc họp, phân công người thực hiện, thời hạn và đồng bộ lên ERP.
+- **Xuất Biên bản họp**: File Word và Excel dựa theo biểu mẫu.
+- **Lọc hội thoại bằng AI**: Xóa từ ậm ừ, lấp liếm để biên bản gọn, súc tích.
 
 ---
 
-## ⚙️ Hướng dẫn cài đặt và chạy ứng dụng
+## Yêu cầu hệ thống
 
-### 1. Cài đặt Backend (Frappe)
+| Thành phần | Yêu cầu |
+|---|---|
+| Python | 3.10+ |
+| Frappe Bench | v15+ |
+| Node.js | 18+ |
+| torch / torchaudio | 2.x (đã test với 2.12 / 2.11) |
+| PyTorch đặc biệt | CPU-only OK, GPU nếu muốn nhanh hơn |
 
-Ứng dụng này là một Frappe App. Bạn cần có sẵn một môi trường Frappe Bench.
+---
+
+## Cài đặt
+
+### 1. Lấy app và cài vào site
 
 ```bash
-# 1. Di chuyển vào thư mục bench của bạn
-cd path/to/your/frappe-bench
+cd path/to/frappe-bench
 
-# 2. Tải app về từ Github
 bench get-app https://github.com/ctg-ai-data/2as-worksuite.git --branch main
 
-# 3. Cài đặt app vào site hiện tại của bạn
-bench --site [tên_site_của_bạn] install-app voice_app
+bench --site [tên_site] install-app voice_app
 ```
 
-### 2. Cấu hình Biến môi trường (.env)
+### 2. Cài đặt Python dependencies
 
-Tạo một file `.env` trong thư mục gốc của app (`apps/voice_app/voice_app/.env`) hoặc thiết lập các biến môi trường trên hệ thống với các giá trị sau:
+```bash
+# Từ thư mục frappe-bench
+env/bin/pip install \
+    pyannote.audio==3.1.1 \
+    matplotlib \
+    soundfile \
+    speechbrain \
+    scipy \
+    elevenlabs \
+    openai \
+    python-docx \
+    openpyxl
+```
+
+> **Lưu ý quan trọng về tương thích:** Hệ thống dùng `torchaudio >= 2.5` và `numpy >= 2.0` — các phiên bản này đã loại bỏ một số API cũ mà `pyannote.audio 3.1.x` cần. File `voice_app/_torchaudio_compat.py` xử lý tự động việc này, không cần downgrade.
+
+### 3. Cấu hình biến môi trường
+
+Tạo file `.env` tại `apps/voice_app/voice_app/.env`:
 
 ```env
 OPENAI_API_KEY=sk-your-openai-api-key
 ELEVENLABS_API_KEY=your-elevenlabs-api-key
-WHISPER_URL=http://localhost:8080/inference # (Tùy chọn, nếu dùng local Whisper)
-HF_TOKEN=hf_your-huggingface-token # (Bắt buộc để dùng AI nhận diện giọng nói)
+HF_TOKEN=hf_your-huggingface-token
 ```
 
-**Hướng dẫn lấy HuggingFace Token (`HF_TOKEN`) để Phân biệt & So sánh giọng nói:**
-Hệ thống sử dụng thư viện **Pyannote Audio** để tự động nhận diện và phân tách giọng nói. Quá trình tải model diễn ra tự động, nhưng bạn cần cấp quyền truy cập:
-1. Đăng ký tài khoản tại [HuggingFace](https://huggingface.co/).
-2. Truy cập vào trang của Model Diarization: [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) và nhấn **Accept Conditions**.
-3. Truy cập vào trang của Model Embedding (dùng để so sánh đặc trưng giọng nói): [pyannote/embedding](https://huggingface.co/pyannote/embedding) và nhấn **Accept Conditions**.
-4. Truy cập vào trang Model Phân đoạn: [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) và nhấn **Accept Conditions**.
-5. Vào **Settings ➔ Access Tokens**, tạo một token mới (loại `Read`) và dán vào biến `HF_TOKEN` trong file `.env` như trên.
-*(Khi khởi chạy lần đầu tiên, hệ thống sẽ tự động sử dụng token này để tải các model về máy)*.
+### 4. Tải model Pyannote về máy (chỉ làm 1 lần khi có internet)
 
-### 3. Cài đặt và Chạy Frontend (Vue.js)
+Hệ thống dùng các model sau từ HuggingFace. Cần accept điều khoản và tải về cache local trước khi chạy offline:
 
-Giao diện người dùng được xây dựng hoàn toàn độc lập bằng Vue.js + Vite và nằm trong thư mục `frontend`.
+**Bước 1 — Accept điều khoản** (đăng nhập HuggingFace, click Accept trên từng trang):
+- [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+- [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+- [pyannote/embedding](https://huggingface.co/pyannote/embedding)
+- [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)
+
+**Bước 2 — Tải model về cache** (chạy 1 lần, cần internet + HF_TOKEN):
 
 ```bash
-# 1. Di chuyển vào thư mục frontend
+env/bin/python - << 'EOF'
+import os
+os.environ["HF_TOKEN"] = "hf_your-token-here"
+
+# Tải Pipeline (kéo theo segmentation + wespeaker)
+import huggingface_hub as hfhub
+orig = hfhub.hf_hub_download
+def patched(*a, **kw):
+    kw.setdefault("token", os.environ.get("HF_TOKEN"))
+    if "use_auth_token" in kw:
+        kw["token"] = kw.pop("use_auth_token")
+    return orig(*a, **kw)
+hfhub.hf_hub_download = patched
+
+import sys
+sys.path.insert(0, "apps/voice_app/voice_app")
+import _torchaudio_compat
+from pyannote.audio import Pipeline, Model
+
+Pipeline.from_pretrained("pyannote/speaker-diarization-3.1",
+                         use_auth_token=os.environ["HF_TOKEN"])
+Model.from_pretrained("pyannote/embedding",
+                      use_auth_token=os.environ["HF_TOKEN"])
+print("Models downloaded OK")
+EOF
+```
+
+Sau bước này, model được lưu tại `~/.cache/torch/pyannote/`. Từ đây server chạy **hoàn toàn offline** (`HF_HUB_OFFLINE=1` được bật tự động trong subprocess).
+
+### 5. Cài đặt và chạy Frontend
+
+```bash
 cd apps/voice_app/frontend
-
-# 2. Cài đặt các gói thư viện Node.js
 npm install
-
-# 3. Khởi động server Frontend
 npm run dev -- --host
 ```
 
-Sau khi chạy lệnh trên, giao diện web sẽ chạy tại: `http://localhost:5174` (hoặc cổng tương ứng hiển thị trên terminal).
+Giao diện chạy tại `http://localhost:5174`.
 
-### 4. Khởi động hệ thống (Chạy Backend)
-
-Mở một terminal mới (giữ terminal frontend vẫn chạy), di chuyển vào thư mục bench và khởi động các dịch vụ Frappe:
+### 6. Khởi động Backend (Frappe)
 
 ```bash
-cd path/to/your/frappe-bench
+cd path/to/frappe-bench
 bench start
 ```
 
-Backend Frappe thường sẽ chạy tại `http://localhost:8000`. Frontend sẽ tự động gọi API tới cổng 8000 này.
+Backend chạy tại `http://localhost:8000`.
 
 ---
 
-## 📖 Cấu trúc thư mục
+## Kiến trúc Diarization
 
-- `voice_app/`: Chứa mã nguồn Python, API endpoints (`api.py`), cấu trúc DocType của Frappe.
-- `voice_app/task_extractor.py`: Xử lý Logic AI, LangGraph, prompt OpenAI.
-- `voice_app/docx_utils.py`: Logic xuất file Word (Biên bản họp).
-- `frontend/`: Toàn bộ mã nguồn giao diện Vue 3 (Sử dụng Vite, Tailwind CSS, Shadcn-Vue).
-- `public/files/template_v2.docx`: Biểu mẫu xuất file Word chuẩn.
+Để tránh xung đột giữa PyTorch và Gunicorn (fork + DNNL/NNPACK), toàn bộ AI chạy trong **subprocess riêng biệt**:
+
+```
+api.py (Gunicorn worker)
+  ├── ElevenLabs STT  →  raw_words (word + timestamp + speaker_id)
+  │
+  ├── subprocess: diarize_audio.py  →  pyannote segments [{start, end, speaker}]
+  │     └── _torchaudio_compat.py  (compatibility shims)
+  │
+  └── Re-assign: mỗi word → speaker pyannote dựa trên time overlap
+        └── Re-group thành segments mới → trả về frontend
+```
+
+```
+api.py (enroll / identify)
+  └── subprocess: extract_embedding.py  →  embedding vector 512d
+        └── _torchaudio_compat.py  (compatibility shims)
+```
+
+### File quan trọng trong `voice_app/`
+
+| File | Mô tả |
+|---|---|
+| `api.py` | Frappe API endpoints chính |
+| `speaker_manager.py` | SpeakerDB (lưu embedding) + `run_diarization_subprocess()` |
+| `diarize_audio.py` | Subprocess chạy pyannote Speaker-Diarization-3.1 |
+| `extract_embedding.py` | Subprocess trích xuất speaker embedding |
+| `_torchaudio_compat.py` | Compatibility shims cho torchaudio 2.x / NumPy 2.0 / PyTorch 2.6+ |
+| `elevenlabs_client.py` | Gọi ElevenLabs Scribe v2 STT, trả về `raw_words` |
+| `task_extractor.py` | GPT-4o: trích xuất task từ transcript |
 
 ---
 
-## 🐛 Troubleshooting (Sửa lỗi thường gặp)
+## Compatibility Shims (`_torchaudio_compat.py`)
 
-1. **Lỗi không kết nối được Backend**: Đảm bảo bạn đang mở cả `bench start` và `npm run dev`. Hãy kiểm tra URL gọi API trong `frontend/src/api.js`.
-2. **Lỗi không có quyền (CORS)**: Nếu bạn chạy Frontend và Backend ở hai cổng khác nhau mà bị chặn CORS, hãy thêm cấu hình cho phép tên miền localhost trong file `site_config.json` của Frappe.
-3. **Lỗi AI không phản hồi**: Kiểm tra lại file `.env` xem `OPENAI_API_KEY` đã được thiết lập đúng hay chưa.
+File này được import đầu tiên trong cả `diarize_audio.py` và `extract_embedding.py`. Nó vá các API bị xóa trong các phiên bản mới:
 
-## 📄 License
+| Vấn đề | Phiên bản bỏ | Cách vá |
+|---|---|---|
+| `numpy.NaN` | NumPy 2.0 | `np.NaN = np.nan` |
+| `torch.load(weights_only=True)` mặc định | PyTorch 2.6 | Force `weights_only=False` |
+| `torchaudio.set/get_audio_backend()` | torchaudio 2.5 | Lambda shim |
+| `torchaudio.load()` dùng torchcodec (cần FFmpeg) | torchaudio 2.11 | Thay bằng `soundfile` |
+| `hf_hub_download(use_auth_token=...)` | huggingface_hub 0.21 | Redirect sang `token=` |
+| `torchaudio.backend.common.AudioMetaData` | torchaudio 2.x | Stub class + sys.modules |
+
+---
+
+## Cấu hình nâng cao
+
+### Ngưỡng nhận diện giọng nói (`SIMILARITY_THRESHOLD`)
+
+Chỉnh trong `voice_app/constants.py`:
+
+```python
+SIMILARITY_THRESHOLD = 0.5  # 0.0–1.0, thấp hơn = dễ match hơn
+```
+
+### Số người nói tối đa (`MAX_SPEAKERS`)
+
+Trong `voice_app/api.py` (tìm `MAX_SPEAKERS`):
+
+```python
+MAX_SPEAKERS = 10  # giới hạn số người trong cuộc họp
+```
+
+### Thời gian tối thiểu để auto-enroll giọng nói mới
+
+Trong `voice_app/api.py` (hàm `map_and_enroll_speakers`):
+
+```python
+if seg_duration >= 2.0:  # giây, đủ dài để lấy mẫu chất lượng
+```
+
+---
+
+## Troubleshooting
+
+**`Could not create a primitive` khi khởi động**
+
+Bình thường — lỗi này từ PyTorch DNNL/NNPACK trong Gunicorn worker. Hệ thống đã được thiết kế để chạy PyTorch trong subprocess riêng, nên lỗi này không ảnh hưởng đến chức năng.
+
+**Diarization fallback về ElevenLabs**
+
+Nếu log backend có `[Diarization] pyannote failed, fallback to ElevenLabs`, kiểm tra:
+1. Model đã được tải về cache chưa (`ls ~/.cache/torch/pyannote/`)
+2. Chạy thử thủ công: `env/bin/python apps/voice_app/voice_app/diarize_audio.py /path/to/test.wav "" 1 5`
+
+**`ModuleNotFoundError: No module named 'matplotlib'`**
+
+```bash
+env/bin/pip install matplotlib
+```
+
+**Lỗi CORS**
+
+Thêm vào `sites/[tên_site]/site_config.json`:
+
+```json
+{
+  "allow_cors": "*"
+}
+```
+
+**Giọng nói bị nhận nhầm người**
+
+Tăng `SIMILARITY_THRESHOLD` lên `0.65`–`0.75`. Nếu không nhận ra ai, hạ xuống `0.4`–`0.5`.
+
+---
+
+## License
+
 MIT
