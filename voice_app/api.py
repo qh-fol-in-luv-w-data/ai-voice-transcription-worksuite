@@ -35,11 +35,57 @@ def transcribe_audio(language="vi", filter_speakers=None):
             return {"status": "error", "message": err}
 
         # Call ElevenLabs
-        segments, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language)
+        segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language)
         if err:
             return {"status": "error", "message": err}
 
-        # ── DIARIZATION ────────────────────────────────────────────────────────
+        # ── PYANNOTE RE-DIARIZATION ────────────────────────────────────────────
+        # Thay thế speaker_id từ ElevenLabs bằng kết quả pyannote để tách đúng
+        # người nói khi 2 người nói liên tiếp bị ElevenLabs gộp chung
+        if raw_words:
+            try:
+                from voice_app.speaker_manager import run_diarization_subprocess
+                from voice_app.constants import MAX_SPEAKERS
+                diar_segs = run_diarization_subprocess(wav, max_speakers=MAX_SPEAKERS)
+
+                # Gán pyannote speaker cho từng word (theo overlap nhiều nhất)
+                def _find_speaker(w_start, w_end, diar):
+                    best, best_ov = None, 0.0
+                    for d in diar:
+                        ov = min(w_end, d["end"]) - max(w_start, d["start"])
+                        if ov > best_ov:
+                            best_ov, best = ov, d["speaker"]
+                    return best
+
+                for w in raw_words:
+                    spk = _find_speaker(w["start"], w["end"], diar_segs)
+                    if spk:
+                        w["speaker_id"] = spk
+
+                # Re-group words thành segments theo pyannote speaker_id
+                new_segments = []
+                cur = None
+                for w in raw_words:
+                    if not w["text"].strip():
+                        continue
+                    if cur is None or cur["speaker_id"] != w["speaker_id"]:
+                        if cur:
+                            new_segments.append(cur)
+                        cur = {"start": w["start"], "end": w["end"],
+                               "speaker_id": w["speaker_id"], "text": w["text"]}
+                    else:
+                        cur["end"]   = w["end"]
+                        cur["text"] += " " + w["text"]
+                if cur:
+                    new_segments.append(cur)
+
+                segments = new_segments
+                print(f"[Diarization] pyannote OK: {len(diar_segs)} speaker-segs → {len(segments)} segments")
+            except Exception as diar_err:
+                print(f"[Diarization] pyannote failed, fallback to ElevenLabs: {diar_err}")
+                # segments giữ nguyên từ ElevenLabs
+
+        # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
         spk_db = SpeakerDB()
         unique_speakers = {}
         for seg in segments:
@@ -912,7 +958,7 @@ def voice_to_task(existing_task=None):
             return {"status": "error", "message": err}
 
         # Gọi ElevenLabs Speech-to-Text
-        segments, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
+        segments, _raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
         if err:
             return {"status": "error", "message": err}
             

@@ -42,27 +42,13 @@ def main():
         torch.backends.mkldnn.enabled = False
     torch.set_num_threads(1)
 
-    # ── Fix 1: torch.load weights_only (PyTorch >= 2.6 mặc định True) ──────────
-    # Triệt để override để không bị lỗi với mọi class của pyannote/pytorch_lightning/omegaconf
-    import torch.serialization as _ts
-    _orig_load = torch.load
-    def _safe_load(*args, **kwargs):
-        kwargs['weights_only'] = False
-        return _orig_load(*args, **kwargs)
-    torch.load = _safe_load
-    # Override thêm _load internal nếu có
-    if hasattr(_ts, '_load'):
-        _orig_internal = _ts._load
-        def _safe_internal(*args, **kwargs):
-            kwargs.pop('weights_only', None)
-            return _orig_internal(*args, **kwargs)
-        _ts._load = _safe_internal
-
-    # ── Fix 2: pyannote dùng use_auth_token (deprecated) → dùng token ──────────
-    # (đã patch model.py, nhưng thêm env var làm fallback)
     if hf_token:
         os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
         os.environ["HF_TOKEN"] = hf_token
+
+    # Compat shims: torchaudio 2.11 / huggingface_hub / numpy 2.0
+    sys.path.insert(0, os.path.dirname(__file__))
+    import _torchaudio_compat  # noqa: F401
 
     print("DEBUG: Importing pyannote...", flush=True)
     from pyannote.audio import Model

@@ -198,6 +198,57 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     return np.array(embedding_list)
 
 
+def run_diarization_subprocess(wav_path: str, max_speakers: int = None) -> list:
+    """
+    Chạy pyannote speaker-diarization-3.1 trong subprocess.
+    Trả về list of {"start": float, "end": float, "speaker": str}.
+    """
+    import subprocess
+    import sys
+    import json as _json
+    from .constants import get_hf_token
+
+    script_path = os.path.join(os.path.dirname(__file__), "diarize_audio.py")
+    hf_token    = get_hf_token() or ""
+    python_exe  = sys.executable
+
+    args = [python_exe, script_path, wav_path, hf_token]
+    if max_speakers is not None:
+        args += ["1", str(max_speakers)]   # min_speakers=1, max_speakers=N
+
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as e:
+        stderr_log = e.stderr[-2000:] if e.stderr else "None"
+        raise RuntimeError(f"Diarization subprocess timed out.\nSTDERR:\n{stderr_log}")
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Diarization subprocess failed (exit={result.returncode}):\n{result.stderr[-2000:]}"
+        )
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError(f"Diarization subprocess returned no output. STDERR:\n{result.stderr[-1000:]}")
+
+    json_line = None
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("["):
+            json_line = line
+            break
+
+    if json_line is None:
+        raise RuntimeError(f"No JSON found in diarization output:\n{stdout[:500]}")
+
+    return _json.loads(json_line)
+
+
 def enroll_new_speaker(name, wav_path, email="", user_info=None):
     """
     Trích xuất embedding từ file âm thanh mẫu và lưu vào database.
