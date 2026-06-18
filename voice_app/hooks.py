@@ -1,5 +1,5 @@
 app_name = "voice_app"
-app_title = "Voice App"
+app_title = "2AS Worksuite"
 app_publisher = "Antigravity"
 app_description = "AI Voice Transcription"
 app_email = "antigravity@google.com"
