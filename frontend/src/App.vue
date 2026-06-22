@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
 import { initSession, useSession } from './utils/session'
 
@@ -11,6 +12,7 @@ const { authState, currentUser, currentFullName } = useSession()
 
 // States
 const audioFile = ref(null)
+const audioPreviewUrl = ref('')
 const language = ref('vi')
 const modelType = ref('gpt-4o')
 
@@ -107,16 +109,16 @@ const updateIdentities = async () => {
              msg += `\n⚠️ Không thể lấy mẫu giọng cho ${enrollRes.errors.length} người (âm thanh quá ngắn).`
            }
         }
-        alert(msg)
+        ElMessage.success(msg)
       } catch(e) {
         console.warn('Could not save updated identities to server', e)
-        alert('✅ Đã cập nhật danh tính thành công trên giao diện, nhưng có lỗi lưu lên server.')
+        ElMessage.warning('Đã cập nhật danh tính thành công trên giao diện, nhưng có lỗi lưu lên server.')
       }
     } else {
-      alert('✅ Đã cập nhật danh tính thành công!')
+      ElMessage.success('Đã cập nhật danh tính thành công!')
     }
   } else {
-    alert('Chưa có thay đổi nào được áp dụng.')
+    ElMessage.warning('Chưa có thay đổi nào được áp dụng.')
   }
 }
 
@@ -352,6 +354,7 @@ const handleFileChange = (e) => {
   if (e.target.files.length > 0) {
     audioFile.value = e.target.files[0]
     const url = URL.createObjectURL(audioFile.value)
+    audioPreviewUrl.value = url
     const audio = new Audio(url)
     audio.onloadedmetadata = () => {
       audioDuration.value = audio.duration
@@ -396,13 +399,13 @@ const toggleRecording = async () => {
     mediaRecorder.value.start()
     isRecording.value = true
   } catch(e) {
-    alert("Lỗi truy cập Micro: " + e.message)
+    ElMessage.error("Lỗi truy cập Micro: " + e.message)
   }
 }
 
 const submitEnrollment = async () => {
   if (!enrollAudioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isEnrolling.value = true
@@ -459,13 +462,13 @@ const toggleVoiceTaskRecording = async () => {
     voiceTaskMediaRecorder.value.start()
     voiceTaskIsRecording.value = true
   } catch(e) {
-    alert("Lỗi truy cập Micro: " + e)
+    ElMessage.error("Lỗi truy cập Micro: " + e)
   }
 }
 
 const submitVoiceTask = async () => {
   if (!voiceTaskAudioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isVoiceTaskProcessing.value = true
@@ -549,13 +552,13 @@ const toggleVoiceTaskRefineRecording = async () => {
     voiceTaskRefineMediaRecorder.value.start()
     voiceTaskRefineIsRecording.value = true
   } catch(e) {
-    alert("Lỗi truy cập Micro: " + e)
+    ElMessage.error("Lỗi truy cập Micro: " + e)
   }
 }
 
 const submitVoiceTaskRefine = async () => {
   if (!voiceTaskRefineAudioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isVoiceTaskProcessing.value = true
@@ -677,7 +680,7 @@ const parseTranscript = (text) => {
 
 const startTranscribe = async () => {
   if (!audioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isTranscribing.value = true
@@ -757,7 +760,7 @@ const toggleAttendee = (name) => {
 
 const startExtractTasks = async () => {
   if (transcriptResults.value.length === 0) {
-    alert(t('alert_no_transcript'))
+    ElMessage.warning(t('alert_no_transcript'))
     return
   }
   if (!meetingStartTime.value) {
@@ -843,10 +846,10 @@ const startCleanTranscript = async () => {
       transcriptResults.value = res.cleaned_results
       isCleaned.value = true
     } else {
-      alert('❌ Lỗi lọc: ' + res.message)
+      ElMessage.error('Lỗi lọc: ' + res.message)
     }
   } catch (e) {
-    alert(t('error_connect'))
+    ElMessage.error(t('error_connect'))
   } finally {
     isCleaning.value = false
   }
@@ -1051,7 +1054,10 @@ onMounted(async () => {
             <li v-for="meeting in meetingHistory" :key="meeting.name">
               <button @click="loadPastMeeting(meeting)" :class="activeTab==='view_meeting' && currentMeeting?.name === meeting.name ? 'bg-muted/30 text-primary font-medium' : 'text-muted-foreground hover:bg-muted/30'" class="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-left bg-transparent border-none shadow-none focus:outline-none cursor-pointer" style="background: none; border: none; box-shadow: none;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-history shrink-0"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-                <span class="truncate block w-full">{{ meeting.title }}</span>
+                <span class="flex flex-col w-full min-w-0">
+                  <span class="truncate block w-full">{{ meeting.title }}</span>
+                  <span class="text-xs text-muted-foreground block truncate">{{ meeting.date }}</span>
+                </span>
               </button>
             </li>
           </ul>
@@ -1122,6 +1128,7 @@ onMounted(async () => {
                    <div class="mt-2 text-primary font-medium">{{ audioFile ? audioFile.name : t('upload_support') }}</div>
                  </div>
                </el-upload>
+               <audio v-if="audioPreviewUrl" :src="audioPreviewUrl" controls class="w-full mt-3 h-10 rounded-lg" />
             </div>
             
             <template #footer>
@@ -1176,10 +1183,10 @@ onMounted(async () => {
                 </div>
               </div>
             </template>
-            <div class="log-view p-6 space-y-6 max-h-[250px] overflow-auto">
+            <div class="log-view p-6 space-y-6 max-h-[500px] overflow-auto">
                <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry">
                   <div class="log-meta">
-                     <span class="log-speaker">{{ seg[2] }}</span>
+                     <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
                      <span class="log-time">[{{ seg[0].toFixed(2) }}s]</span>
                   </div>
                   <p class="log-text">{{ seg[3] }}</p>
@@ -1261,7 +1268,9 @@ onMounted(async () => {
                 <el-select
                   v-model="speakerMapping[spk]"
                   filterable
-                  placeholder="Chọn nhân viên..."
+                  allow-create
+                  default-first-option
+                  placeholder="Chọn nhân viên hoặc nhập tên..."
                   class="flex-1"
                 >
                   <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
