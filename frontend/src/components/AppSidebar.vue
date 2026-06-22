@@ -44,6 +44,16 @@ const setTab = (tab) => {
               {{ t('tab_enroll') }}
             </button>
           </li>
+          <li>
+            <button
+              @click="setTab('voice_task')"
+              :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200',
+                       activeTab === 'voice_task' ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground']"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="activeTab === 'voice_task' ? 'text-foreground' : 'text-muted-foreground'"><path d="M12 2c-1.7 0-3 1.2-3 2.6v6.8c0 1.4 1.3 2.6 3 2.6s3-1.2 3-2.6V4.6C15 3.2 13.7 2 12 2z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="m9 17 3 3 5-5"/></svg>
+              {{ t('tab_voice_task') || 'Tạo Task qua Voice' }}
+            </button>
+          </li>
         </ul>
       </div>
 
