@@ -13,6 +13,8 @@ from voice_app.docx_utils import save_to_docx
 from voice_app.audio_utils import convert_to_wav
 from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 
+_logger = ActivityLogger("VOICE", "voice_app")
+
 
 @frappe.whitelist(allow_guest=False)
 def transcribe_audio(language="vi", filter_speakers=None):
@@ -297,9 +299,10 @@ def transcribe_audio(language="vi", filter_speakers=None):
             session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
             session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
             if session_name:
+                action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary="Transcribe with ElevenLabs")
                 _logger.log_ai_call(
                     session_name=session_name,
-                    action_name="",
+                    action_name=action_name,
                     call_type="transcribe_audio",
                     ai_model="elevenlabs/scribe_v2",
                     duration_seconds=0,
@@ -307,6 +310,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
                     elevenlabs_chars_used=el_chars_used,
                     elevenlabs_chars_remaining=el_chars_remaining,
                 )
+                _logger.finish_action(action_name, status="success")
         except Exception as log_ex:
             if getattr(frappe.db, "_cursor", None):
                 frappe.db._cursor.execute("ROLLBACK")
@@ -462,9 +466,10 @@ def extract_tasks():
             session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
             session_name_log = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
             if session_name_log and task_usage:
+                action_name = _logger.start_action(session_name_log, action_type="extract_tasks", input_summary="Extract tasks from text")
                 _logger.log_ai_call(
                     session_name=session_name_log,
-                    action_name="",
+                    action_name=action_name,
                     call_type="extract_tasks",
                     ai_model=model_type,
                     duration_seconds=0,
@@ -472,6 +477,7 @@ def extract_tasks():
                     prompt_tokens=task_usage.get("prompt_tokens", 0),
                     completion_tokens=task_usage.get("completion_tokens", 0)
                 )
+                _logger.finish_action(action_name, status="success")
         except Exception as log_ex:
             frappe.log_error(str(log_ex), "Log OpenAI AI Call Error")
 
