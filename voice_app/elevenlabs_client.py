@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Tuple
 from elevenlabs.client import ElevenLabs
 from .constants import get_elevenlabs_api_key
 
-def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> tuple:
+def call_elevenlabs_stt(wav_path: str, language: str = "vi", num_speakers: int = None) -> tuple:
     """
     Gọi ElevenLabs Speech-to-Text API với diarization.
     Trả về: (segments, full_text, error, chars_used, chars_remaining)
@@ -76,12 +76,17 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> tuple:
         with open(wav_path, "rb") as f:
             result = client.speech_to_text.convert(
                 file=f,
-                model_id="scribe_v2",          # Model tốt nhất hiện tại
-                diarize=True,                   # Phân biệt người nói
-                tag_audio_events=False,         # TẮT: bỏ [tiếng nói chồng chéo], [laughter]...
-                language_code=language if language != "auto" else None,  # None = auto-detect
-                keyterms=KEYTERMS,              # Gợi ý từ khoá nghiệp vụ VN
+                model_id="scribe_v2",
+                diarize=True,
+                tag_audio_events=False,
+                language_code=language if language != "auto" else None,
+                num_speakers=num_speakers if num_speakers else None,
+                # diarization_threshold chỉ dùng được khi num_speakers=None
+                diarization_threshold=0.12 if not num_speakers else None,
+                keyterms=KEYTERMS,
+                temperature=0,  # deterministic output, tốt nhất cho transcription
             )
+        print(f"[ElevenLabs] num_speakers={num_speakers}, diarization_threshold={'0.12' if not num_speakers else 'N/A'}, temperature=0")
         
         # Lấy số dư sau
         chars_after = chars_before

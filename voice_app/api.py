@@ -34,8 +34,18 @@ def transcribe_audio(language="vi", filter_speakers=None):
         if err:
             return {"status": "error", "message": err}
 
+        # Auto-detect num_speakers từ filter_speakers nếu có
+        auto_num_speakers = None
+        if filter_speakers:
+            try:
+                names = json.loads(filter_speakers)
+                if isinstance(names, list) and len(names) >= 2:
+                    auto_num_speakers = len(names)
+            except Exception:
+                pass
+
         # Call ElevenLabs
-        segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language)
+        segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers)
         if err:
             return {"status": "error", "message": err}
 
