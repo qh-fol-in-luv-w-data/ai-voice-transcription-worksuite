@@ -192,22 +192,12 @@ Nội dung biên bản họp:
 """ + state["doc_text"]
 
     try:
-        def _log_tokens(response, label=""):
-            try:
-                import frappe
-                from voice_app.utils.activity_logger import ActivityLogger
-                act_logger = ActivityLogger("TokenLog", "voice_app")
-                act_logger.log_ai_call(response, label)
-            except Exception as e:
-                print(f"[_log_tokens] Error: {e}")
-
         response = client.chat.completions.create(
             model=model_type,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=2000,
         )
-        _log_tokens(response, "voice_app.task_extractor")
         raw = response.choices[0].message.content.strip()
 
         # Clean JSON
@@ -904,70 +894,79 @@ def clean_transcript_llm(results, model_type="gpt-4o-mini"):
     api_key = get_openai_api_key()
     if not api_key:
         return results, "Thiếu OPENAI_API_KEY trong config"
-        
+
     client = OpenAI(api_key=api_key)
-    
-    lines = []
-    for i, seg in enumerate(results):
-        spk = seg[2]
-        txt = seg[3]
-        lines.append(f"[{i}] {spk}: {txt}")
-        
-    prompt = """Bạn là trợ lý chỉnh sửa biên bản họp. Nhiệm vụ của bạn là lọc hội thoại.
-    Mặc định, bạn phải GIỮ LẠI các câu nói chứa thông tin.
-    YÊU CẦU BẮT BUỘC: 
-    - XÓA BỎ HOÀN TOÀN TẤT CẢ những câu nói chỉ có 1 hoặc 2 chữ, bất kể nội dung là gì (ví dụ: 'dạ', 'ừm', 'ờ', 'vâng', 'rồi', 'ok anh', 'chào', 'chưa').
-    - XÓA BỎ những câu ậm ừ, vô nghĩa.
-    - TUYỆT ĐỐI KHÔNG ĐƯỢC XÓA các câu giao tiếp có từ 3 chữ trở lên, mang ý nghĩa đầy đủ, câu hỏi, hay câu chốt vấn đề.
-    
-    Trả về định dạng JSON duy nhất như sau (không kèm text nào khác, không có markdown):
-    {
-      "kept_ids": [danh sách các số nguyên ID của các câu được giữ lại]
-    }
-    
-    Hội thoại:
-""" + "\n".join(lines)
+
+    SYSTEM_PROMPT = """Bạn là công cụ lọc nhiễu hội thoại. Nhận vào 1 câu, trả về đúng 1 trong 2 kết quả:
+
+- Nếu câu CHỈ gồm tiếng đệm vô nghĩa ("ừ", "à", "ờ", "dạ", "vâng", "rồi", "ừm", "okay", "alo", "hello") hoặc sau khi bỏ nhiễu không còn nội dung → trả về chuỗi rỗng "".
+- Nếu câu có nội dung thực → trả về câu đó sau khi CHỈ xoá:
+  1. Tiếng đệm đầu câu: "Ừ,", "À.", "Ờ,", "Vâng,", "Thì," và tổ hợp liên tiếp.
+  2. Từ lặp liên tiếp: "bên bên bên" → "bên", "tìm tìm" → "tìm".
+  3. Tiếng đệm giữa câu: "à,", "ừ,", "ờ,", "ừm," đứng giữa các từ.
+
+TUYỆT ĐỐI KHÔNG thêm từ, sửa từ, viết lại, thêm dấu câu. Chỉ xoá.
+Trả về text thuần, không giải thích, không markdown."""
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    def _clean_one(idx, seg):
+        """Gọi LLM cho 1 segment. Trả về (idx, cleaned_text | None)."""
+        text = seg[3].strip()
+        if not text:
+            return idx, None
+        try:
+            resp = client.chat.completions.create(
+                model=model_type,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": text},
+                ],
+                temperature=0,
+                max_tokens=512,
+            )
+            out = resp.choices[0].message.content.strip()
+            # Nếu LLM trả về rỗng hoặc chỉ khoảng trắng → bỏ segment
+            return idx, (out if out else None), resp.usage
+        except Exception as e:
+            print(f"[clean_one] idx={idx} err={e}")
+            return idx, text, None  # fallback: giữ nguyên
 
     try:
-        def _log_tokens(response, label=""):
-            try:
-                import frappe
-                from voice_app.utils.activity_logger import ActivityLogger
-                act_logger = ActivityLogger("TokenLog", "voice_app")
-                act_logger.log_ai_call(response, label)
-            except Exception as e:
-                print(f"[_log_tokens] Error: {e}")
+        futures_map = {}
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            for i, seg in enumerate(results):
+                futures_map[pool.submit(_clean_one, i, seg)] = i
 
-        response = client.chat.completions.create(
-            model=model_type,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=4000,
-        )
-        _log_tokens(response, "voice_app.clean_transcript")
-        raw = response.choices[0].message.content.strip()
-        raw = re.sub(r"```json\s*", "", raw)
-        raw = re.sub(r"```", "", raw).strip()
-        data = json.loads(raw)
-        
-        kept_ids = set(data.get("kept_ids", []))
-        
+        result_map = {}
+        for future in as_completed(futures_map):
+            ret = future.result()
+            idx, cleaned = ret[0], ret[1]
+            usage = ret[2] if len(ret) > 2 else None
+            result_map[idx] = cleaned
+            if usage:
+                total_prompt_tokens += usage.prompt_tokens or 0
+                total_completion_tokens += usage.completion_tokens or 0
+
         cleaned_results = []
         for i, seg in enumerate(results):
-            if i in kept_ids:
-                cleaned_results.append(seg)
-                
-        # Nếu LLM xóa sạch hoặc lỗi, trả về nguyên gốc để an toàn
+            cleaned_text = result_map.get(i)
+            if cleaned_text:
+                cleaned_results.append((seg[0], seg[1], seg[2], cleaned_text))
+
         if not cleaned_results and results:
             return results, None, {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
-            
+
         usage = {
-            "prompt_tokens": response.usage.prompt_tokens if hasattr(response, 'usage') and response.usage else 0,
-            "completion_tokens": response.usage.completion_tokens if hasattr(response, 'usage') and response.usage else 0,
-            "tokens_used": response.usage.total_tokens if hasattr(response, 'usage') and response.usage else 0
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "tokens_used": total_prompt_tokens + total_completion_tokens,
         }
-            
         return cleaned_results, None, usage
+
     except Exception as e:
         print(f"Lỗi clean_transcript_llm: {e}")
         return results, str(e), {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
