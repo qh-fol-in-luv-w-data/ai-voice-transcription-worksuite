@@ -266,7 +266,9 @@ const startExtractTasks = async () => {
             v-model="speakerMapping[spk]"
             filterable
             clearable
-            placeholder="Chọn nhân viên..."
+            allow-create
+            default-first-option
+            placeholder="Chọn nhân viên hoặc nhập tên..."
             style="flex: 1"
           >
             <el-option
