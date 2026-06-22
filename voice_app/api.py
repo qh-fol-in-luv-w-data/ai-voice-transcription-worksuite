@@ -551,8 +551,7 @@ def clean_transcript():
     payload = json.loads(data)
     results = payload.get("results", [])
     model_type = payload.get("model_type", "gpt-4o")
-    meeting_name = payload.get("meeting_name")  # Nhận meeting_name từ FE
-
+    meeting_name = payload.get("meeting_name")
     if not results:
         return {"status": "error", "message": "Không có nội dung để lọc"}
 

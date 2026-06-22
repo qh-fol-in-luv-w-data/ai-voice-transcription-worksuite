@@ -896,26 +896,72 @@ def extract_tasks_stateless(docx_path, model_type="gpt-4o-mini"):
     return items, result.get("errors", [])
 
 
-def clean_transcript_llm(results, model_type="gpt-4o-mini"):
+def clean_transcript_llm(results, model_type="gpt-4o"):
     """
     Dùng LLM lọc các câu hội thoại rác, không mang thông tin, đứt đoạn.
     Trả về list of kết quả đã được lọc giữ nguyên định dạng: (start, end, spk_label, text)
     """
     api_key = get_openai_api_key()
     if not api_key:
-        return results, "Thiếu OPENAI_API_KEY trong config"
+        return results, "Thiếu OPENAI_API_KEY trong config", {}
 
     client = OpenAI(api_key=api_key)
 
-    SYSTEM_PROMPT = """Bạn là công cụ lọc nhiễu hội thoại. Nhận vào 1 câu, trả về đúng 1 trong 2 kết quả:
+    SYSTEM_PROMPT = """Bạn là công cụ chuẩn hoá văn bản hội thoại cuộc họp doanh nghiệp, được ghi âm qua micro trong môi trường có thể có nhiễu.
 
-- Nếu câu CHỈ gồm tiếng đệm vô nghĩa ("ừ", "à", "ờ", "dạ", "vâng", "rồi", "ừm", "okay", "alo", "hello") hoặc sau khi bỏ nhiễu không còn nội dung → trả về chuỗi rỗng "".
-- Nếu câu có nội dung thực → trả về câu đó sau khi CHỈ xoá:
-  1. Tiếng đệm đầu câu: "Ừ,", "À.", "Ờ,", "Vâng,", "Thì," và tổ hợp liên tiếp.
-  2. Từ lặp liên tiếp: "bên bên bên" → "bên", "tìm tìm" → "tìm".
-  3. Tiếng đệm giữa câu: "à,", "ừ,", "ờ,", "ừm," đứng giữa các từ.
+NHIỆM VỤ CHÍNH: Chuẩn hoá câu văn — đọc đúng nghĩa, sửa lỗi nhận dạng giọng nói, viết lại thành câu rõ ràng.
+KHÔNG PHẢI nhiệm vụ chính: Xoá nội dung. Hạn chế xoá tối đa — chỉ xoá khi hoàn toàn không thể cứu được.
 
-TUYỆT ĐỐI KHÔNG thêm từ, sửa từ, viết lại, thêm dấu câu. Chỉ xoá.
+== BỘ TỪ VỰNG CT GROUP (ưu tiên nhận diện đúng) ==
+Tập đoàn & công ty thành viên:
+  CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, CT Verse,
+  CT Solar Homes, CT Innovation Hub, CTrans Auto, CTOptimal, GASCO, DAIT, VGCT,
+  Diginal, Carbondo, CCTPA, Airbility
+
+Hệ thống / nền tảng nội bộ:
+  2AS, Worksuite, iMaster, ERP, CRM, HRM, NDT 15, CarbonFly, Catalyst, Sustain.Life,
+  LAE 1, OSAT, ATP (Assembly Test Packaging), CTDA200M
+
+Sản phẩm / dự án hay được nhắc trong họp:
+  Modulex (← "mô điu lét", "mô du lếch"), eVTOL (← "i vi tol"), UAV (← "u a vi"),
+  SkyDrive, LAE (Low Altitude Economy), NDT (National Digital Twin),
+  UAM (Urban Air Mobility), LiDAR (← "lai đa"), SoC, MCU, NPU, ADC, DAC
+
+Quy trình / nghiệp vụ:
+  tờ trình, nghiệm thu, thanh lý, quyết toán, phê duyệt, triển khai, bàn giao, đề xuất,
+  localization rate, B2G, Triple Helix
+
+Thuật ngữ tiếng Anh hay bị nhận dạng sai:
+  deadline (← "dề lai", "đét lai", "đi lai"), milestone, sprint, backlog, roadmap,
+  kickoff (← "kích ốp"), handover (← "hen dờ"), sign-off (← "xai ốp"),
+  pipeline (← "pai pờ lai"), deployment (← "đi ploi men"),
+  API, backend, frontend, database, server, Docker, Kubernetes, CI/CD, DevOps,
+  dashboard (← "đát bọt"), KPI, OKR, ROI, EBITDA, P&L, capex, opex,
+  invoice (← "in voi xờ"), purchase order (← "pớt chờ"), cash flow,
+  onboarding, offboarding, headcount, recruitment, payroll, probation,
+  Q1, Q2, Q3, Q4, YTD, MoM, YoY, ETA, EOD, EOM, ASAP, FYI, TBD, TBC,
+  semiconductor (← "xê mi con đắc tờ"), localization (← "lô cồ lai zây shần")
+
+== QUY TẮC CHUẨN HOÁ ==
+1. Sửa từ bị nhận dạng sai do nhiễu/accent — dựa vào ngữ cảnh và bộ từ vựng trên để đoán từ đúng.
+2. Bỏ tiếng đệm, từ lặp, ngập ngừng (ừm, thì là, kiểu như, cái này nó, ý là...).
+3. Giữ NGUYÊN nghĩa — không thêm thông tin, không suy diễn quá câu gốc.
+4. Dùng ngữ cảnh xung quanh (>>> là câu cần xử lý) để hiểu đại từ "này", "đó", "vậy".
+5. Viết hoa đầu câu, dấu câu phù hợp. Tên riêng/thuật ngữ giữ đúng chính tả gốc.
+6. Câu tiếng Anh xen tiếng Việt → giữ nguyên cấu trúc đó, không dịch.
+
+== KHI NÀO MỚI ĐƯỢC XOÁ (trả về chuỗi rỗng) ==
+Chỉ xoá khi câu KHÔNG CÓ NỘI DUNG GÌ để cứu, tức là thuần tiếng đệm không kèm thông tin ("ừ", "à", "dạ", "okay", "vâng" đứng một mình) HOẶC hoàn toàn là nhiễu âm vô nghĩa không đoán được.
+Nếu câu có DÙ CHỈ MỘT thông tin thực → PHẢI chuẩn hoá, không xoá.
+
+== VÍ DỤ ==
+- "thì là cái dề lai nó là ngày 30 đó" → "Deadline là ngày 30."
+- "mô điu lét nó chưa deploy lên production" → "Modulex chưa được deploy lên production."
+- "cái kích ốp dự án mình làm hôm qua rồi" → "Kickoff dự án đã làm hôm qua rồi."
+- "ừ thì cái đó mình làm xong trước đó nha" [context: deadline ngày 30] → "Phần đó cần hoàn thành trước deadline ngày 30."
+- "ừ dạ" (đứng một mình, không kèm thông tin) → ""
+- "xờ ê á mmm ờ" (nhiễu thuần túy) → ""
+
 Trả về text thuần, không giải thích, không markdown."""
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -923,23 +969,38 @@ Trả về text thuần, không giải thích, không markdown."""
     total_prompt_tokens = 0
     total_completion_tokens = 0
 
+    CONTEXT_WINDOW = 3  # số segment trước/sau để làm ngữ cảnh
+
+    def _build_context(idx):
+        """Lấy vài segment trước/sau làm ngữ cảnh cho LLM hiểu câu."""
+        lines = []
+        for j in range(max(0, idx - CONTEXT_WINDOW), min(len(results), idx + CONTEXT_WINDOW + 1)):
+            spk = results[j][2] or "?"
+            txt = results[j][3].strip()
+            if not txt:
+                continue
+            marker = ">>> " if j == idx else "    "
+            lines.append(f"{marker}[{spk}]: {txt}")
+        return "\n".join(lines)
+
     def _clean_one(idx, seg):
-        """Gọi LLM cho 1 segment. Trả về (idx, cleaned_text | None)."""
+        """Gọi LLM cho 1 segment kèm ngữ cảnh. Trả về (idx, cleaned_text | None, usage)."""
         text = seg[3].strip()
         if not text:
-            return idx, None
+            return idx, None, None
+        context = _build_context(idx)
+        user_msg = f"Ngữ cảnh hội thoại (>>> là câu cần chuẩn hoá):\n{context}\n\nChuẩn hoá câu được đánh dấu >>>:"
         try:
             resp = client.chat.completions.create(
                 model=model_type,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": user_msg},
                 ],
                 temperature=0,
                 max_tokens=512,
             )
-            out = resp.choices[0].message.content.strip()
-            # Nếu LLM trả về rỗng hoặc chỉ khoảng trắng → bỏ segment
+            out = resp.choices[0].message.content.strip().strip('"').strip("'").strip()
             return idx, (out if out else None), resp.usage
         except Exception as e:
             print(f"[clean_one] idx={idx} err={e}")
