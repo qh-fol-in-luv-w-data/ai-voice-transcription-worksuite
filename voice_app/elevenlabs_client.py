@@ -33,8 +33,18 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi") -> tuple:
             "nghiệm thu", "thanh lý", "đề xuất", "phê duyệt", "triển khai",
             "tiến độ", "rủi ro", "chi phí", "lợi nhuận", "quyết toán",
 
-            # --- Tên hệ thống / thương hiệu ---
-            "CT Group", "Worksuite", "ERP", "CRM", "HRM", "DAIT",
+            # --- CT Group: tập đoàn & công ty thành viên ---
+            "CT Group", "CT Corp", "CTM", "CTEC", "DAIT",
+            "CT UAV", "CT Semiconductor", "CT Modulex", "Modulex",
+            "CT Verse", "CT Solar Homes", "CT Innovation Hub",
+            "CTrans Auto", "CTOptimal", "GASCO", "VGCT", "Diginal",
+            "Carbondo", "CCTPA", "Airbility", "SkyDrive",
+
+            # --- CT Group: hệ thống & nền tảng ---
+            "Worksuite", "2AS", "iMaster", "ERP", "CRM", "HRM",
+            "NDT 15", "CarbonFly", "Catalyst", "Sustain.Life",
+            "LAE", "OSAT", "ATP", "CTDA200M", "eVTOL", "UAV", "UAM",
+            "LiDAR", "SoC", "MCU", "NPU", "ADC", "DAC", "NDT",
 
             # --- Quản lý dự án (Project Management) ---
             "deadline", "milestone", "sprint", "backlog", "roadmap",
