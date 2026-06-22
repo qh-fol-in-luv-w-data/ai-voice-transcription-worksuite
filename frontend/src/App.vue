@@ -122,6 +122,26 @@ const updateIdentities = async () => {
 
 const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
+  // Populate shared state để các action (lọc, trích xuất) hoạt động như bên chính
+  currentMeetingName.value = meeting.name
+  if (meeting.raw_results) {
+    try {
+      transcriptResults.value = typeof meeting.raw_results === 'string'
+        ? JSON.parse(meeting.raw_results)
+        : meeting.raw_results
+    } catch (e) {
+      transcriptResults.value = []
+    }
+  } else {
+    transcriptResults.value = []
+  }
+  // Reset trạng thái derived
+  isCleaned.value = false
+  originalTranscriptResults.value = []
+  tasks.value = []
+  extractStatus.value = ''
+  docxUrl.value = meeting.minute_docx || ''
+  excelUrl.value = meeting.task_xlsx || ''
   activeTab.value = 'view_meeting'
 }
 
@@ -1630,40 +1650,152 @@ onMounted(async () => {
                 <div class="flex flex-col gap-6">
                   <!-- Actions -->
                   <div class="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-lg border border-border">
-                     <el-button v-if="currentMeeting?.audio_file" tag="a" :href="currentMeeting.audio_file" target="_blank" plain>
-                       <template #icon><VideoPlay /></template>
-                       Nghe lại Audio
+                     <!-- Lọc hội thoại -->
+                     <el-button
+                       @click="startCleanTranscript"
+                       :loading="isCleaning"
+                       :disabled="transcriptResults.length === 0"
+                       plain
+                     >
+                       <template #icon v-if="!isCleaning"><MagicStick /></template>
+                       {{ isCleaning ? 'Đang lọc AI...' : (isCleaned ? '↩ Hoàn tác lọc' : '✨ AI Lọc hội thoại') }}
                      </el-button>
-                     
+
+                     <!-- Trích xuất Task -->
+                     <el-button
+                       @click="startExtractTasks"
+                       :loading="isExtracting"
+                       :disabled="transcriptResults.length === 0"
+                       type="warning"
+                       plain
+                     >
+                       <template #icon v-if="!isExtracting"><Connection /></template>
+                       {{ isExtracting ? t('extracting') : t('extract_task') }}
+                     </el-button>
+
+                     <!-- Tải Biên bản Word -->
                      <el-button v-if="currentMeeting?.minute_docx" @click="downloadViaBackend(currentMeeting.name, 'docx')" type="primary" plain>
                        <template #icon><Document /></template>
                        Tải Biên bản (Word)
                      </el-button>
-                     
+
+                     <!-- Tải Tasks Excel -->
                      <el-button v-if="currentMeeting?.task_xlsx" @click="downloadViaBackend(currentMeeting.name, 'xlsx')" type="success" plain>
                        <template #icon><Download /></template>
                        Tải Tasks (Excel)
                      </el-button>
                   </div>
 
-                  <!-- Parsed JSON Transcript (raw_results) -->
-                  <div class="mt-4" v-if="currentMeeting?.raw_results">
+                  <!-- Extract status -->
+                  <p v-if="extractStatus" class="text-sm text-muted-foreground">{{ extractStatus }}</p>
+
+                  <!-- UNKNOWN SPEAKERS MAPPING -->
+                  <el-card v-if="unknownSpeakers.length > 0" shadow="never" style="border-color: var(--el-color-primary); border-width: 2px;">
+                    <template #header>
+                      <div>
+                        <h3 class="text-lg font-medium m-0 flex items-center gap-2 text-primary">
+                          <el-icon><UserFilled /></el-icon>
+                          Gán tên người tham dự
+                        </h3>
+                        <p class="text-sm text-muted-foreground m-0 mt-1">AI phát hiện các giọng nói chưa xác định được danh tính. Bạn vui lòng chọn tên nhân viên thực tế để hệ thống ghi chú vào Biên bản và Task.</p>
+                      </div>
+                    </template>
+                    <div class="flex flex-col gap-4">
+                      <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-muted/20 p-3 rounded-lg border border-border">
+                        <span class="font-bold text-sm min-w-[120px]">{{ spk }}</span>
+                        <el-select v-model="speakerMapping[spk]" filterable placeholder="Chọn nhân viên..." class="flex-1">
+                          <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
+                        </el-select>
+                      </div>
+                      <div class="flex justify-end mt-2">
+                        <el-button type="primary" @click="updateIdentities">Cập nhật danh tính</el-button>
+                      </div>
+                    </div>
+                  </el-card>
+
+                  <!-- Bảng Task (hiện sau khi trích xuất) -->
+                  <div v-if="tasks.length > 0" class="mt-2">
+                    <div class="flex justify-between items-center mb-3">
+                      <h4 class="text-sm font-bold uppercase tracking-wider text-muted-foreground m-0">{{ t('task_list') }}</h4>
+                      <el-button type="primary" plain size="small" @click="addTask">
+                        <template #icon><Plus /></template>
+                        {{ t('add_task') }}
+                      </el-button>
+                    </div>
+                    <el-table :data="tasks" style="width: 100%" border size="small" class="task-table" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
+                      <el-table-column header-align="center" type="index" label="#" width="50" align="center" />
+                      <el-table-column header-align="center" :label="t('col_name')" min-width="200">
+                        <template #default="{ row }">
+                          <el-input v-model="row.title" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" :label="t('col_assignee')" min-width="180">
+                        <template #default="{ row }">
+                          <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..." style="width: 100%">
+                            <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
+                          </el-select>
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" :label="t('col_project')" min-width="150">
+                        <template #default="{ row }">
+                          <el-select v-model="row.project" style="width: 100%">
+                            <el-option label="[Không có]" value="" />
+                            <el-option v-for="p in getProjectsForHR(row.assignee_display)" :key="p[1]" :label="p[0]" :value="p[1]" />
+                          </el-select>
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" :label="t('col_start')" width="130">
+                        <template #default="{ row }">
+                          <el-date-picker v-model="row.start_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" :label="t('col_due')" width="130">
+                        <template #default="{ row }">
+                          <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" :label="t('col_weight')" width="90">
+                        <template #default="{ row }">
+                          <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" :label="t('col_desc')" min-width="200">
+                        <template #default="{ row }">
+                          <el-input v-model="row.description" type="textarea" :rows="2" resize="none" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" :label="t('col_del')" width="70" align="center">
+                        <template #default="{ $index }">
+                          <el-button type="danger" circle plain @click="removeTask($index)">
+                            <template #icon><Delete /></template>
+                          </el-button>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                    <div class="flex flex-col gap-3 mt-4">
+                      <div v-if="erpStatus"
+                        class="w-full p-3 rounded-lg text-sm border font-mono whitespace-pre-line"
+                        :class="erpStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (erpStatus.includes('⏳') ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')"
+                      >{{ erpStatus }}</div>
+                      <div class="flex justify-end">
+                        <el-button type="primary" @click="syncToERP" :loading="isSyncing" :disabled="tasks.length === 0">
+                          {{ t('btn_sync') }}
+                        </el-button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Transcript (dùng transcriptResults để phản ánh kết quả lọc AI) -->
+                  <div class="mt-4" v-if="transcriptResults.length > 0">
                     <h4 class="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Nội dung hội thoại</h4>
                     <div class="bg-muted/10 border border-border rounded-lg max-h-[550px] overflow-y-auto">
                       <div class="p-6 space-y-4">
-                        <div
-                          v-for="(seg, idx) in parseMeetingSegments(currentMeeting.raw_results)"
-                          :key="idx"
-                          class="log-entry"
-                        >
+                        <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry">
                           <div class="log-meta">
                             <span class="log-speaker">{{ seg[2] }}</span>
                             <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
                           </div>
                           <p class="log-text">{{ seg[3] }}</p>
-                        </div>
-                        <div v-if="parseMeetingSegments(currentMeeting.raw_results).length === 0" class="text-sm text-muted-foreground italic text-center py-4">
-                          Không có dữ liệu hội thoại.
                         </div>
                       </div>
                     </div>
