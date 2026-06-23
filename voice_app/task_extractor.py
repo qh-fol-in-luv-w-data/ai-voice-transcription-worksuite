@@ -902,24 +902,34 @@ def clean_transcript_llm(results, model_type="gpt-4o"):
 Output của STT thường mắc các lỗi: từ bị nghe nhầm do accent miền Nam, thuật ngữ tiếng Anh bị phiên âm sai, câu bị cắt đứt giữa chừng, từ đệm/ngập ngừng dày đặc. Nhiệm vụ của bạn là biến STT output thô đó thành văn bản cuộc họp đọc được — giữ đúng ý người nói, không thêm không bớt thông tin.
 
 ━━━ NGUYÊN TẮC CỐT LÕI ━━━
-• CHUẨN HOÁ là ưu tiên số 1: sửa lỗi STT, bỏ từ đệm, viết lại cho rõ câu.
-• XOÁ là phương án cuối cùng: chỉ khi câu hoàn toàn vô nghĩa và không cứu được.
+• OUTPUT là VĂN VIẾT dạng biên bản họp — không phải phiên âm giọng nói. Đọc lại phải tự nhiên như tài liệu nội bộ.
+• CHUẨN HOÁ là ưu tiên số 1: sửa lỗi STT, bỏ từ đệm, bỏ từ cuối câu kiểu nói, dùng ngữ cảnh giải nghĩa đại từ mơ hồ rồi viết lại thành câu hoàn chỉnh.
+• XOÁ là phương án cuối cùng: chỉ khi câu không có thông tin nào cứu được dù đã dùng ngữ cảnh.
 • KHÔNG bịa thêm thông tin, KHÔNG suy diễn quá những gì người nói thực sự nói.
-• Dùng ngữ cảnh (>>> là câu cần xử lý) để giải nghĩa đại từ mơ hồ: "cái đó", "vậy đó", "làm xong rồi".
+• Câu đánh dấu >>> là câu cần xử lý; các câu khác chỉ là ngữ cảnh để hiểu "cái đó", "vậy đó", "làm xong rồi"... rồi thay vào câu >>>.
 
 ━━━ QUY TẮC XỬ LÝ ━━━
 1. Sửa từ nghe sai do accent/nhiễu dựa vào ngữ cảnh + bộ từ vựng bên dưới.
-2. Loại bỏ: ừm, ừ thì là, cái này nó, kiểu như, thì, ý là, mà nó, đó nha, vậy nha...
-3. Câu nói dở/đứt → hoàn thiện nếu ý rõ; nếu không đủ ngữ cảnh thì giữ nguyên phần hiểu được.
-4. Giữ cấu trúc code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh sang tiếng Việt).
-5. Viết hoa đầu câu, dấu câu chuẩn. Tên riêng/thuật ngữ giữ đúng chính tả (CT Group, Modulex, ElevenLabs...).
-6. Câu hỏi giữ dạng câu hỏi. Câu khẳng định giữ dạng khẳng định. Không đổi tone.
+2. Bỏ hết từ mang tính NÓI không mang nghĩa khi viết:
+   - Từ đệm/ngập ngừng: "ừm", "ờ", "thì là", "ý là", "tức là", "kiểu như", "cái này nó", "mà nó", "ấy mà"
+   - Từ cuối câu kiểu nói: "đó nha", "vậy nha", "nha anh", "nghen", "đó anh ơi", "vậy á", "thôi nha"
+   - Xưng hô thừa giữa câu: "anh ơi", "em ơi" (giữ lại chỉ khi cần rõ đối tượng)
+3. Câu nói dở/đứt → dùng ngữ cảnh hoàn thiện nếu ý đủ rõ; không đủ thì giữ phần hiểu được.
+4. Đại từ mơ hồ ("cái đó", "việc đó", "phần này") → thay bằng referent cụ thể nếu ngữ cảnh rõ.
+5. Giữ cấu trúc code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh sang tiếng Việt).
+6. Viết hoa đầu câu, dấu câu chuẩn. Tên riêng/thuật ngữ giữ đúng chính tả (CT Group, Modulex, ElevenLabs...).
+7. Câu hỏi giữ dạng câu hỏi. Câu khẳng định giữ dạng khẳng định. Không đổi tone.
 
 ━━━ KHI NÀO ĐƯỢC XOÁ (trả rỗng "") ━━━
-Chỉ khi rơi vào đúng một trong hai trường hợp:
-  a) Thuần tiếng đệm không kèm thông tin: "ừ", "dạ", "okay", "vâng", "à ừ" đứng một mình.
-  b) Nhiễu âm hoàn toàn không đoán được: "xờ ê á mmm ờ", "tạch tạch tạch"...
-→ Nếu câu có BẤT KỲ thông tin nào (tên người, con số, tên dự án, hành động, thời hạn...) thì PHẢI chuẩn hoá, KHÔNG được xoá.
+Xoá khi câu KHÔNG có thông tin mới dù đã dùng hết ngữ cảnh — tức là nội dung chỉ là phản ứng xã giao:
+  a) Tiếng đệm đơn: "ừ", "dạ", "okay", "vâng", "à", "ờ", "ừm", "ừ ừ"
+  b) Xác nhận / đồng ý không kèm nội dung:
+     "dạ em hiểu rồi ạ", "vâng anh", "okay anh", "được anh", "ừ đúng rồi",
+     "dạ anh", "okay okay", "ừ vậy đi", "được rồi anh", "hiểu rồi", "ừ hiểu"
+  c) Câu cụt chỉ là từ chỉ định không thể giải nghĩa dù có ngữ cảnh:
+     "đó anh", "vậy đó", "ừ thì vậy", "vậy thôi", "đó thôi", "ừ vậy"
+  d) Nhiễu âm hoàn toàn: "xờ ê á mmm ờ", "tạch tạch tạch"
+→ Có BẤT KỲ thông tin thực (tên người/dự án, con số, thời hạn, hành động, ý kiến) → CHUẨN HOÁ, không xoá.
 
 ━━━ BỘ TỪ VỰNG CT GROUP ━━━
 Tập đoàn & thành viên:
@@ -1012,30 +1022,40 @@ Thuật ngữ kinh doanh / tech hay bị STT nghe sai:
   API, backend, frontend, Docker, Kubernetes, CI/CD, DevOps, repository
 
 ━━━ VÍ DỤ ━━━
+[Xoá — tiếng đệm đơn]
+"dạ" / "ừ" / "okay anh" / "vâng anh" / "dạ em hiểu rồi ạ" / "ừ đúng rồi"
+→ ""
+
+[Xoá — câu cụt không thông tin]
+"đó anh" / "vậy đó" / "ừ thì vậy" / "đó thôi anh"
+→ ""
+
+[Chuẩn hoá — giải đại từ từ ngữ cảnh]
+Context trước: "Sprint này tập trung vào module báo cáo."
+>>> "ừ thì cái đó mình phải làm xong trước ngày 30 đúng không"
+→ "Module báo cáo phải hoàn thành trước ngày 30."
+
+[Chuẩn hoá — bỏ từ đệm + từ cuối câu kiểu nói]
+"thì là cái dề lai nó là ngày 30 đó anh vậy nha"
+→ "Deadline là ngày 30."
+
+[Chuẩn hoá — sửa STT + bỏ từ đệm]
 "cái yêu ai nó đang xử lý dữ liệu đó anh"
 → "AI đang xử lý dữ liệu."
 
 "mình đang test cái eo eo em với cái mô đồ mới"
 → "Mình đang test LLM với model mới."
 
-"thì là cái dề lai nó là ngày 30 đó anh"
-→ "Deadline là ngày 30."
-
 "mô điu lét nó chưa deploy lên production đâu anh ơi"
 → "Modulex chưa được deploy lên production."
 
-"ừ thì cái đó mình phải làm xong trước, đúng không" [context: deadline ngày 30]
-→ "Phần đó phải hoàn thành trước deadline ngày 30."
-
 "anh ơi cái kích ốp hôm qua mình chưa confirm với bên khách hàng đúng không"
-→ "Kickoff hôm qua mình chưa confirm với khách hàng đúng không anh?"
+→ "Kickoff hôm qua chưa confirm với khách hàng đúng không anh?"
 
 "budget Q3 mình còn khoảng bao nhiêu vậy, cái p n l nó ra sao"
 → "Budget Q3 còn khoảng bao nhiêu? P&L hiện tại như thế nào?"
 
-"ừ dạ em hiểu rồi ạ" (không kèm thông tin mới)
-→ ""
-
+[Xoá — nhiễu âm]
 "xờ ê á mmm ờ tạch"
 → ""
 
