@@ -947,10 +947,12 @@ Sản phẩm / dự án:
   UAM (Urban Air Mobility), LiDAR (← "lai đa"), SoC, MCU, NPU, ADC, DAC
 
 AI / Machine Learning (hay bị nghe sai nhất):
-  AI (← "ây ai"), LLM (← "eo eo em" / "lờ lờ mờ"), GPT (← "gờ pờ tờ" / "chi pi ti")
+  AI (← "ây ai" / "yêu ai" / "ai ai" / "a i") ← ⚠️ STT THƯỜNG VIẾT "yêu ai" HOẶC "ai" THAY VÌ "AI"
+  AGI (← "ây gì ai" / "a gì i"), AIOps (← "ây ai óp")
+  LLM (← "eo eo em" / "lờ lờ mờ"), GPT (← "gờ pờ tờ" / "chi pi ti")
   ChatGPT (← "chat chi pi ti"), Claude (← "cờ lọt"), Gemini (← "gờ mi ni")
   Llama (← "la ma"), Mistral (← "mít trồ"), Grok (← "gờ rốc")
-  OpenAI (← "ô pen ây ai"), Anthropic (← "an thờ rô pích")
+  OpenAI (← "ô pen ây ai" / "ô pen yêu ai"), Anthropic (← "an thờ rô pích")
   ElevenLabs (← "i lê ven lab"), Whisper (← "guýt pờ"), Stable Diffusion
   machine learning (← "mê sin lơ ning" / "mờ sin lơ ninh")
   deep learning (← "đíp lơ ning"), neural network (← "nơ ron net" / "nơ rồ net wớc")
@@ -1020,6 +1022,12 @@ Thuật ngữ kinh doanh / tech hay bị STT nghe sai:
   API, backend, frontend, Docker, Kubernetes, CI/CD, DevOps, repository
 
 ━━━ VÍ DỤ ━━━
+"cái yêu ai nó đang xử lý dữ liệu đó anh"
+→ "AI đang xử lý dữ liệu."
+
+"mình đang test cái eo eo em với cái mô đồ mới"
+→ "Mình đang test LLM với model mới."
+
 "thì là cái dề lai nó là ngày 30 đó anh"
 → "Deadline là ngày 30."
 
