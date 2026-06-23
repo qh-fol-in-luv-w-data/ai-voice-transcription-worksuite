@@ -946,7 +946,31 @@ Sản phẩm / dự án:
   SkyDrive, LAE (Low Altitude Economy), NDT (National Digital Twin),
   UAM (Urban Air Mobility), LiDAR (← "lai đa"), SoC, MCU, NPU, ADC, DAC
 
-Thuật ngữ tiếng Anh hay bị STT nghe sai:
+AI / Machine Learning (hay bị nghe sai nhất):
+  AI (← "ây ai"), LLM (← "eo eo em" / "lờ lờ mờ"), GPT (← "gờ pờ tờ" / "chi pi ti")
+  ChatGPT (← "chat chi pi ti"), Claude (← "cờ lọt"), Gemini (← "gờ mi ni")
+  Llama (← "la ma"), Mistral (← "mít trồ"), Grok (← "gờ rốc")
+  OpenAI (← "ô pen ây ai"), Anthropic (← "an thờ rô pích")
+  ElevenLabs (← "i lê ven lab"), Whisper (← "guýt pờ"), Stable Diffusion
+  machine learning (← "mê sin lơ ning" / "mờ sin lơ ninh")
+  deep learning (← "đíp lơ ning"), neural network (← "nơ ron net" / "nơ rồ net wớc")
+  transformer (← "trần phô mờ"), embedding (← "em bét đinh" / "em be đinh")
+  fine-tuning (← "phai tiu ning" / "phái chiu"), training (← "trây ning")
+  inference (← "in phờ rần xờ"), model (← "mô đồ" / "mờ đồ")
+  dataset (← "đa ta sét"), datapoint, benchmark (← "bân mác")
+  prompt (← "prôm" / "prăm"), system prompt, context window
+  RAG (← "rag" / "rắc"), vector (← "véc tơ"), embedding database
+  hallucination (← "ha lu xi nây shần" / "ha lu si"), token (← "tô ken")
+  agent (← "ây gần"), agentic, multi-agent, tool calling
+  speech-to-text / STT (← "ét tê tê"), text-to-speech / TTS
+  diarization (← "đai a ri zây shần"), speaker recognition
+  computer vision / CV, object detection, OCR (← "ô xê a" / "ô xê oa")
+  NLP (← "en lờ pi"), sentiment analysis, classification
+  TensorFlow (← "ten xờ phờ lâu"), PyTorch (← "pai tót" / "pi tót")
+  Hugging Face (← "hắc ging phây"), LangChain (← "lang chên")
+  automation (← "ô tô mây shần"), chatbot (← "chát bót")
+
+Thuật ngữ kinh doanh / tech hay bị STT nghe sai:
   deadline (← "dề lai" / "đét lai" / "đi lai")
   kickoff (← "kích ốp"), handover (← "hen dờ"), sign-off (← "xai ốp")
   pipeline (← "pai pờ lai"), deployment (← "đi ploi men")
