@@ -4,25 +4,12 @@ import wave
 import os
 
 def convert_to_wav(input_path: str):
-    """Convert bất kỳ định dạng → WAV 16kHz mono, tối ưu cho STT (ElevenLabs Scribe v2).
-    
-    Filter chain:
-    - highpass f=80   : loại bỏ rumble, tiếng ồn tần số thấp (điều hòa, engine...)
-    - lowpass f=8000  : loại bỏ sibilance, noise tần số cao ngoài dải giọng người
-    - afftdn nf=-25   : AI noise reduction (FFT denoiser) - khử tiếng phòng, gió
-    - dynaudnorm       : dynamic normalization - cân bằng âm lượng linh hoạt hơn loudnorm
-    """
+    """Convert bất kỳ định dạng → WAV 16kHz mono cho ElevenLabs STT."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         out = f.name
     cmd = [
         "ffmpeg", "-y", "-i", str(input_path),
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-        "-af", (
-            "highpass=f=80,"          # cắt tần số thấp (noise phòng, điều hòa)
-            "lowpass=f=8000,"         # cắt tần số cao (ngoài dải giọng người)
-            "afftdn=nf=-25,"          # AI FFT denoiser: khử noise nền
-            "dynaudnorm=p=0.9:m=100"  # dynamic normalization: không clip, giữ ngữ điệu
-        ),
         out,
     ]
     r = subprocess.run(cmd, capture_output=True)

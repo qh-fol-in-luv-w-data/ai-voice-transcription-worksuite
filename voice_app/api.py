@@ -36,10 +36,23 @@ def transcribe_audio(language="vi", filter_speakers=None):
         if err:
             return {"status": "error", "message": err}
 
+        # Auto-detect num_speakers từ filter_speakers nếu có
+        auto_num_speakers = None
+        if filter_speakers:
+            try:
+                names = json.loads(filter_speakers)
+                if isinstance(names, list) and len(names) >= 2:
+                    auto_num_speakers = len(names)
+            except Exception:
+                pass
+
         # Call ElevenLabs
-        segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language)
+        segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers)
         if err:
             return {"status": "error", "message": err}
+
+        el_speakers = set(s["speaker_id"] for s in segments)
+        print(f"[ElevenLabs] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
 
         # ── PYANNOTE RE-DIARIZATION ────────────────────────────────────────────
         # Thay thế speaker_id từ ElevenLabs bằng kết quả pyannote để tách đúng
@@ -50,7 +63,17 @@ def transcribe_audio(language="vi", filter_speakers=None):
                 from voice_app.constants import MAX_SPEAKERS
                 diar_segs = run_diarization_subprocess(wav, max_speakers=MAX_SPEAKERS)
 
-                # Gán pyannote speaker cho từng word (theo overlap nhiều nhất)
+                # Tập hợp vùng overlap (2 người nói đồng thời) để skip
+                overlap_regions = [
+                    (d["start"], d["end"]) for d in diar_segs if d.get("overlap")
+                ]
+
+                def _is_overlap(w_start, w_end):
+                    for o_s, o_e in overlap_regions:
+                        if min(w_end, o_e) - max(w_start, o_s) > 0.05:
+                            return True
+                    return False
+
                 def _find_speaker(w_start, w_end, diar):
                     best, best_ov = None, 0.0
                     for d in diar:
@@ -59,7 +82,12 @@ def transcribe_audio(language="vi", filter_speakers=None):
                             best_ov, best = ov, d["speaker"]
                     return best
 
+                n_overlap_skipped = 0
                 for w in raw_words:
+                    if _is_overlap(w["start"], w["end"]):
+                        w["_skip"] = True  # giọng trộn 2 người → bỏ qua
+                        n_overlap_skipped += 1
+                        continue
                     spk = _find_speaker(w["start"], w["end"], diar_segs)
                     if spk:
                         w["speaker_id"] = spk
@@ -68,7 +96,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
                 new_segments = []
                 cur = None
                 for w in raw_words:
-                    if not w["text"].strip():
+                    if w.get("_skip") or not w["text"].strip():
                         continue
                     if cur is None or cur["speaker_id"] != w["speaker_id"]:
                         if cur:
@@ -82,7 +110,7 @@ def transcribe_audio(language="vi", filter_speakers=None):
                     new_segments.append(cur)
 
                 segments = new_segments
-                print(f"[Diarization] pyannote OK: {len(diar_segs)} speaker-segs → {len(segments)} segments")
+                print(f"[Diarization] pyannote OK: {len(diar_segs)} segs, {len(overlap_regions)} overlap regions, {n_overlap_skipped} words skipped → {len(segments)} segments")
             except Exception as diar_err:
                 print(f"[Diarization] pyannote failed, fallback to ElevenLabs: {diar_err}")
                 # segments giữ nguyên từ ElevenLabs
@@ -129,12 +157,50 @@ def transcribe_audio(language="vi", filter_speakers=None):
 
             if emb is not None:
                 spk_embeddings[spk] = emb
-                allowed = json.loads(filter_speakers) if filter_speakers else None
-                name, score, email, user_info = spk_db.identify(emb, allowed_names=allowed)
-                spk_identified[spk] = (name, score, email, user_info)
 
-        # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.6)
-        MERGE_THRESHOLD = 0.6
+        # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
+        # identify_ranked() đã filter >= SIMILARITY_THRESHOLD (0.65) rồi
+        # → fallback candidate nào cũng đảm bảo trên ngưỡng, không cần check lại
+        allowed = json.loads(filter_speakers) if filter_speakers else None
+
+        # Lấy ranked candidates cho mỗi speaker (tất cả đều >= threshold)
+        spk_ranked = {}  # speaker_id -> [(name, score, email, user_info), ...]
+        for spk, emb in spk_embeddings.items():
+            spk_ranked[spk] = spk_db.identify_ranked(emb, allowed_names=allowed)
+
+        # Greedy: sắp xếp tất cả (spk, name, score) theo score giảm dần
+        all_candidates = []
+        for spk, ranked in spk_ranked.items():
+            for name, score, email, user_info in ranked:
+                all_candidates.append((score, spk, name, email, user_info))
+        all_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        claimed_names = {}   # name -> spk đã claim
+        claimed_spks  = set()  # spk đã được gán tên
+        spk_identified = {}
+
+        for score, spk, name, email, user_info in all_candidates:
+            if spk in claimed_spks:
+                continue  # speaker này đã có tên rồi
+            if name in claimed_names:
+                print(f"[Speaker] Greedy: {spk}({score:.3f}) muốn '{name}' nhưng đã bị {claimed_names[name]} claim → thử tiếp")
+                continue  # tên này đã bị người khác lấy, thử candidate tiếp theo
+            claimed_names[name] = spk
+            claimed_spks.add(spk)
+            spk_identified[spk] = (name, score, email, user_info)
+
+        # Các speaker không match được tên nào → Người lạ
+        for spk in spk_embeddings:
+            if spk not in spk_identified:
+                best_score = spk_ranked[spk][0][1] if spk_ranked.get(spk) else 0.0
+                spk_identified[spk] = ("Người lạ", best_score, "", None)
+
+        # Log kết quả greedy assignment
+        summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
+        print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
+
+        # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.75)
+        MERGE_THRESHOLD = 0.75
         stranger_groups = {}  # spk -> group_id (speaker_id của người đại diện nhóm)
         strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
 
@@ -501,8 +567,7 @@ def clean_transcript():
     payload = json.loads(data)
     results = payload.get("results", [])
     model_type = payload.get("model_type", "gpt-4o")
-    meeting_name = payload.get("meeting_name")  # Nhận meeting_name từ FE
-
+    meeting_name = payload.get("meeting_name")
     if not results:
         return {"status": "error", "message": "Không có nội dung để lọc"}
 
