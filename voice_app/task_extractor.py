@@ -903,10 +903,11 @@ Output của STT thường mắc các lỗi: từ bị nghe nhầm do accent mi�
 
 ━━━ NGUYÊN TẮC CỐT LÕI ━━━
 • OUTPUT là VĂN VIẾT dạng biên bản họp — không phải phiên âm giọng nói. Đọc lại phải tự nhiên như tài liệu nội bộ.
-• CHUẨN HOÁ là ưu tiên số 1: sửa lỗi STT, bỏ từ đệm, bỏ từ cuối câu kiểu nói, dùng ngữ cảnh giải nghĩa đại từ mơ hồ rồi viết lại thành câu hoàn chỉnh.
-• XOÁ là phương án cuối cùng: chỉ khi câu không có thông tin nào cứu được dù đã dùng ngữ cảnh.
-• KHÔNG bịa thêm thông tin, KHÔNG suy diễn quá những gì người nói thực sự nói.
-• Câu đánh dấu >>> là câu cần xử lý; các câu khác chỉ là ngữ cảnh để hiểu "cái đó", "vậy đó", "làm xong rồi"... rồi thay vào câu >>>.
+• CHUẨN HOÁ là ưu tiên số 1: sửa lỗi STT, bỏ từ đệm, bỏ từ cuối câu kiểu nói, viết lại thành câu hoàn chỉnh — nhưng phải GIỮ ĐÚNG NGHĨA GỐC tuyệt đối.
+• XOÁ là phương án hai: khi câu hoàn toàn là filler/xác nhận không có thông tin.
+• GIỮ NGUYÊN là phương án ba: khi câu có thông tin nhưng ngữ cảnh không đủ để chắc chắn nghĩa → giữ nguyên nguyên văn, đừng viết lại.
+• TUYỆT ĐỐI KHÔNG CHẾ: không tự suy diễn, không điền nghĩa khi chưa chắc, không đặt lại cấu trúc câu khi có thể làm lệch nghĩa. Sai nghĩa còn tệ hơn câu vụng.
+• Câu đánh dấu >>> là câu cần xử lý; các câu khác chỉ là ngữ cảnh để hiểu "cái đó", "vậy đó"... — chỉ dùng context khi CHẮC CHẮN, không đoán mò.
 
 ━━━ QUY TẮC XỬ LÝ ━━━
 1. Sửa từ nghe sai do accent/nhiễu dựa vào ngữ cảnh + bộ từ vựng bên dưới.
@@ -914,8 +915,11 @@ Output của STT thường mắc các lỗi: từ bị nghe nhầm do accent mi�
    - Từ đệm/ngập ngừng: "ừm", "ờ", "thì là", "ý là", "tức là", "kiểu như", "cái này nó", "mà nó", "ấy mà"
    - Từ cuối câu kiểu nói: "đó nha", "vậy nha", "nha anh", "nghen", "đó anh ơi", "vậy á", "thôi nha"
    - Xưng hô thừa giữa câu: "anh ơi", "em ơi" (giữ lại chỉ khi cần rõ đối tượng)
-3. Câu nói dở/đứt → dùng ngữ cảnh hoàn thiện nếu ý đủ rõ; không đủ thì giữ phần hiểu được.
-4. Đại từ mơ hồ ("cái đó", "việc đó", "phần này") → thay bằng referent cụ thể nếu ngữ cảnh rõ.
+3. Câu ngắn/cụt/mơ hồ:
+   - Nếu là filler/xác nhận → xoá.
+   - Nếu có nội dung + ngữ cảnh đủ chắc chắn → chuẩn hoá, giữ đúng nghĩa.
+   - Nếu có nội dung nhưng nghĩa không chắc (câu có thể parse 2 chiều) → GIỮ NGUYÊN, đừng viết lại.
+4. Đại từ mơ hồ ("cái đó", "việc đó") → chỉ thay referent khi ngữ cảnh chỉ ra MỘT đáp án duy nhất, rõ ràng. Nếu có thể hiểu 2 cách → giữ nguyên đại từ.
 5. Giữ cấu trúc code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh sang tiếng Việt).
 6. Viết hoa đầu câu, dấu câu chuẩn. Tên riêng/thuật ngữ giữ đúng chính tả (CT Group, Modulex, ElevenLabs...).
 7. Câu hỏi giữ dạng câu hỏi. Câu khẳng định giữ dạng khẳng định. Không đổi tone.
@@ -1054,6 +1058,10 @@ Context trước: "Sprint này tập trung vào module báo cáo."
 
 "budget Q3 mình còn khoảng bao nhiêu vậy, cái p n l nó ra sao"
 → "Budget Q3 còn khoảng bao nhiêu? P&L hiện tại như thế nào?"
+
+[Giữ nguyên — câu có nội dung nhưng có thể hiểu 2 chiều]
+"cũng được mà giờ có AI ko lâu lắm"
+→ "Cũng được, giờ có AI không lâu lắm." (giữ sát nghĩa gốc, không tự thêm "nên" hay "?" vì có thể lệch nghĩa)
 
 [Xoá — nhiễu âm]
 "xờ ê á mmm ờ tạch"
