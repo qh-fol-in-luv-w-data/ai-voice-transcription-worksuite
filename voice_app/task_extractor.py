@@ -970,6 +970,44 @@ AI / Machine Learning (hay bị nghe sai nhất):
   Hugging Face (← "hắc ging phây"), LangChain (← "lang chên")
   automation (← "ô tô mây shần"), chatbot (← "chát bót")
 
+AI models / tools mới (hay bị nhầm):
+  DeepSeek (← "đíp xích" / "đi xíc"), Qwen (← "quên" / "ku en")
+  Phi (← "phai"), Falcon (← "phăn côn"), Yi (← "y ai" / "y i")
+  DALL-E (← "đan i" / "đa lờ i"), Midjourney (← "mít giơ ni")
+  Copilot (← "cô pai lọt"), GitHub Copilot, Perplexity (← "pờ plếch xi ti")
+  Cohere (← "cô hia"), Ollama (← "ô la ma"), vLLM (← "vi eo eo em")
+  LlamaIndex (← "la ma in đếch"), CrewAI (← "cru ây ai")
+  AutoGen (← "ô tô gen"), Langsmith (← "lang smít")
+  Gradio (← "grây đi ô"), Streamlit (← "xtrim lít")
+
+Kỹ thuật training / tối ưu model:
+  generative AI (← "gien ơ rờ típ ây ai" / "gien nờ rê típ")
+  multimodal (← "mắc ti mô đồ" / "mớn ti mô đồ"), vision-language model / VLM
+  RLHF (← "a eo en ết phờ" / "eo lờ ết phờ"), reinforcement learning
+  DPO (Direct Preference Optimization), SFT (Supervised Fine-Tuning)
+  LoRA (← "lô ra"), PEFT (← "pi ết phờ tê")
+  quantization (← "quăn ti zây shần" / "quần ti"), distillation (← "đít ti lây shần")
+  pruning (← "pru ninh"), overfitting (← "ô vờ phi ting"), underfitting
+  gradient descent (← "grây đi ần đi sen"), backpropagation (← "béc prô pa gây shần")
+  loss function (← "lốt phăng chần"), optimizer (← "óp ti mai zờ")
+  epoch (← "i pốc" / "ê pốc"), batch / batch size (← "bét xai")
+  checkpoint (← "chếc poin"), weight (← "oét"), parameter
+  accuracy (← "a kiu ra xi"), precision (← "pri zi shần"), recall (← "ri cồ")
+  F1 score (← "ép phờ oăn"), AUC (← "ây u xi")
+  attention mechanism (← "ờ ten shần"), self-attention, cross-attention
+  zero-shot (← "zi rô shot"), few-shot (← "phu shot"), one-shot, chain of thought / CoT
+  diffusion model (← "đi phiu zhần"), GAN (← "găn" / "gặn")
+  retrieval (← "ri trì vồ"), augmented generation, knowledge base (← "nô lịt bây xờ")
+  tokenizer (← "tô ke nai zờ"), tokenization, chunk (← "chăng" / "trăng")
+  vector store (← "véc tờ sto"), graph RAG, structured output (← "xtrắc tịt ầu pút")
+  streaming (← "xtrim minh"), latency (← "lây tần xi"), throughput (← "thru pút")
+
+Phần cứng AI / hạ tầng:
+  GPU (← "gờ pờ u" / "ji pi u"), CUDA (← "ku đa"), VRAM (← "vi ram")
+  H100 (← "ết trăm"), A100 (← "ây trăm"), TPU (← "tê pờ u")
+  inference server (← "in phờ rần xờ xớ vờ"), model serving
+  evaluation / eval (← "i va liu ây shần"), annotation (← "a nô tây shần")
+
 Thuật ngữ kinh doanh / tech hay bị STT nghe sai:
   deadline (← "dề lai" / "đét lai" / "đi lai")
   kickoff (← "kích ốp"), handover (← "hen dờ"), sign-off (← "xai ốp")
