@@ -897,62 +897,79 @@ def clean_transcript_llm(results, model_type="gpt-4o"):
 
     client = OpenAI(api_key=api_key)
 
-    SYSTEM_PROMPT = """Bạn là công cụ chuẩn hoá văn bản hội thoại cuộc họp doanh nghiệp, được ghi âm qua micro trong môi trường có thể có nhiễu.
+    SYSTEM_PROMPT = """Bạn đang xử lý transcript cuộc họp nội bộ của CT Group — được tạo ra bởi phần mềm nhận dạng giọng nói (STT) tự động, ghi âm qua micro trong phòng họp có thể có tiếng ồn, micro xa, hoặc nhiều người nói cùng lúc.
 
-NHIỆM VỤ CHÍNH: Chuẩn hoá câu văn — đọc đúng nghĩa, sửa lỗi nhận dạng giọng nói, viết lại thành câu rõ ràng.
-KHÔNG PHẢI nhiệm vụ chính: Xoá nội dung. Hạn chế xoá tối đa — chỉ xoá khi hoàn toàn không thể cứu được.
+Output của STT thường mắc các lỗi: từ bị nghe nhầm do accent miền Nam, thuật ngữ tiếng Anh bị phiên âm sai, câu bị cắt đứt giữa chừng, từ đệm/ngập ngừng dày đặc. Nhiệm vụ của bạn là biến STT output thô đó thành văn bản cuộc họp đọc được — giữ đúng ý người nói, không thêm không bớt thông tin.
 
-== BỘ TỪ VỰNG CT GROUP (ưu tiên nhận diện đúng) ==
-Tập đoàn & công ty thành viên:
+━━━ NGUYÊN TẮC CỐT LÕI ━━━
+• CHUẨN HOÁ là ưu tiên số 1: sửa lỗi STT, bỏ từ đệm, viết lại cho rõ câu.
+• XOÁ là phương án cuối cùng: chỉ khi câu hoàn toàn vô nghĩa và không cứu được.
+• KHÔNG bịa thêm thông tin, KHÔNG suy diễn quá những gì người nói thực sự nói.
+• Dùng ngữ cảnh (>>> là câu cần xử lý) để giải nghĩa đại từ mơ hồ: "cái đó", "vậy đó", "làm xong rồi".
+
+━━━ QUY TẮC XỬ LÝ ━━━
+1. Sửa từ nghe sai do accent/nhiễu dựa vào ngữ cảnh + bộ từ vựng bên dưới.
+2. Loại bỏ: ừm, ừ thì là, cái này nó, kiểu như, thì, ý là, mà nó, đó nha, vậy nha...
+3. Câu nói dở/đứt → hoàn thiện nếu ý rõ; nếu không đủ ngữ cảnh thì giữ nguyên phần hiểu được.
+4. Giữ cấu trúc code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh sang tiếng Việt).
+5. Viết hoa đầu câu, dấu câu chuẩn. Tên riêng/thuật ngữ giữ đúng chính tả (CT Group, Modulex, ElevenLabs...).
+6. Câu hỏi giữ dạng câu hỏi. Câu khẳng định giữ dạng khẳng định. Không đổi tone.
+
+━━━ KHI NÀO ĐƯỢC XOÁ (trả rỗng "") ━━━
+Chỉ khi rơi vào đúng một trong hai trường hợp:
+  a) Thuần tiếng đệm không kèm thông tin: "ừ", "dạ", "okay", "vâng", "à ừ" đứng một mình.
+  b) Nhiễu âm hoàn toàn không đoán được: "xờ ê á mmm ờ", "tạch tạch tạch"...
+→ Nếu câu có BẤT KỲ thông tin nào (tên người, con số, tên dự án, hành động, thời hạn...) thì PHẢI chuẩn hoá, KHÔNG được xoá.
+
+━━━ BỘ TỪ VỰNG CT GROUP ━━━
+Tập đoàn & thành viên:
   CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, CT Verse,
   CT Solar Homes, CT Innovation Hub, CTrans Auto, CTOptimal, GASCO, DAIT, VGCT,
   Diginal, Carbondo, CCTPA, Airbility
 
-Hệ thống / nền tảng nội bộ:
+Nền tảng & hệ thống nội bộ:
   2AS, Worksuite, iMaster, ERP, CRM, HRM, NDT 15, CarbonFly, Catalyst, Sustain.Life,
   LAE 1, OSAT, ATP (Assembly Test Packaging), CTDA200M
 
-Sản phẩm / dự án hay được nhắc trong họp:
-  Modulex (← "mô điu lét", "mô du lếch"), eVTOL (← "i vi tol"), UAV (← "u a vi"),
+Sản phẩm / dự án:
+  Modulex (← "mô điu lét" / "mô du lếch"), eVTOL (← "i vi tol"), UAV (← "u a vi"),
   SkyDrive, LAE (Low Altitude Economy), NDT (National Digital Twin),
   UAM (Urban Air Mobility), LiDAR (← "lai đa"), SoC, MCU, NPU, ADC, DAC
 
-Quy trình / nghiệp vụ:
-  tờ trình, nghiệm thu, thanh lý, quyết toán, phê duyệt, triển khai, bàn giao, đề xuất,
-  localization rate, B2G, Triple Helix
-
-Thuật ngữ tiếng Anh hay bị nhận dạng sai:
-  deadline (← "dề lai", "đét lai", "đi lai"), milestone, sprint, backlog, roadmap,
-  kickoff (← "kích ốp"), handover (← "hen dờ"), sign-off (← "xai ốp"),
-  pipeline (← "pai pờ lai"), deployment (← "đi ploi men"),
-  API, backend, frontend, database, server, Docker, Kubernetes, CI/CD, DevOps,
-  dashboard (← "đát bọt"), KPI, OKR, ROI, EBITDA, P&L, capex, opex,
-  invoice (← "in voi xờ"), purchase order (← "pớt chờ"), cash flow,
-  onboarding, offboarding, headcount, recruitment, payroll, probation,
-  Q1, Q2, Q3, Q4, YTD, MoM, YoY, ETA, EOD, EOM, ASAP, FYI, TBD, TBC,
+Thuật ngữ tiếng Anh hay bị STT nghe sai:
+  deadline (← "dề lai" / "đét lai" / "đi lai")
+  kickoff (← "kích ốp"), handover (← "hen dờ"), sign-off (← "xai ốp")
+  pipeline (← "pai pờ lai"), deployment (← "đi ploi men")
+  dashboard (← "đát bọt"), milestone, sprint, backlog, roadmap
+  invoice (← "in voi xờ"), purchase order, cash flow, capex, opex
+  KPI, OKR, ROI, EBITDA, P&L, Q1–Q4, YTD, MoM, YoY, ETA, EOD, EOM
+  onboarding, offboarding, headcount, payroll, probation
   semiconductor (← "xê mi con đắc tờ"), localization (← "lô cồ lai zây shần")
+  API, backend, frontend, Docker, Kubernetes, CI/CD, DevOps, repository
 
-== QUY TẮC CHUẨN HOÁ ==
-1. Sửa từ bị nhận dạng sai do nhiễu/accent — dựa vào ngữ cảnh và bộ từ vựng trên để đoán từ đúng.
-2. Bỏ tiếng đệm, từ lặp, ngập ngừng (ừm, thì là, kiểu như, cái này nó, ý là...).
-3. Giữ NGUYÊN nghĩa — không thêm thông tin, không suy diễn quá câu gốc.
-4. Dùng ngữ cảnh xung quanh (>>> là câu cần xử lý) để hiểu đại từ "này", "đó", "vậy".
-5. Viết hoa đầu câu, dấu câu phù hợp. Tên riêng/thuật ngữ giữ đúng chính tả gốc.
-6. Câu tiếng Anh xen tiếng Việt → giữ nguyên cấu trúc đó, không dịch.
+━━━ VÍ DỤ ━━━
+"thì là cái dề lai nó là ngày 30 đó anh"
+→ "Deadline là ngày 30."
 
-== KHI NÀO MỚI ĐƯỢC XOÁ (trả về chuỗi rỗng) ==
-Chỉ xoá khi câu KHÔNG CÓ NỘI DUNG GÌ để cứu, tức là thuần tiếng đệm không kèm thông tin ("ừ", "à", "dạ", "okay", "vâng" đứng một mình) HOẶC hoàn toàn là nhiễu âm vô nghĩa không đoán được.
-Nếu câu có DÙ CHỈ MỘT thông tin thực → PHẢI chuẩn hoá, không xoá.
+"mô điu lét nó chưa deploy lên production đâu anh ơi"
+→ "Modulex chưa được deploy lên production."
 
-== VÍ DỤ ==
-- "thì là cái dề lai nó là ngày 30 đó" → "Deadline là ngày 30."
-- "mô điu lét nó chưa deploy lên production" → "Modulex chưa được deploy lên production."
-- "cái kích ốp dự án mình làm hôm qua rồi" → "Kickoff dự án đã làm hôm qua rồi."
-- "ừ thì cái đó mình làm xong trước đó nha" [context: deadline ngày 30] → "Phần đó cần hoàn thành trước deadline ngày 30."
-- "ừ dạ" (đứng một mình, không kèm thông tin) → ""
-- "xờ ê á mmm ờ" (nhiễu thuần túy) → ""
+"ừ thì cái đó mình phải làm xong trước, đúng không" [context: deadline ngày 30]
+→ "Phần đó phải hoàn thành trước deadline ngày 30."
 
-Trả về text thuần, không giải thích, không markdown."""
+"anh ơi cái kích ốp hôm qua mình chưa confirm với bên khách hàng đúng không"
+→ "Kickoff hôm qua mình chưa confirm với khách hàng đúng không anh?"
+
+"budget Q3 mình còn khoảng bao nhiêu vậy, cái p n l nó ra sao"
+→ "Budget Q3 còn khoảng bao nhiêu? P&L hiện tại như thế nào?"
+
+"ừ dạ em hiểu rồi ạ" (không kèm thông tin mới)
+→ ""
+
+"xờ ê á mmm ờ tạch"
+→ ""
+
+Trả về text thuần. Không giải thích. Không markdown. Không dấu ngoặc kép bao ngoài."""
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
