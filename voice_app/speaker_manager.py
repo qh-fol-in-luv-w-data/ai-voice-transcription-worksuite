@@ -86,34 +86,48 @@ class SpeakerDB:
     def identify(self, embedding, allowed_names=None):
         if not self.speakers:
             return "Người lạ", 0.0, "", None
-        
-        best_name = "Người lạ"
-        best_sim = 0.0
-        best_email = ""
-        best_user_info = None
-        
-        # If filter provided, only compare against allowed speakers
+
         candidates = self.speakers.items()
         if allowed_names:
             candidates = ((n, v) for n, v in self.speakers.items() if n in allowed_names)
-        
+
         scores = []
         for name, info in candidates:
             sim = 1 - cosine(embedding, info["embedding"])
-            scores.append((name, sim))
-            if sim > best_sim:
-                best_sim = sim
-                if sim >= SIMILARITY_THRESHOLD:
-                    best_name = name
-                    best_email = info["email"]
-                    best_user_info = info.get("user_info")
+            scores.append((name, sim, info["email"], info.get("user_info")))
 
-        # Debug: in top 3 để dễ điều chỉnh ngưỡng
         scores.sort(key=lambda x: x[1], reverse=True)
-        top3 = ", ".join(f"{n}={s:.3f}" for n, s in scores[:3])
-        print(f"[Speaker] best='{best_name}'({best_sim:.3f}) threshold={SIMILARITY_THRESHOLD} | top3: [{top3}]")
+        top3 = ", ".join(f"{n}={s:.3f}" for n, s, _, _ in scores[:3])
 
-        return best_name, best_sim, best_email, best_user_info
+        for name, sim, email, user_info in scores:
+            if sim >= SIMILARITY_THRESHOLD:
+                print(f"[Speaker] best='{name}'({sim:.3f}) threshold={SIMILARITY_THRESHOLD} | top3: [{top3}]")
+                return name, sim, email, user_info
+
+        best_sim = scores[0][1] if scores else 0.0
+        print(f"[Speaker] best='Người lạ'({best_sim:.3f}) threshold={SIMILARITY_THRESHOLD} | top3: [{top3}]")
+        return "Người lạ", best_sim, "", None
+
+    def identify_ranked(self, embedding, allowed_names=None):
+        """Trả về tất cả candidates >= threshold, sorted by score."""
+        if not self.speakers:
+            return []
+
+        candidates = self.speakers.items()
+        if allowed_names:
+            candidates = ((n, v) for n, v in self.speakers.items() if n in allowed_names)
+
+        scores = []
+        for name, info in candidates:
+            sim = 1 - cosine(embedding, info["embedding"])
+            if sim >= SIMILARITY_THRESHOLD:
+                scores.append((name, sim, info["email"], info.get("user_info")))
+
+        scores.sort(key=lambda x: x[1], reverse=True)
+        if scores:
+            top3 = ", ".join(f"{n}={s:.3f}" for n, s, _, _ in scores[:3])
+            print(f"[Speaker] identify_ranked: {len(scores)} candidates >= {SIMILARITY_THRESHOLD} | top3: [{top3}]")
+        return scores
 
 # ── EMBEDDING CACHE (process-level, tránh gọi subprocess trùng lặp) ─────────
 _embedding_cache: dict = {}   # key: (wav_path, start_rounded, end_rounded)
