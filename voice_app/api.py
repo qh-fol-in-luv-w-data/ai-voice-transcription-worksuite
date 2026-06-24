@@ -52,14 +52,68 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
                 pass
 
         # Call STT theo mode
+        stt_usage = {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
+        stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
         if stt_mode == "google":
-            segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+            (
+                segments, raw_words, full_text, err,
+                el_chars_used, el_chars_remaining, stt_usage,
+            ) = call_gemini_stt(
+                wav,
+                language,
+                num_speakers=auto_num_speakers,
+                custom_vocabulary=custom_vocabulary,
+            )
         else:
             segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+
+        # Ghi usage ngay sau khi provider trả về để không mất token của các
+        # response có usage nhưng transcript không parse được.
+        try:
+            session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
+            session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
+            if session_name:
+                ai_model_log = (
+                    stt_usage.get("model", "google/gemini")
+                    if stt_mode == "google"
+                    else "elevenlabs/scribe_v2"
+                )
+                action_name = _logger.start_action(
+                    session_name,
+                    action_type="transcribe_audio",
+                    input_summary=f"Transcribe with {stt_label}",
+                )
+                _logger.log_ai_call(
+                    session_name=session_name,
+                    action_name=action_name,
+                    call_type="transcribe_audio",
+                    ai_model=ai_model_log,
+                    duration_seconds=0,
+                    status="failed" if err else "success",
+                    prompt_tokens=stt_usage.get("prompt_tokens", 0),
+                    completion_tokens=stt_usage.get("completion_tokens", 0),
+                    elevenlabs_chars_used=el_chars_used,
+                    elevenlabs_chars_remaining=el_chars_remaining,
+                    error_message=str(err)[:500] if err else "",
+                )
+                _logger.finish_action(
+                    action_name,
+                    status="failed" if err else "success",
+                    error_message=str(err)[:500] if err else "",
+                    ai_model=ai_model_log,
+                    prompt_tokens=stt_usage.get("prompt_tokens", 0),
+                    completion_tokens=stt_usage.get("completion_tokens", 0),
+                )
+        except Exception as log_ex:
+            try:
+                frappe.db.rollback()
+            except Exception:
+                pass
+            frappe.log_error(str(log_ex), "Log STT AI Call Error")
+
         if err:
             return {"status": "error", "message": err}
 
-        stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
         el_speakers = set(s["speaker_id"] for s in segments)
         print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
 
@@ -307,30 +361,6 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
                 frappe.log_error(str(ex), f"Create Voice Meeting Error (Attempt {attempt+1})")
                 break
 
-        # Log AI call (ElevenLabs)
-        try:
-            session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
-            session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
-            if session_name:
-                ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
-                action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary=f"Transcribe with {stt_label}")
-                _logger.log_ai_call(
-                    session_name=session_name,
-                    action_name=action_name,
-                    call_type="transcribe_audio",
-                    ai_model=ai_model_log,
-                    duration_seconds=0,
-                    status="success",
-                    elevenlabs_chars_used=el_chars_used,
-                    elevenlabs_chars_remaining=el_chars_remaining,
-                )
-                _logger.finish_action(action_name, status="success")
-        except Exception as log_ex:
-            if getattr(frappe.db, "_cursor", None):
-                frappe.db._cursor.execute("ROLLBACK")
-            frappe.db.rollback()
-            frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
-
         return {
             "status": "success",
             "results": results,
@@ -530,6 +560,38 @@ def clean_transcript():
             c_tokens = clean_usage.get("completion_tokens", 0)
             cost = (p_tokens * 2.5 + c_tokens * 10.0) / 1000000
             print(f"💰 [Chi phí OpenAI Clean] Model: {model_type} | Input: {p_tokens} tokens | Output: {c_tokens} tokens | Ước tính: ${cost:.4f}")
+
+            try:
+                session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
+                session_name = _resolve_session(session_id_header)
+                if session_name:
+                    action_name = _logger.start_action(
+                        session_name,
+                        action_type="clean_transcript",
+                        input_summary=f"Clean transcript with {model_type}",
+                    )
+                    _logger.log_ai_call(
+                        session_name=session_name,
+                        action_name=action_name,
+                        call_type="clean_transcript",
+                        ai_model=model_type,
+                        prompt_tokens=p_tokens,
+                        completion_tokens=c_tokens,
+                        status="success",
+                    )
+                    _logger.finish_action(
+                        action_name,
+                        status="success",
+                        ai_model=model_type,
+                        prompt_tokens=p_tokens,
+                        completion_tokens=c_tokens,
+                    )
+            except Exception as log_ex:
+                try:
+                    frappe.db.rollback()
+                except Exception:
+                    pass
+                frappe.log_error(str(log_ex), "Log Clean Transcript AI Call Error")
 
         # Cập nhật raw_results trong Meeting (kết quả sau lọc = trạng thái cuối cùng)
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
