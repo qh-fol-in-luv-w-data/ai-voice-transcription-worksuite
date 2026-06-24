@@ -14,6 +14,9 @@ const { authState, currentUser, currentFullName } = useSession()
 const audioFile = ref(null)
 const audioPreviewUrl = ref('')
 const language = ref('vi')
+const sttMode = ref('google')
+const numSpeakers = ref(null)
+const customVocabulary = ref('')
 const modelType = ref('gpt-4o')
 
 const isTranscribing = ref(false)
@@ -700,7 +703,7 @@ const startTranscribe = async () => {
   selectedAttendees.value = []
   
   try {
-    const res = await transcribeAudio(audioFile.value, language.value)
+    const res = await transcribeAudio(audioFile.value, language.value, null, sttMode.value, numSpeakers.value, customVocabulary.value)
     if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results
@@ -726,7 +729,7 @@ const reAnalyzeWithAttendees = async () => {
   transcribeStatus.value = t('reanalyzing')
   
   try {
-    const res = await transcribeAudio(audioFile.value, language.value, selectedAttendees.value)
+    const res = await transcribeAudio(audioFile.value, language.value, selectedAttendees.value, sttMode.value, numSpeakers.value, customVocabulary.value)
     if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results
@@ -845,7 +848,7 @@ const startCleanTranscript = async () => {
   if (transcriptResults.value.length === 0) return
   isCleaning.value = true
   try {
-    const res = await cleanTranscript(transcriptResults.value, modelType.value, currentMeetingName.value)
+    const res = await cleanTranscript(transcriptResults.value, modelType.value, currentMeetingName.value, customVocabulary.value)
     if (res.status === 'success') {
       if (originalTranscriptResults.value.length === 0) {
         originalTranscriptResults.value = [...transcriptResults.value]
@@ -1094,6 +1097,24 @@ onMounted(async () => {
                    <el-option v-for="l in languages" :key="l.val" :label="l.label" :value="l.val" />
                  </el-select>
                </div>
+
+               <div class="flex flex-col gap-1.5" v-show="false">
+                 <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">STT Engine</label>
+                 <el-radio-group v-model="sttMode">
+                   <el-radio-button value="elevenlabs">ElevenLabs</el-radio-button>
+                   <el-radio-button value="google">Google AI</el-radio-button>
+                 </el-radio-group>
+               </div>
+
+               <div class="flex flex-col gap-1.5">
+                 <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Số người tham dự</label>
+                 <el-input-number v-model="numSpeakers" :min="1" :max="20" :step="1" controls-position="right" style="width: 120px;" placeholder="Tự động" />
+               </div>
+
+               <div class="flex flex-col gap-1.5 mt-2">
+                 <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Từ vựng đặc biệt (Tùy chọn)</label>
+                 <el-input v-model="customVocabulary" type="textarea" :rows="2" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." />
+               </div>
                
                <el-divider class="my-2" />
                
@@ -1151,6 +1172,7 @@ onMounted(async () => {
           <!-- AI FILTER + EXTRACT BUTTON ROW -->
           <div v-if="transcriptResults.length > 0" class="flex flex-wrap gap-3 items-center mt-2">
             <el-button
+              v-if="sttMode !== 'google'"
               @click="startCleanTranscript"
               :loading="isCleaning"
               :type="isCleaned ? 'primary' : 'default'"
@@ -1673,6 +1695,7 @@ onMounted(async () => {
                   <div class="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-lg border border-border">
                      <!-- Lọc hội thoại -->
                      <el-button
+                       v-if="sttMode !== 'google'"
                        @click="startCleanTranscript"
                        :loading="isCleaning"
                        :disabled="transcriptResults.length === 0"

@@ -886,7 +886,7 @@ def extract_tasks_stateless(docx_path, model_type="gpt-4o-mini"):
     return items, result.get("errors", [])
 
 
-def clean_transcript_llm(results, model_type="gpt-4o"):
+def clean_transcript_llm(results, model_type="gpt-4o", custom_vocabulary=""):
     """
     Dùng LLM lọc các câu hội thoại rác, không mang thông tin, đứt đoạn.
     Trả về list of kết quả đã được lọc giữ nguyên định dạng: (start, end, spk_label, text)
@@ -912,7 +912,7 @@ Output của STT thường mắc các lỗi: từ bị nghe nhầm do accent mi�
 ━━━ QUY TẮC XỬ LÝ ━━━
 1. Sửa từ nghe sai do accent/nhiễu dựa vào ngữ cảnh + bộ từ vựng bên dưới.
 2. Bỏ hết từ mang tính NÓI không mang nghĩa khi viết:
-   - Từ đệm/ngập ngừng: "ừm", "ờ", "thì là", "ý là", "tức là", "kiểu như", "cái này nó", "mà nó", "ấy mà"
+   - Từ đệm/ngập ngừng: "ừm", "ờ", "à", "thì", "là", "mà", "cái", "thì là", "ý là", "tức là", "kiểu như", "cái này nó", "mà nó", "ấy mà"
    - Từ cuối câu kiểu nói: "đó nha", "vậy nha", "nha anh", "nghen", "đó anh ơi", "vậy á", "thôi nha"
    - Xưng hô thừa giữa câu: "anh ơi", "em ơi" (giữ lại chỉ khi cần rõ đối tượng)
 3. Câu ngắn/cụt/mơ hồ:
@@ -935,6 +935,7 @@ Xoá khi câu KHÔNG có thông tin mới dù đã dùng hết ngữ cảnh — 
   d) Nhiễu âm hoàn toàn: "xờ ê á mmm ờ", "tạch tạch tạch"
 → Có BẤT KỲ thông tin thực (tên người/dự án, con số, thời hạn, hành động, ý kiến) → CHUẨN HOÁ, không xoá.
 
+{f"━━━ TỪ VỰNG DO NGƯỜI DÙNG BỔ SUNG ━━━\n{custom_vocabulary}\n" if custom_vocabulary else ""}
 ━━━ BỘ TỪ VỰNG CT GROUP ━━━
 Tập đoàn & thành viên:
   CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, CT Verse,
@@ -1146,4 +1147,67 @@ Trả về text thuần. Không giải thích. Không markdown. Không dấu ngo
     except Exception as e:
         print(f"Lỗi clean_transcript_llm: {e}")
         return results, str(e), {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
+
+
+def map_speakers_llm(segments: list, speaker_names: list, model_type: str = "gpt-4o") -> dict:
+    """
+    Dùng LLM map speaker_0, speaker_1... → tên thật dựa vào nội dung hội thoại.
+    speaker_names: danh sách tên user nhập trên UI.
+    Trả về dict: {"speaker_0": "Mr. Kunalan", "speaker_1": "Ms. Phuong", ...}
+    """
+    api_key = get_openai_api_key()
+    if not api_key or not segments or not speaker_names:
+        return {}
+
+    # Lấy danh sách speaker tags có trong transcript
+    speaker_tags = sorted(set(s.get("speaker_id", "") for s in segments if s.get("speaker_id")))
+    if not speaker_tags:
+        return {}
+
+    # Build transcript mẫu (lấy tối đa 60 dòng đầu để không quá dài)
+    transcript_lines = []
+    for s in segments[:60]:
+        spk = s.get("speaker_id", "unknown")
+        txt = s.get("text", "").strip()
+        if txt:
+            transcript_lines.append(f"[{spk}]: {txt}")
+    transcript_sample = "\n".join(transcript_lines)
+
+    names_list = ", ".join(speaker_names)
+    tags_list  = ", ".join(speaker_tags)
+
+    prompt = f"""Bạn đang phân tích transcript cuộc họp. Hệ thống nhận dạng giọng nói đã tách người nói thành các nhãn: {tags_list}.
+
+Danh sách người tham dự cuộc họp: {names_list}
+
+Dựa vào nội dung hội thoại bên dưới (người được gọi tên, cách xưng hô, ngữ cảnh), hãy xác định mỗi nhãn speaker tương ứng với ai trong danh sách trên.
+
+Quy tắc:
+- Chỉ map speaker vào tên có trong danh sách người tham dự
+- Nếu không đủ thông tin để xác định chắc chắn, ưu tiên dựa vào thứ tự xuất hiện và ngữ cảnh hội thoại
+- Mỗi speaker chỉ map với 1 người, mỗi người chỉ được map 1 lần
+- Trả về JSON thuần, không markdown, không giải thích
+
+Transcript (trích):
+{transcript_sample}
+
+Trả về JSON:
+{{{", ".join(f'"{t}": "tên người"' for t in speaker_tags)}}}"""
+
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model_type,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=300,
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+        mapping = json.loads(raw)
+        print(f"[Speaker Map LLM] {mapping}")
+        return mapping
+    except Exception as e:
+        print(f"Lỗi map_speakers_llm: {e}")
+        return {}
 

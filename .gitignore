@@ -29,3 +29,5 @@ speaker_db.json
 
 # Test scripts (không commit vào source)
 test_*.py
+ctpai-500217-2e77a6fc3525.json
+*.m4a

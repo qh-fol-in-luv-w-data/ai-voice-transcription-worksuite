@@ -24,8 +24,8 @@ AGENT_NAME = "2AS-WORKSUITE"
 def get_openai_api_key(agent_name=AGENT_NAME):
     try:
         if frappe.db:
-            doc = frappe.get_doc("Agent", agent_name)
-            val = doc.get_password("api_key")
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.get_password("openai_api_key")
             if val: return val
     except Exception: pass
     return os.getenv("OPENAI_API_KEY", "")
@@ -71,6 +71,30 @@ def get_worksuite_password():
             if val: return val
     except Exception: pass
     return os.getenv("WORKSUITE_PASSWORD", "")
+
+def get_google_service_account_path():
+    """Đường dẫn file JSON service account Google."""
+    try:
+        if frappe.db:
+            frappe.flags.ignore_permissions = True
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.google_sa_path
+            frappe.flags.ignore_permissions = False
+            if val: return val
+    except Exception: pass
+    return os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+
+def get_google_gcs_bucket():
+    """GCS bucket để upload file dài."""
+    try:
+        if frappe.db:
+            frappe.flags.ignore_permissions = True
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.google_gcs_bucket
+            frappe.flags.ignore_permissions = False
+            if val: return val
+    except Exception: pass
+    return os.getenv("GOOGLE_GCS_BUCKET", "pai-stt")
 
 MIN_SPEAKERS = None
 MAX_SPEAKERS = 8
