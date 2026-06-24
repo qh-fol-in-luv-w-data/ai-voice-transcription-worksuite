@@ -4,26 +4,17 @@ import json
 import re
 import requests as _requests
 from .audio_utils import get_duration
+from .constants import get_gemini_api_key, get_gemini_model
 
 UPLOAD_URL      = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 FILE_STATUS_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
 
 def _get_gemini_model():
-    try:
-        import frappe
-        val = frappe.conf.get("gemini_model")
-        if val: return val
-    except Exception: pass
-    return os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+    return get_gemini_model()
 
 def _get_api_key():
-    try:
-        import frappe
-        val = frappe.conf.get("gemini_api_key")
-        if val: return val
-    except Exception: pass
-    return os.getenv("GEMINI_API_KEY", "")
+    return get_gemini_api_key()
 
 def _upload_file(wav_path, api_key):
     """Upload audio lên Gemini File API, chờ ACTIVE rồi trả về file URI."""
@@ -294,15 +285,26 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
     Google Gemini STT với speaker diarization.
     Trả về: (segments, raw_words, full_text, error, 0, 0, usage)
     """
+    model_name = _get_gemini_model()
     empty_usage = {
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "tokens_used": 0,
-        "model": f"google/{_get_gemini_model()}",
+        "model": f"google/{model_name}" if model_name else "google/gemini",
     }
     api_key = _get_api_key()
     if not api_key:
-        return [], [], "", "Chưa cấu hình gemini_api_key trong site_config.json", 0, 0, empty_usage
+        return (
+            [], [], "",
+            "Chưa cấu hình Gemini API Key trong Voice App Settings",
+            0, 0, empty_usage,
+        )
+    if not model_name:
+        return (
+            [], [], "",
+            "Chưa cấu hình Gemini Model trong Voice App Settings",
+            0, 0, empty_usage,
+        )
 
     try:
         duration = get_duration(wav_path)
