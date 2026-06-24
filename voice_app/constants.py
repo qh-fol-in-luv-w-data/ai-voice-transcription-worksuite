@@ -39,6 +39,29 @@ def get_elevenlabs_api_key():
     except Exception: pass
     return os.getenv("ELEVENLABS_API_KEY", "")
 
+def get_gemini_api_key():
+    """Gemini API key from the Voice App Settings singleton."""
+    try:
+        if frappe.db:
+            doc = frappe.get_single("Voice App Settings")
+            val = doc.get_password("gemini_api_key")
+            if val:
+                return val
+    except Exception:
+        pass
+    return ""
+
+def get_gemini_model():
+    """Gemini model from the Voice App Settings singleton."""
+    try:
+        if frappe.db:
+            val = frappe.db.get_single_value("Voice App Settings", "gemini_model")
+            if val:
+                return str(val).strip()
+    except Exception:
+        pass
+    return ""
+
 def get_worksuite_url():
     try:
         if frappe.db:
