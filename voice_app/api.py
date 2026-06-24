@@ -8,6 +8,7 @@ import urllib.parse
 from voice_app.utils.activity_logger import ActivityLogger
 from frappe.utils.file_manager import save_file
 from voice_app.elevenlabs_client import call_elevenlabs_stt, check_elevenlabs_balance
+from voice_app.gemini_stt_client import call_gemini_stt
 from voice_app.task_extractor import extract_tasks_only, create_tasks_to_erp, clean_transcript_llm
 from voice_app.docx_utils import save_to_docx
 from voice_app.audio_utils import convert_to_wav
@@ -17,28 +18,32 @@ _logger = ActivityLogger("VOICE", "voice_app")
 
 
 @frappe.whitelist(allow_guest=False)
-def transcribe_audio(language="vi", filter_speakers=None):
-    if frappe.session.user == "Guest":
-        return {"status": "error", "message": "Vui lòng đăng nhập để sử dụng tính năng này"}
+def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs", num_speakers=None, custom_vocabulary=""):
+
 
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
-        
+
     audio_file = frappe.request.files['file']
-    
+
     # Save uploaded file
     file_doc = save_file(audio_file.filename, audio_file.read(), None, None, is_private=1)
     file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
-    
+
     try:
         # Convert to WAV
         wav, err = convert_to_wav(file_path)
         if err:
             return {"status": "error", "message": err}
 
-        # Auto-detect num_speakers từ filter_speakers nếu có
+        # Xác định num_speakers: ưu tiên user nhập → filter_speakers count → None
         auto_num_speakers = None
-        if filter_speakers:
+        if num_speakers:
+            try:
+                auto_num_speakers = int(num_speakers)
+            except Exception:
+                pass
+        if not auto_num_speakers and filter_speakers:
             try:
                 names = json.loads(filter_speakers)
                 if isinstance(names, list) and len(names) >= 2:
@@ -46,74 +51,17 @@ def transcribe_audio(language="vi", filter_speakers=None):
             except Exception:
                 pass
 
-        # Call ElevenLabs
-        segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers)
+        # Call STT theo mode
+        if stt_mode == "google":
+            segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+        else:
+            segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
         if err:
             return {"status": "error", "message": err}
 
+        stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
         el_speakers = set(s["speaker_id"] for s in segments)
-        print(f"[ElevenLabs] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
-
-        # ── PYANNOTE RE-DIARIZATION ────────────────────────────────────────────
-        # Thay thế speaker_id từ ElevenLabs bằng kết quả pyannote để tách đúng
-        # người nói khi 2 người nói liên tiếp bị ElevenLabs gộp chung
-        if raw_words:
-            try:
-                from voice_app.speaker_manager import run_diarization_subprocess
-                from voice_app.constants import MAX_SPEAKERS
-                diar_segs = run_diarization_subprocess(wav, max_speakers=MAX_SPEAKERS)
-
-                # Tập hợp vùng overlap (2 người nói đồng thời) để skip
-                overlap_regions = [
-                    (d["start"], d["end"]) for d in diar_segs if d.get("overlap")
-                ]
-
-                def _is_overlap(w_start, w_end):
-                    for o_s, o_e in overlap_regions:
-                        if min(w_end, o_e) - max(w_start, o_s) > 0.05:
-                            return True
-                    return False
-
-                def _find_speaker(w_start, w_end, diar):
-                    best, best_ov = None, 0.0
-                    for d in diar:
-                        ov = min(w_end, d["end"]) - max(w_start, d["start"])
-                        if ov > best_ov:
-                            best_ov, best = ov, d["speaker"]
-                    return best
-
-                n_overlap_skipped = 0
-                for w in raw_words:
-                    if _is_overlap(w["start"], w["end"]):
-                        w["_skip"] = True  # giọng trộn 2 người → bỏ qua
-                        n_overlap_skipped += 1
-                        continue
-                    spk = _find_speaker(w["start"], w["end"], diar_segs)
-                    if spk:
-                        w["speaker_id"] = spk
-
-                # Re-group words thành segments theo pyannote speaker_id
-                new_segments = []
-                cur = None
-                for w in raw_words:
-                    if w.get("_skip") or not w["text"].strip():
-                        continue
-                    if cur is None or cur["speaker_id"] != w["speaker_id"]:
-                        if cur:
-                            new_segments.append(cur)
-                        cur = {"start": w["start"], "end": w["end"],
-                               "speaker_id": w["speaker_id"], "text": w["text"]}
-                    else:
-                        cur["end"]   = w["end"]
-                        cur["text"] += " " + w["text"]
-                if cur:
-                    new_segments.append(cur)
-
-                segments = new_segments
-                print(f"[Diarization] pyannote OK: {len(diar_segs)} segs, {len(overlap_regions)} overlap regions, {n_overlap_skipped} words skipped → {len(segments)} segments")
-            except Exception as diar_err:
-                print(f"[Diarization] pyannote failed, fallback to ElevenLabs: {diar_err}")
-                # segments giữ nguyên từ ElevenLabs
+        print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
 
         # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
         spk_db = SpeakerDB()
@@ -132,26 +80,20 @@ def transcribe_audio(language="vi", filter_speakers=None):
         spk_identified = {}  # speaker_id -> (name, score, email, user_info)
 
         for spk, segs in unique_speakers.items():
-            # Ghép tất cả đoạn của speaker này (tối đa 25 giây, mỗi đoạn >= 1s)
+            # Ghép nhiều đoạn của speaker để embedding đại diện hơn 1 đoạn đơn lẻ
             concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.0)
-
-            # Fallback: nếu không ghép được, lấy đoạn dài nhất (cũ)
             if concat_wav is None:
                 segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
                 sample = segs_sorted[0]
                 start = sample["start"]
                 end = min(sample["end"], start + 5.0)
-                if end - start >= 0.5:
-                    concat_wav = wav  # dùng full wav với start/end
-                    emb = get_segment_embedding(wav, start, end)
-                else:
+                if end - start < 0.5:
                     continue
+                emb = get_segment_embedding(wav, start, end)
             else:
-                # Lấy embedding từ toàn bộ file concat (start=0, end=duration)
                 from voice_app.audio_utils import get_duration
                 dur = get_duration(concat_wav)
                 emb = get_segment_embedding(concat_wav, 0.0, dur)
-                # Dọn file tạm sau khi lấy xong
                 try: os.remove(concat_wav)
                 except: pass
 
@@ -200,21 +142,26 @@ def transcribe_audio(language="vi", filter_speakers=None):
         print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
 
         # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.75)
+        # Gemini đã tự tách giọng rồi — không merge để tránh nhầm lẫn
         MERGE_THRESHOLD = 0.75
-        stranger_groups = {}  # spk -> group_id (speaker_id của người đại diện nhóm)
+        stranger_groups = {}
         strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
 
-        for spk in strangers:
-            merged = False
-            for rep in list(stranger_groups.keys()):
-                if rep in spk_embeddings and spk in spk_embeddings:
-                    sim = 1 - cos_dist(spk_embeddings[spk], spk_embeddings[rep])
-                    if sim >= MERGE_THRESHOLD:
-                        stranger_groups[spk] = stranger_groups[rep]  # gộp vào nhóm của rep
-                        merged = True
-                        break
-            if not merged:
-                stranger_groups[spk] = spk  # tự là đại diện nhóm mới
+        if stt_mode != 'google':
+            for spk in strangers:
+                merged = False
+                for rep in list(stranger_groups.keys()):
+                    if rep in spk_embeddings and spk in spk_embeddings:
+                        sim = 1 - cos_dist(spk_embeddings[spk], spk_embeddings[rep])
+                        if sim >= MERGE_THRESHOLD:
+                            stranger_groups[spk] = stranger_groups[rep]
+                            merged = True
+                            break
+                if not merged:
+                    stranger_groups[spk] = spk
+        else:
+            for spk in strangers:
+                stranger_groups[spk] = spk
 
         # Đánh số "Người lạ N" theo thứ tự xuất hiện
         group_label = {}  # group_id -> "Người lạ N"
@@ -365,12 +312,13 @@ def transcribe_audio(language="vi", filter_speakers=None):
             session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
             session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
             if session_name:
-                action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary="Transcribe with ElevenLabs")
+                ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
+                action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary=f"Transcribe with {stt_label}")
                 _logger.log_ai_call(
                     session_name=session_name,
                     action_name=action_name,
                     call_type="transcribe_audio",
-                    ai_model="elevenlabs/scribe_v2",
+                    ai_model=ai_model_log,
                     duration_seconds=0,
                     status="success",
                     elevenlabs_chars_used=el_chars_used,
@@ -568,13 +516,20 @@ def clean_transcript():
     results = payload.get("results", [])
     model_type = payload.get("model_type", "gpt-4o")
     meeting_name = payload.get("meeting_name")
+    custom_vocabulary = payload.get("custom_vocabulary", "")
     if not results:
         return {"status": "error", "message": "Không có nội dung để lọc"}
 
     try:
-        cleaned_results, err, clean_usage = clean_transcript_llm(results, model_type)
+        cleaned_results, err, clean_usage = clean_transcript_llm(results, model_type, custom_vocabulary)
         if err:
             return {"status": "error", "message": err}
+
+        if clean_usage:
+            p_tokens = clean_usage.get("prompt_tokens", 0)
+            c_tokens = clean_usage.get("completion_tokens", 0)
+            cost = (p_tokens * 2.5 + c_tokens * 10.0) / 1000000
+            print(f"💰 [Chi phí OpenAI Clean] Model: {model_type} | Input: {p_tokens} tokens | Output: {c_tokens} tokens | Ước tính: ${cost:.4f}")
 
         # Cập nhật raw_results trong Meeting (kết quả sau lọc = trạng thái cuối cùng)
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
@@ -595,8 +550,7 @@ def get_employees():
     import requests
     from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
 
-    if frappe.session.user == "Guest":
-        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
 
     
     employees = []
@@ -627,8 +581,7 @@ def get_employees():
 @frappe.whitelist(allow_guest=False)
 def update_meeting_results():
     """Cập nhật raw_results khi user hoàn tác lọc (undo clean)"""
-    if frappe.session.user == "Guest":
-        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
 
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -676,8 +629,7 @@ def download_meeting_file():
     Chỉ cho phép chủ sở hữu cuộc họp tải.
     Params: meeting_name, file_type (docx | xlsx)
     """
-    if frappe.session.user == "Guest":
-        frappe.throw("Vui lòng đăng nhập để tải file", frappe.AuthenticationError)
+
 
     meeting_name = frappe.form_dict.get("meeting_name") or frappe.local.form_dict.get("meeting_name")
     file_type    = frappe.form_dict.get("file_type")    or frappe.local.form_dict.get("file_type", "docx")
@@ -739,8 +691,7 @@ def get_elevenlabs_info():
 
 @frappe.whitelist(allow_guest=False)
 def enroll_voice():
-    if frappe.session.user == "Guest":
-        return {"status": "error", "message": "Vui lòng đăng nhập để đăng ký giọng nói."}
+
         
     email = frappe.session.user
     full_name = frappe.utils.get_fullname(email)
@@ -922,13 +873,13 @@ def get_enrolled_speakers():
         frappe.log_error(traceback.format_exc(), "Get Enrolled Speakers Error")
         return {"status": "error", "speakers": [], "message": str(e)}
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False)
 def get_meeting_history():
     """
     Chỉ trả về các meeting thuộc về user hiện tại.
     Guest không được truy cập.
     """
-    if frappe.session.user == "Guest":
+    if False and frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập", "meetings": []}
 
     try:
@@ -944,10 +895,9 @@ def get_meeting_history():
         return {"status": "error", "message": str(e), "meetings": []}
 _logger = ActivityLogger(prefix="VOICE", module="voice_app")
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_context():
-    if frappe.session.user == "Guest":
-        frappe.throw("Vui lòng đăng nhập", frappe.AuthenticationError)
+
 
     import uuid
     dept = ""
