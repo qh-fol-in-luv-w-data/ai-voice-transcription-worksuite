@@ -55,8 +55,8 @@ def _upload_file(wav_path, api_key, max_retries=4):
         except _requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
                 if attempt < max_retries - 1:
-                    sleep_time = 2 ** attempt * 5 + 5 # 10s, 15s, 25s
-                    print(f"[Gemini STT] Lỗi 429 Rate limit khi upload. Chờ {sleep_time}s rồi thử lại lần {attempt + 2}...")
+                    sleep_time = 60 # 60s để đảm bảo reset Quota 1 phút
+                    print(f"[Gemini STT] Lỗi 429 Rate limit khi upload. Chờ {sleep_time}s để API reset Quota rồi thử lại lần {attempt + 2}...")
                     time.sleep(sleep_time)
                     continue
             raise # Ném lỗi ra ngoài nếu không phải 429 hoặc hết số lần thử
@@ -124,8 +124,8 @@ def _call_gemini_stream(file_uri, api_key, prompt):
         except _requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
                 if attempt < max_retries - 1:
-                    sleep_time = 2 ** attempt * 5 + 5 # 10s, 15s, 25s
-                    print(f"[Gemini STT] Lỗi 429 Rate limit khi Stream. Chờ {sleep_time}s rồi thử lại lần {attempt + 2}...")
+                    sleep_time = 60 # 60s
+                    print(f"[Gemini STT] Lỗi 429 Rate limit khi Stream. Chờ {sleep_time}s để API reset Quota rồi thử lại lần {attempt + 2}...")
                     time.sleep(sleep_time)
                     continue
             raise
