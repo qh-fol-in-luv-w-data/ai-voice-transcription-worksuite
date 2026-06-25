@@ -10,14 +10,8 @@ UPLOAD_URL      = "https://generativelanguage.googleapis.com/upload/v1beta/files
 GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 FILE_STATUS_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
 
-def _get_gemini_model():
-    return get_gemini_model()
-
-def _get_api_key():
-    return get_gemini_api_key()
-
-def _upload_file(wav_path, api_key):
-    """Upload audio lên Gemini File API, chờ ACTIVE rồi trả về file URI."""
+def _upload_file(wav_path, api_key, max_retries=4):
+    """Upload audio lên Gemini File API, chờ ACTIVE rồi trả về file URI. Có retry khi gặp 429."""
     file_size = os.path.getsize(wav_path)
     headers = {
         "X-Goog-Upload-Protocol": "resumable",
@@ -26,31 +20,47 @@ def _upload_file(wav_path, api_key):
         "X-Goog-Upload-Header-Content-Type": "audio/wav",
         "Content-Type": "application/json",
     }
-    init = _requests.post(
-        f"{UPLOAD_URL}?key={api_key}",
-        headers=headers,
-        json={"file": {"display_name": os.path.basename(wav_path)}},
-        timeout=30,
-    )
-    init.raise_for_status()
-    upload_url = init.headers["X-Goog-Upload-URL"]
+    
+    file_uri = ""
+    file_name = ""
+    
+    for attempt in range(max_retries):
+        try:
+            init = _requests.post(
+                f"{UPLOAD_URL}?key={api_key}",
+                headers=headers,
+                json={"file": {"display_name": os.path.basename(wav_path)}},
+                timeout=30,
+            )
+            init.raise_for_status()
+            upload_url = init.headers["X-Goog-Upload-URL"]
 
-    with open(wav_path, "rb") as f:
-        data = f.read()
-    upload_resp = _requests.post(
-        upload_url,
-        headers={
-            "Content-Length": str(file_size),
-            "X-Goog-Upload-Offset": "0",
-            "X-Goog-Upload-Command": "upload, finalize",
-        },
-        data=data,
-        timeout=300,
-    )
-    upload_resp.raise_for_status()
-    file_info = upload_resp.json()["file"]
-    file_uri  = file_info["uri"]
-    file_name = file_info["name"]
+            with open(wav_path, "rb") as f:
+                data = f.read()
+            upload_resp = _requests.post(
+                upload_url,
+                headers={
+                    "Content-Length": str(file_size),
+                    "X-Goog-Upload-Offset": "0",
+                    "X-Goog-Upload-Command": "upload, finalize",
+                },
+                data=data,
+                timeout=300,
+            )
+            upload_resp.raise_for_status()
+            file_info = upload_resp.json()["file"]
+            file_uri  = file_info["uri"]
+            file_name = file_info["name"]
+            break # Thành công
+        except _requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                if attempt < max_retries - 1:
+                    sleep_time = 2 ** attempt * 5 + 5 # 10s, 15s, 25s
+                    print(f"[Gemini STT] Lỗi 429 Rate limit khi upload. Chờ {sleep_time}s rồi thử lại lần {attempt + 2}...")
+                    time.sleep(sleep_time)
+                    continue
+            raise # Ném lỗi ra ngoài nếu không phải 429 hoặc hết số lần thử
+            
     print(f"[Gemini STT] Uploaded → {file_uri}, chờ ACTIVE...")
 
     for _ in range(30):
@@ -68,6 +78,12 @@ def _upload_file(wav_path, api_key):
         time.sleep(5)
 
     raise Exception("Gemini file processing timeout sau 150s")
+
+def _get_gemini_model():
+    return get_gemini_model()
+
+def _get_api_key():
+    return get_gemini_api_key()
 
 STREAM_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
 
@@ -93,13 +109,26 @@ def _call_gemini_stream(file_uri, api_key, prompt):
     }
 
     print(f"[Gemini STT] Streaming (model={model_name})...")
-    resp = _requests.post(
-        f"{STREAM_URL.format(model=model_name)}?key={api_key}&alt=sse",
-        json=payload,
-        timeout=1200,
-        stream=True,
-    )
-    resp.raise_for_status()
+    
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            resp = _requests.post(
+                f"{STREAM_URL.format(model=model_name)}?key={api_key}&alt=sse",
+                json=payload,
+                timeout=1200,
+                stream=True,
+            )
+            resp.raise_for_status()
+            break # Thành công
+        except _requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                if attempt < max_retries - 1:
+                    sleep_time = 2 ** attempt * 5 + 5 # 10s, 15s, 25s
+                    print(f"[Gemini STT] Lỗi 429 Rate limit khi Stream. Chờ {sleep_time}s rồi thử lại lần {attempt + 2}...")
+                    time.sleep(sleep_time)
+                    continue
+            raise
 
     full_text   = ""
     total_in    = 0
