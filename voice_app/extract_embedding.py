@@ -89,6 +89,11 @@ def main():
                 from scipy.signal import resample as sp_resample
                 n_out = int(len(data) * 16000 / sr)
                 data = sp_resample(data, n_out).astype('float32')
+        # Ensure minimum length for pyannote SincNet (need at least ~1 second for deeper CNN layers)
+        if len(data) < 16000:
+            pad_len = 16000 - len(data)
+            data = np.pad(data, (0, pad_len), 'constant')
+
         return torch.tensor(data).unsqueeze(0).unsqueeze(0)  # [1, 1, samples]
 
     print("DEBUG: Loading waveform...", flush=True)
