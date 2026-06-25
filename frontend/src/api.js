@@ -17,10 +17,13 @@ api.interceptors.request.use(config => {
   return config;
 })
 
-export async function transcribeAudio(file, language, filterSpeakers = null) {
+export async function transcribeAudio(file, language, filterSpeakers = null, sttMode = 'elevenlabs', numSpeakers = null, customVocabulary = '') {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('language', language)
+  formData.append('stt_mode', sttMode)
+  if (numSpeakers) formData.append('num_speakers', numSpeakers)
+  if (customVocabulary) formData.append('custom_vocabulary', customVocabulary)
   if (filterSpeakers && filterSpeakers.length > 0) {
     formData.append('filter_speakers', JSON.stringify(filterSpeakers))
   }
@@ -87,11 +90,12 @@ export async function getEnrolledSpeakers() {
   return res.data.message
 }
 
-export async function cleanTranscript(results, modelType, meetingName) {
+export async function cleanTranscript(results, modelType, meetingName, customVocabulary = '') {
   const res = await api.post('/api/method/voice_app.api.clean_transcript', {
     results: results,
     model_type: modelType,
-    meeting_name: meetingName
+    meeting_name: meetingName,
+    custom_vocabulary: customVocabulary
   })
   return res.data.message
 }

@@ -266,7 +266,9 @@ const startExtractTasks = async () => {
             v-model="speakerMapping[spk]"
             filterable
             clearable
-            placeholder="Chọn nhân viên..."
+            allow-create
+            default-first-option
+            placeholder="Chọn nhân viên hoặc nhập tên..."
             style="flex: 1"
           >
             <el-option
@@ -296,7 +298,7 @@ const startExtractTasks = async () => {
            <button @click="startCleanTranscript" :disabled="isCleaning" class="shadcn-btn shadcn-btn-outline" :class="isCleaned ? 'border-foreground text-foreground' : ''">
              <svg v-if="isCleaning" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
              <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-             {{ isCleaned ? "Undo Filter" : "Filter Noise" }}
+             {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "↩ Hoàn tác" : "✨ Chuẩn hoá hội thoại") }}
            </button>
            
            <button @click="openTaskModal" class="shadcn-btn bg-foreground text-background shadow-md shadow-foreground/20 hover:bg-foreground/90 transition-colors" :disabled="isExtracting">

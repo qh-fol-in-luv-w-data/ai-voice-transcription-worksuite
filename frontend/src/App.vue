@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
 import { initSession, useSession } from './utils/session'
 
@@ -11,7 +12,11 @@ const { authState, currentUser, currentFullName } = useSession()
 
 // States
 const audioFile = ref(null)
+const audioPreviewUrl = ref('')
 const language = ref('vi')
+const sttMode = ref('google')
+const numSpeakers = ref(null)
+const customVocabulary = ref('')
 const modelType = ref('gpt-4o')
 
 const isTranscribing = ref(false)
@@ -58,34 +63,41 @@ const employeeOptions = computed(() => {
 
 const speakerMapping = ref({})
 
-const unknownSpeakers = computed(() => {
+const allSpeakers = computed(() => {
   if (!transcriptResults.value) return []
   const speakers = new Set()
   for (const seg of transcriptResults.value) {
-    if (seg[2] && (seg[2].startsWith('👤 Người lạ') || seg[2].startsWith('Người lạ'))) {
-      speakers.add(seg[2])
-    }
+    if (seg[2]) speakers.add(seg[2])
   }
   return Array.from(speakers)
 })
+
+const unknownSpeakers = computed(() => allSpeakers.value.filter(s => s.startsWith('👤 Người lạ') || s.startsWith('Người lạ')))
+
+watch(allSpeakers, (speakers) => {
+  const mapping = {}
+  for (const spk of speakers) {
+    mapping[spk] = speakerMapping.value[spk] ?? spk
+  }
+  speakerMapping.value = mapping
+}, { immediate: true })
 
 const updateIdentities = async () => {
   let changed = false
   const mappingsToSave = {}
   
   for (const seg of transcriptResults.value) {
-    if (speakerMapping.value[seg[2]]) {
-      mappingsToSave[seg[2]] = speakerMapping.value[seg[2]]
-      seg[2] = speakerMapping.value[seg[2]]
+    const mapped = speakerMapping.value[seg[2]]
+    if (mapped && mapped !== seg[2]) {
+      mappingsToSave[seg[2]] = mapped
+      seg[2] = mapped
       changed = true
     }
   }
   if (changed) {
-    // Update original as well
     for (const seg of originalTranscriptResults.value) {
-      if (speakerMapping.value[seg[2]]) {
-        seg[2] = speakerMapping.value[seg[2]]
-      }
+      const mapped = speakerMapping.value[seg[2]]
+      if (mapped && mapped !== seg[2]) seg[2] = mapped
     }
     // Update backend if meeting exists
     if (currentMeetingName.value) {
@@ -107,16 +119,16 @@ const updateIdentities = async () => {
              msg += `\n⚠️ Không thể lấy mẫu giọng cho ${enrollRes.errors.length} người (âm thanh quá ngắn).`
            }
         }
-        alert(msg)
+        ElMessage.success(msg)
       } catch(e) {
         console.warn('Could not save updated identities to server', e)
-        alert('✅ Đã cập nhật danh tính thành công trên giao diện, nhưng có lỗi lưu lên server.')
+        ElMessage.warning('Đã cập nhật danh tính thành công trên giao diện, nhưng có lỗi lưu lên server.')
       }
     } else {
-      alert('✅ Đã cập nhật danh tính thành công!')
+      ElMessage.success('Đã cập nhật danh tính thành công!')
     }
   } else {
-    alert('Chưa có thay đổi nào được áp dụng.')
+    ElMessage.warning('Chưa có thay đổi nào được áp dụng.')
   }
 }
 
@@ -352,6 +364,7 @@ const handleFileChange = (e) => {
   if (e.target.files.length > 0) {
     audioFile.value = e.target.files[0]
     const url = URL.createObjectURL(audioFile.value)
+    audioPreviewUrl.value = url
     const audio = new Audio(url)
     audio.onloadedmetadata = () => {
       audioDuration.value = audio.duration
@@ -396,13 +409,13 @@ const toggleRecording = async () => {
     mediaRecorder.value.start()
     isRecording.value = true
   } catch(e) {
-    alert("Lỗi truy cập Micro: " + e.message)
+    ElMessage.error("Lỗi truy cập Micro: " + e.message)
   }
 }
 
 const submitEnrollment = async () => {
   if (!enrollAudioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isEnrolling.value = true
@@ -459,13 +472,13 @@ const toggleVoiceTaskRecording = async () => {
     voiceTaskMediaRecorder.value.start()
     voiceTaskIsRecording.value = true
   } catch(e) {
-    alert("Lỗi truy cập Micro: " + e)
+    ElMessage.error("Lỗi truy cập Micro: " + e)
   }
 }
 
 const submitVoiceTask = async () => {
   if (!voiceTaskAudioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isVoiceTaskProcessing.value = true
@@ -549,13 +562,13 @@ const toggleVoiceTaskRefineRecording = async () => {
     voiceTaskRefineMediaRecorder.value.start()
     voiceTaskRefineIsRecording.value = true
   } catch(e) {
-    alert("Lỗi truy cập Micro: " + e)
+    ElMessage.error("Lỗi truy cập Micro: " + e)
   }
 }
 
 const submitVoiceTaskRefine = async () => {
   if (!voiceTaskRefineAudioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isVoiceTaskProcessing.value = true
@@ -677,7 +690,7 @@ const parseTranscript = (text) => {
 
 const startTranscribe = async () => {
   if (!audioFile.value) {
-    alert(t('alert_no_file'))
+    ElMessage.warning(t('alert_no_file'))
     return
   }
   isTranscribing.value = true
@@ -690,7 +703,7 @@ const startTranscribe = async () => {
   selectedAttendees.value = []
   
   try {
-    const res = await transcribeAudio(audioFile.value, language.value)
+    const res = await transcribeAudio(audioFile.value, language.value, null, sttMode.value, numSpeakers.value, customVocabulary.value)
     if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results
@@ -716,7 +729,7 @@ const reAnalyzeWithAttendees = async () => {
   transcribeStatus.value = t('reanalyzing')
   
   try {
-    const res = await transcribeAudio(audioFile.value, language.value, selectedAttendees.value)
+    const res = await transcribeAudio(audioFile.value, language.value, selectedAttendees.value, sttMode.value, numSpeakers.value, customVocabulary.value)
     if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results
@@ -757,7 +770,7 @@ const toggleAttendee = (name) => {
 
 const startExtractTasks = async () => {
   if (transcriptResults.value.length === 0) {
-    alert(t('alert_no_transcript'))
+    ElMessage.warning(t('alert_no_transcript'))
     return
   }
   if (!meetingStartTime.value) {
@@ -835,7 +848,7 @@ const startCleanTranscript = async () => {
   if (transcriptResults.value.length === 0) return
   isCleaning.value = true
   try {
-    const res = await cleanTranscript(transcriptResults.value, modelType.value, currentMeetingName.value)
+    const res = await cleanTranscript(transcriptResults.value, modelType.value, currentMeetingName.value, customVocabulary.value)
     if (res.status === 'success') {
       if (originalTranscriptResults.value.length === 0) {
         originalTranscriptResults.value = [...transcriptResults.value]
@@ -843,10 +856,10 @@ const startCleanTranscript = async () => {
       transcriptResults.value = res.cleaned_results
       isCleaned.value = true
     } else {
-      alert('❌ Lỗi lọc: ' + res.message)
+      ElMessage.error('Lỗi lọc: ' + res.message)
     }
   } catch (e) {
-    alert(t('error_connect'))
+    ElMessage.error(t('error_connect'))
   } finally {
     isCleaning.value = false
   }
@@ -1051,7 +1064,10 @@ onMounted(async () => {
             <li v-for="meeting in meetingHistory" :key="meeting.name">
               <button @click="loadPastMeeting(meeting)" :class="activeTab==='view_meeting' && currentMeeting?.name === meeting.name ? 'bg-muted/30 text-primary font-medium' : 'text-muted-foreground hover:bg-muted/30'" class="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-left bg-transparent border-none shadow-none focus:outline-none cursor-pointer" style="background: none; border: none; box-shadow: none;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-history shrink-0"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-                <span class="truncate block w-full">{{ meeting.title }}</span>
+                <span class="flex flex-col w-full min-w-0">
+                  <span class="truncate block w-full">{{ meeting.title }}</span>
+                  <span class="text-xs text-muted-foreground block truncate">{{ meeting.date }}</span>
+                </span>
               </button>
             </li>
           </ul>
@@ -1080,6 +1096,24 @@ onMounted(async () => {
                  <el-select v-model="language" style="width: 200px">
                    <el-option v-for="l in languages" :key="l.val" :label="l.label" :value="l.val" />
                  </el-select>
+               </div>
+
+               <div class="flex flex-col gap-1.5" v-show="false">
+                 <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">STT Engine</label>
+                 <el-radio-group v-model="sttMode">
+                   <el-radio-button value="elevenlabs">ElevenLabs</el-radio-button>
+                   <el-radio-button value="google">Google AI</el-radio-button>
+                 </el-radio-group>
+               </div>
+
+               <div class="flex flex-col gap-1.5">
+                 <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Số người tham dự</label>
+                 <el-input-number v-model="numSpeakers" :min="1" :max="20" :step="1" controls-position="right" style="width: 120px;" placeholder="Tự động" />
+               </div>
+
+               <div class="flex flex-col gap-1.5 mt-2">
+                 <label class="text-xs font-bold text-muted-foreground uppercase tracking-wider">Từ vựng đặc biệt (Tùy chọn)</label>
+                 <el-input v-model="customVocabulary" type="textarea" :rows="2" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." />
                </div>
                
                <el-divider class="my-2" />
@@ -1122,6 +1156,7 @@ onMounted(async () => {
                    <div class="mt-2 text-primary font-medium">{{ audioFile ? audioFile.name : t('upload_support') }}</div>
                  </div>
                </el-upload>
+               <audio v-if="audioPreviewUrl" :src="audioPreviewUrl" controls class="w-full mt-3 h-10 rounded-lg" />
             </div>
             
             <template #footer>
@@ -1137,6 +1172,7 @@ onMounted(async () => {
           <!-- AI FILTER + EXTRACT BUTTON ROW -->
           <div v-if="transcriptResults.length > 0" class="flex flex-wrap gap-3 items-center mt-2">
             <el-button
+              v-if="sttMode !== 'google'"
               @click="startCleanTranscript"
               :loading="isCleaning"
               :type="isCleaned ? 'primary' : 'default'"
@@ -1149,7 +1185,7 @@ onMounted(async () => {
                 <el-icon v-if="isCleaned"><RefreshLeft /></el-icon>
                 <el-icon v-else><MagicStick /></el-icon>
               </template>
-              {{ isCleaning ? 'Đang lọc AI...' : (isCleaned ? '↩ Hoàn tác lọc' : '✨ AI Lọc hội thoại') }}
+              {{ isCleaning ? 'Đang chuẩn hoá...' : (isCleaned ? '↩ Hoàn tác' : '✨ Chuẩn hoá hội thoại') }}
             </el-button>
             <el-button 
               type="primary" 
@@ -1176,14 +1212,16 @@ onMounted(async () => {
                 </div>
               </div>
             </template>
-            <div class="log-view p-6 space-y-6 max-h-[250px] overflow-auto">
-               <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry">
-                  <div class="log-meta">
-                     <span class="log-speaker">{{ seg[2] }}</span>
+            <div class="log-view p-6 space-y-6 max-h-[500px] overflow-auto">
+               <template v-for="(seg, idx) in transcriptResults" :key="idx">
+                 <div v-if="seg[3] && seg[3].trim()" class="log-entry">
+                   <div class="log-meta">
+                     <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
                      <span class="log-time">[{{ seg[0].toFixed(2) }}s]</span>
-                  </div>
-                  <p class="log-text">{{ seg[3] }}</p>
-               </div>
+                   </div>
+                   <p class="log-text">{{ seg[3] }}</p>
+                 </div>
+               </template>
             </div>
           </el-card>
 
@@ -1245,23 +1283,28 @@ onMounted(async () => {
           </el-card>
 
           <!-- UNKNOWN SPEAKERS MAPPING -->
-          <el-card v-if="unknownSpeakers.length > 0" shadow="never" style="border-color: var(--el-color-primary); border-width: 2px;">
+          <el-card v-if="allSpeakers.length > 0" shadow="never" style="border-color: var(--el-color-primary); border-width: 2px;">
             <template #header>
               <div>
                 <h3 class="text-lg font-medium m-0 flex items-center gap-2 text-primary">
                   <el-icon><UserFilled /></el-icon>
-                  Gán tên người tham dự
+                  Gán / sửa tên người nói
                 </h3>
-                <p class="text-sm text-muted-foreground m-0 mt-1">AI phát hiện các giọng nói chưa xác định được danh tính. Bạn vui lòng chọn tên nhân viên thực tế để hệ thống ghi chú vào Biên bản và Task.</p>
+                <p class="text-sm text-muted-foreground m-0 mt-1">Kiểm tra và chỉnh sửa tên người nói nếu AI nhận diện sai. Tên được pre-fill từ kết quả nhận diện.</p>
               </div>
             </template>
             <div class="flex flex-col gap-4">
-              <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-muted/20 p-3 rounded-lg border border-border">
-                <span class="font-bold text-sm min-w-[120px]">{{ spk }}</span>
+              <div v-for="spk in allSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-muted/20 p-3 rounded-lg border border-border">
+                <span class="font-bold text-sm min-w-[140px]" :style="{ color: stringToColor(spk) }">
+                  {{ spk }}
+                  <el-tag v-if="spk.startsWith('Người lạ') || spk.startsWith('👤')" size="small" type="warning" class="ml-1">chưa xác định</el-tag>
+                </span>
                 <el-select
                   v-model="speakerMapping[spk]"
                   filterable
-                  placeholder="Chọn nhân viên..."
+                  allow-create
+                  default-first-option
+                  placeholder="Chọn nhân viên hoặc nhập tên..."
                   class="flex-1"
                 >
                   <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
@@ -1652,13 +1695,14 @@ onMounted(async () => {
                   <div class="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-lg border border-border">
                      <!-- Lọc hội thoại -->
                      <el-button
+                       v-if="sttMode !== 'google'"
                        @click="startCleanTranscript"
                        :loading="isCleaning"
                        :disabled="transcriptResults.length === 0"
                        plain
                      >
                        <template #icon v-if="!isCleaning"><MagicStick /></template>
-                       {{ isCleaning ? 'Đang lọc AI...' : (isCleaned ? '↩ Hoàn tác lọc' : '✨ AI Lọc hội thoại') }}
+                       {{ isCleaning ? 'Đang chuẩn hoá...' : (isCleaned ? '↩ Hoàn tác' : '✨ Chuẩn hoá hội thoại') }}
                      </el-button>
 
                      <!-- Trích xuất Task -->
@@ -1690,20 +1734,30 @@ onMounted(async () => {
                   <p v-if="extractStatus" class="text-sm text-muted-foreground">{{ extractStatus }}</p>
 
                   <!-- UNKNOWN SPEAKERS MAPPING -->
-                  <el-card v-if="unknownSpeakers.length > 0" shadow="never" style="border-color: var(--el-color-primary); border-width: 2px;">
+                  <el-card v-if="allSpeakers.length > 0" shadow="never" style="border-color: var(--el-color-primary); border-width: 2px;">
                     <template #header>
                       <div>
                         <h3 class="text-lg font-medium m-0 flex items-center gap-2 text-primary">
                           <el-icon><UserFilled /></el-icon>
-                          Gán tên người tham dự
+                          Gán / sửa tên người nói
                         </h3>
-                        <p class="text-sm text-muted-foreground m-0 mt-1">AI phát hiện các giọng nói chưa xác định được danh tính. Bạn vui lòng chọn tên nhân viên thực tế để hệ thống ghi chú vào Biên bản và Task.</p>
+                        <p class="text-sm text-muted-foreground m-0 mt-1">Kiểm tra và chỉnh sửa tên người nói nếu AI nhận diện sai. Tên được pre-fill từ kết quả nhận diện.</p>
                       </div>
                     </template>
                     <div class="flex flex-col gap-4">
-                      <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-muted/20 p-3 rounded-lg border border-border">
-                        <span class="font-bold text-sm min-w-[120px]">{{ spk }}</span>
-                        <el-select v-model="speakerMapping[spk]" filterable placeholder="Chọn nhân viên..." class="flex-1">
+                      <div v-for="spk in allSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-muted/20 p-3 rounded-lg border border-border">
+                        <span class="font-bold text-sm min-w-[140px]" :style="{ color: stringToColor(spk) }">
+                          {{ spk }}
+                          <el-tag v-if="spk.startsWith('Người lạ') || spk.startsWith('👤')" size="small" type="warning" class="ml-1">chưa xác định</el-tag>
+                        </span>
+                        <el-select
+                          v-model="speakerMapping[spk]"
+                          filterable
+                          allow-create
+                          default-first-option
+                          placeholder="Chọn nhân viên hoặc nhập tên..."
+                          class="flex-1"
+                        >
                           <el-option v-for="emp in employeeOptions" :key="emp.value" :label="emp.label" :value="emp.value" />
                         </el-select>
                       </div>
@@ -1790,13 +1844,15 @@ onMounted(async () => {
                     <h4 class="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Nội dung hội thoại</h4>
                     <div class="bg-muted/10 border border-border rounded-lg max-h-[550px] overflow-y-auto">
                       <div class="p-6 space-y-4">
-                        <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry">
-                          <div class="log-meta">
-                            <span class="log-speaker">{{ seg[2] }}</span>
-                            <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                        <template v-for="(seg, idx) in transcriptResults" :key="idx">
+                          <div v-if="seg[3] && seg[3].trim()" class="log-entry">
+                            <div class="log-meta">
+                              <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
+                              <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                            </div>
+                            <p class="log-text">{{ seg[3] }}</p>
                           </div>
-                          <p class="log-text">{{ seg[3] }}</p>
-                        </div>
+                        </template>
                       </div>
                     </div>
                   </div>
