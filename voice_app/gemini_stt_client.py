@@ -55,13 +55,19 @@ def _upload_file(wav_path, api_key, max_retries=8):
             break # Thành công
         except _requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
+                err_text = e.response.text
+                if "quota" in err_text.lower():
+                    print(f"[Gemini STT] Đã hết Quota (Hạn mức): {err_text}")
+                    raise Exception(f"Gemini API Quota Exceeded: {err_text}")
+                
                 if attempt < max_retries - 1:
                     sleep_time = min(300, 30 * (2 ** attempt) + random.uniform(1, 10))
                     print(f"[Gemini STT] Lỗi 429 Rate limit khi upload. Chờ {sleep_time:.1f}s để thử lại lần {attempt + 2}/{max_retries}...")
                     time.sleep(sleep_time)
                     continue
-            print(f"[Gemini STT] Lỗi upload sau {attempt + 1} lần thử: {e}")
-            raise # Ném lỗi ra ngoài nếu không phải 429 hoặc hết số lần thử
+            err_details = e.response.text if e.response is not None else str(e)
+            print(f"[Gemini STT] Lỗi upload sau {attempt + 1} lần thử: {err_details}")
+            raise Exception(f"Upload failed: {e} - Details: {err_details}")
             
     print(f"[Gemini STT] Uploaded → {file_uri}, chờ ACTIVE...")
 
@@ -80,10 +86,14 @@ def _upload_file(wav_path, api_key, max_retries=8):
                 raise Exception(f"Gemini file processing FAILED: {file_name}")
         except _requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
+                err_text = e.response.text
+                if "quota" in err_text.lower():
+                    raise Exception(f"Gemini API Quota Exceeded: {err_text}")
                 print(f"[Gemini STT] Lỗi 429 khi check status, chờ 10s rồi thử lại...")
                 time.sleep(10)
                 continue
-            raise
+            err_details = e.response.text if e.response is not None else str(e)
+            raise Exception(f"Status check failed: {e} - Details: {err_details}")
         time.sleep(5)
 
     raise Exception("Gemini file processing timeout sau 200s")
