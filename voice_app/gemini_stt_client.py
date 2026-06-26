@@ -142,13 +142,19 @@ def _call_gemini_stream(file_uri, api_key, prompt):
             break # Thành công
         except _requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
+                err_text = e.response.text
+                if "quota" in err_text.lower():
+                    print(f"[Gemini STT] Đã hết Quota Stream (Hạn mức): {err_text}")
+                    raise Exception(f"Gemini API Stream Quota Exceeded: {err_text}")
+                
                 if attempt < max_retries - 1:
                     sleep_time = min(300, 30 * (2 ** attempt) + random.uniform(1, 10))
                     print(f"[Gemini STT] Lỗi 429 Rate limit khi Stream. Chờ {sleep_time:.1f}s để thử lại lần {attempt + 2}/{max_retries}...")
                     time.sleep(sleep_time)
                     continue
-            print(f"[Gemini STT] Lỗi stream sau {attempt + 1} lần thử: {e}")
-            raise
+            err_details = e.response.text if e.response is not None else str(e)
+            print(f"[Gemini STT] Lỗi stream sau {attempt + 1} lần thử: {err_details}")
+            raise Exception(f"Stream failed: {e} - Details: {err_details}")
 
     full_text   = ""
     total_in    = 0
