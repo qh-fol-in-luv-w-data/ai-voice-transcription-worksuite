@@ -2,6 +2,7 @@ import os
 import time
 import json
 import re
+import random
 import requests as _requests
 from .audio_utils import get_duration
 from .constants import get_gemini_api_key, get_gemini_model
@@ -10,14 +11,8 @@ UPLOAD_URL      = "https://generativelanguage.googleapis.com/upload/v1beta/files
 GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 FILE_STATUS_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
 
-def _get_gemini_model():
-    return get_gemini_model()
-
-def _get_api_key():
-    return get_gemini_api_key()
-
-def _upload_file(wav_path, api_key):
-    """Upload audio lên Gemini File API, chờ ACTIVE rồi trả về file URI."""
+def _upload_file(wav_path, api_key, max_retries=8):
+    """Upload audio lên Gemini File API, chờ ACTIVE rồi trả về file URI. Có retry khi gặp 429."""
     file_size = os.path.getsize(wav_path)
     headers = {
         "X-Goog-Upload-Protocol": "resumable",
@@ -26,48 +21,88 @@ def _upload_file(wav_path, api_key):
         "X-Goog-Upload-Header-Content-Type": "audio/wav",
         "Content-Type": "application/json",
     }
-    init = _requests.post(
-        f"{UPLOAD_URL}?key={api_key}",
-        headers=headers,
-        json={"file": {"display_name": os.path.basename(wav_path)}},
-        timeout=30,
-    )
-    init.raise_for_status()
-    upload_url = init.headers["X-Goog-Upload-URL"]
+    
+    file_uri = ""
+    file_name = ""
+    
+    for attempt in range(max_retries):
+        try:
+            init = _requests.post(
+                f"{UPLOAD_URL}?key={api_key}",
+                headers=headers,
+                json={"file": {"display_name": os.path.basename(wav_path)}},
+                timeout=30,
+            )
+            init.raise_for_status()
+            upload_url = init.headers["X-Goog-Upload-URL"]
 
-    with open(wav_path, "rb") as f:
-        data = f.read()
-    upload_resp = _requests.post(
-        upload_url,
-        headers={
-            "Content-Length": str(file_size),
-            "X-Goog-Upload-Offset": "0",
-            "X-Goog-Upload-Command": "upload, finalize",
-        },
-        data=data,
-        timeout=300,
-    )
-    upload_resp.raise_for_status()
-    file_info = upload_resp.json()["file"]
-    file_uri  = file_info["uri"]
-    file_name = file_info["name"]
+            with open(wav_path, "rb") as f:
+                data = f.read()
+            upload_resp = _requests.post(
+                upload_url,
+                headers={
+                    "Content-Length": str(file_size),
+                    "X-Goog-Upload-Offset": "0",
+                    "X-Goog-Upload-Command": "upload, finalize",
+                },
+                data=data,
+                timeout=300,
+            )
+            upload_resp.raise_for_status()
+            file_info = upload_resp.json()["file"]
+            file_uri  = file_info["uri"]
+            file_name = file_info["name"]
+            break # Thành công
+        except _requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                err_text = e.response.text
+                if "quota" in err_text.lower():
+                    print(f"[Gemini STT] Đã hết Quota (Hạn mức): {err_text}")
+                    raise Exception(f"Gemini API Quota Exceeded: {err_text}")
+                
+                if attempt < max_retries - 1:
+                    sleep_time = min(300, 30 * (2 ** attempt) + random.uniform(1, 10))
+                    print(f"[Gemini STT] Lỗi 429 Rate limit khi upload. Chờ {sleep_time:.1f}s để thử lại lần {attempt + 2}/{max_retries}...")
+                    time.sleep(sleep_time)
+                    continue
+            err_details = e.response.text if e.response is not None else str(e)
+            print(f"[Gemini STT] Lỗi upload sau {attempt + 1} lần thử: {err_details}")
+            raise Exception(f"Upload failed: {e} - Details: {err_details}")
+            
     print(f"[Gemini STT] Uploaded → {file_uri}, chờ ACTIVE...")
 
-    for _ in range(30):
-        status_resp = _requests.get(
-            f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
-            timeout=10,
-        )
-        status_resp.raise_for_status()
-        state = status_resp.json().get("state", "")
-        if state == "ACTIVE":
-            print(f"[Gemini STT] File ACTIVE: {file_uri}")
-            return file_uri
-        if state == "FAILED":
-            raise Exception(f"Gemini file processing FAILED: {file_name}")
+    for attempt in range(40):
+        try:
+            status_resp = _requests.get(
+                f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
+                timeout=10,
+            )
+            status_resp.raise_for_status()
+            state = status_resp.json().get("state", "")
+            if state == "ACTIVE":
+                print(f"[Gemini STT] File ACTIVE: {file_uri}")
+                return file_uri
+            if state == "FAILED":
+                raise Exception(f"Gemini file processing FAILED: {file_name}")
+        except _requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                err_text = e.response.text
+                if "quota" in err_text.lower():
+                    raise Exception(f"Gemini API Quota Exceeded: {err_text}")
+                print(f"[Gemini STT] Lỗi 429 khi check status, chờ 10s rồi thử lại...")
+                time.sleep(10)
+                continue
+            err_details = e.response.text if e.response is not None else str(e)
+            raise Exception(f"Status check failed: {e} - Details: {err_details}")
         time.sleep(5)
 
-    raise Exception("Gemini file processing timeout sau 150s")
+    raise Exception("Gemini file processing timeout sau 200s")
+
+def _get_gemini_model():
+    return get_gemini_model()
+
+def _get_api_key():
+    return get_gemini_api_key()
 
 STREAM_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
 
@@ -93,13 +128,33 @@ def _call_gemini_stream(file_uri, api_key, prompt):
     }
 
     print(f"[Gemini STT] Streaming (model={model_name})...")
-    resp = _requests.post(
-        f"{STREAM_URL.format(model=model_name)}?key={api_key}&alt=sse",
-        json=payload,
-        timeout=1200,
-        stream=True,
-    )
-    resp.raise_for_status()
+    
+    max_retries = 8
+    for attempt in range(max_retries):
+        try:
+            resp = _requests.post(
+                f"{STREAM_URL.format(model=model_name)}?key={api_key}&alt=sse",
+                json=payload,
+                timeout=1200,
+                stream=True,
+            )
+            resp.raise_for_status()
+            break # Thành công
+        except _requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                err_text = e.response.text
+                if "quota" in err_text.lower():
+                    print(f"[Gemini STT] Đã hết Quota Stream (Hạn mức): {err_text}")
+                    raise Exception(f"Gemini API Stream Quota Exceeded: {err_text}")
+                
+                if attempt < max_retries - 1:
+                    sleep_time = min(300, 30 * (2 ** attempt) + random.uniform(1, 10))
+                    print(f"[Gemini STT] Lỗi 429 Rate limit khi Stream. Chờ {sleep_time:.1f}s để thử lại lần {attempt + 2}/{max_retries}...")
+                    time.sleep(sleep_time)
+                    continue
+            err_details = e.response.text if e.response is not None else str(e)
+            print(f"[Gemini STT] Lỗi stream sau {attempt + 1} lần thử: {err_details}")
+            raise Exception(f"Stream failed: {e} - Details: {err_details}")
 
     full_text   = ""
     total_in    = 0
