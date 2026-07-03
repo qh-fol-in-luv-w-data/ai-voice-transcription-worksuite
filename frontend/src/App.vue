@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { transcribeAudio, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
+import { transcribeAudio, checkMeetingStatus, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
 import { initSession, useSession } from './utils/session'
 
 import CTSplashScreen from './components/CTSplashScreen.vue'
@@ -688,6 +688,35 @@ const parseTranscript = (text) => {
   return messages
 }
 
+const pollMeetingStatus = async (meetingName, isReanalyze = false) => {
+  try {
+    const res = await checkMeetingStatus(meetingName)
+    if (res.status === 'success') {
+      transcribeStatus.value = t('status_transcribe_ok')
+      transcriptResults.value = res.results || []
+      originalTranscriptResults.value = [...(res.results || [])]
+      isCleaned.value = false
+      transcriptText.value = res.final_text || ''
+      dbEmployees.value = res.employees || []
+      currentMeetingName.value = res.meeting_name || null
+      if (res.meeting_name) loadHistory()
+      isTranscribing.value = false
+      isReanalyzing.value = false
+    } else if (res.status === 'processing') {
+      transcribeStatus.value = "Đang xử lý âm thanh (tiến trình chạy nền)..."
+      setTimeout(() => pollMeetingStatus(meetingName, isReanalyze), 5000)
+    } else {
+      transcribeStatus.value = '❌ Lỗi: ' + (res.message || 'Unknown error')
+      isTranscribing.value = false
+      isReanalyzing.value = false
+    }
+  } catch (e) {
+    transcribeStatus.value = t('error_connect')
+    isTranscribing.value = false
+    isReanalyzing.value = false
+  }
+}
+
 const startTranscribe = async () => {
   if (!audioFile.value) {
     ElMessage.warning(t('alert_no_file'))
@@ -704,21 +733,24 @@ const startTranscribe = async () => {
   
   try {
     const res = await transcribeAudio(audioFile.value, language.value, null, sttMode.value, numSpeakers.value, customVocabulary.value)
-    if (res.status === 'success') {
+    if (res.status === 'processing' && res.meeting_name) {
+      pollMeetingStatus(res.meeting_name)
+    } else if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
-      transcriptResults.value = res.results
-      originalTranscriptResults.value = [...res.results]
+      transcriptResults.value = res.results || []
+      originalTranscriptResults.value = [...(res.results || [])]
       isCleaned.value = false
-      transcriptText.value = res.final_text
+      transcriptText.value = res.final_text || ''
       dbEmployees.value = res.employees || []
       currentMeetingName.value = res.meeting_name || null
       if (res.meeting_name) loadHistory()
+      isTranscribing.value = false
     } else {
       transcribeStatus.value = '❌ Error: ' + res.message
+      isTranscribing.value = false
     }
   } catch (e) {
     transcribeStatus.value = t('error_connect')
-  } finally {
     isTranscribing.value = false
   }
 }
@@ -730,19 +762,22 @@ const reAnalyzeWithAttendees = async () => {
   
   try {
     const res = await transcribeAudio(audioFile.value, language.value, selectedAttendees.value, sttMode.value, numSpeakers.value, customVocabulary.value)
-    if (res.status === 'success') {
+    if (res.status === 'processing' && res.meeting_name) {
+      pollMeetingStatus(res.meeting_name, true)
+    } else if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
-      transcriptResults.value = res.results
-      originalTranscriptResults.value = [...res.results]
+      transcriptResults.value = res.results || []
+      originalTranscriptResults.value = [...(res.results || [])]
       isCleaned.value = false
-      transcriptText.value = res.final_text
+      transcriptText.value = res.final_text || ''
       currentMeetingName.value = res.meeting_name || currentMeetingName.value
+      isReanalyzing.value = false
     } else {
       transcribeStatus.value = '❌ Error: ' + res.message
+      isReanalyzing.value = false
     }
   } catch (e) {
     transcribeStatus.value = t('error_connect')
-  } finally {
     isReanalyzing.value = false
   }
 }

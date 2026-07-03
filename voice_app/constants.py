@@ -30,6 +30,31 @@ def get_openai_api_key(agent_name=AGENT_NAME):
     except Exception: pass
     return os.getenv("OPENAI_API_KEY", "")
 
+
+def get_gemini_api_key():
+    try:
+        if frappe.db:
+            frappe.flags.ignore_permissions = True
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.get_password("gemini_api_key")
+            frappe.flags.ignore_permissions = False
+            if val: return val
+    except Exception: pass
+    return os.getenv("GEMINI_API_KEY", "")
+
+
+def get_gemini_model():
+    try:
+        if frappe.db:
+            frappe.flags.ignore_permissions = True
+            doc = frappe.get_doc("Voice App Settings")
+            val = doc.gemini_model
+            frappe.flags.ignore_permissions = False
+            if val: return val
+    except Exception: pass
+    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+
 def get_elevenlabs_api_key():
     try:
         if frappe.db:
