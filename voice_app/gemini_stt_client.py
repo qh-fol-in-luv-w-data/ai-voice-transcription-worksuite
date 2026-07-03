@@ -168,10 +168,13 @@ def _call_gemini_stream(file_uri, api_key, prompt):
                 resp.raise_for_status()
             resp.raise_for_status()
 
-            full_text     = ""
-            total_in      = 0
-            total_out     = 0
-            finish_reason = None
+            full_text       = ""
+            total_in        = 0
+            total_out       = 0
+            total_tokens    = 0
+            thoughts_tokens = 0
+            cached_tokens   = 0
+            finish_reason   = None
 
             for raw_line in resp.iter_lines():
                 if not raw_line:
@@ -183,26 +186,35 @@ def _call_gemini_stream(file_uri, api_key, prompt):
                 if data_str == "[DONE]":
                     break
                 try:
-                    chunk = json.loads(data_str)
+                    parsed_data = json.loads(data_str)
                 except json.JSONDecodeError:
                     continue
+                
+                # Gemini có thể trả về 1 dict, hoặc 1 mảng các dict
+                chunks_to_process = parsed_data if isinstance(parsed_data, list) else [parsed_data]
 
-                usage = chunk.get("usageMetadata", {})
-                if usage:
-                    total_in  = usage.get("promptTokenCount", total_in)
-                    total_out = usage.get("candidatesTokenCount", total_out)
+                for chunk in chunks_to_process:
+                    if not isinstance(chunk, dict):
+                        continue
 
-                candidates = chunk.get("candidates", [])
-                if not candidates:
-                    continue
+                    usage = chunk.get("usageMetadata", {})
+                    if usage:
+                        total_in      = usage.get("promptTokenCount", total_in)
+                        total_out     = usage.get("candidatesTokenCount", total_out)
+                        total_tokens  = usage.get("totalTokenCount", total_tokens)
+                        cached_tokens = usage.get("cachedContentTokenCount", cached_tokens)
 
-                cand = candidates[0]
-                finish_reason = cand.get("finishReason", finish_reason)
+                    candidates = chunk.get("candidates", [])
+                    if not candidates:
+                        continue
 
-                parts = cand.get("content", {}).get("parts", [])
-                for part in parts:
-                    if not part.get("thought", False) and "text" in part:
-                        full_text += part["text"]
+                    cand = candidates[0]
+                    finish_reason = cand.get("finishReason", finish_reason)
+
+                    parts = cand.get("content", {}).get("parts", [])
+                    for part in parts:
+                        if not part.get("thought", False) and "text" in part:
+                            full_text += part["text"]
 
             break  # stream đọc xong thành công
 
@@ -338,6 +350,8 @@ def _parse_time(val):
 
 def _segments_to_raw_words(segments, file_duration=None):
     """Convert Gemini segments → raw_words format tương thích pipeline."""
+    # Đảm bảo tất cả segment là dict để tránh lỗi 'list'/'str' object has no attribute 'get'
+    segments = [s for s in segments if isinstance(s, dict)]
     if not segments:
         return []
 
@@ -407,13 +421,13 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         return (
             [], [], "",
             "Chưa cấu hình Gemini API Key trong Voice App Settings",
-            0, 0, empty_usage,
+            0, 0,
         )
     if not model_name:
         return (
             [], [], "",
             "Chưa cấu hình Gemini Model trong Voice App Settings",
-            0, 0, empty_usage,
+            0, 0,
         )
 
     try:
@@ -434,7 +448,10 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
             chunk_duration = get_duration(chunk_wav)
             file_uri, file_name = _upload_file(chunk_wav, api_key)
             try:
-                gemini_segments = _call_gemini_stream(file_uri, api_key, prompt)
+                gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(file_uri, api_key, prompt)
+                if chunk_error:
+                    print(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
+                    continue
             finally:
                 _delete_file(file_name, api_key)
                 if chunk_wav != wav_path:
