@@ -57,7 +57,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
 
     return {"status": "processing", "meeting_name": meeting_doc.name}
 
-@frappe.whitelist(allow_guest=Fals)
+@frappe.whitelist(allow_guest=False)
 def check_meeting_status(meeting_name):
     meeting = frappe.get_doc("Voice Meeting", meeting_name)
     if meeting.status == "Completed":
@@ -654,7 +654,7 @@ def clean_transcript():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=Fals)
+@frappe.whitelist(allow_guest=False)
 def get_employees():
     import requests
     from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
@@ -689,7 +689,7 @@ def get_employees():
     return {"status": "success", "employees": employees}
 
 
-@frappe.whitelist(allow_guest=Fals)
+@frappe.whitelist(allow_guest=False)
 def update_meeting_results():
     """Cập nhật raw_results khi user hoàn tác lọc (undo clean)"""
     if frappe.session.user == "Guest":
@@ -734,7 +734,7 @@ def sync_tasks_to_erp():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=Fals)
+@frappe.whitelist(allow_guest=False)
 def download_meeting_file():
     """
     Endpoint tải file (docx/xlsx) từ meeting về phía client.
@@ -802,7 +802,7 @@ def download_meeting_file():
 def get_elevenlabs_info():
     return {"balance": check_elevenlabs_balance()}
 
-@frappe.whitelist(allow_guest=Fals)
+@frappe.whitelist(allow_guest=False)
 def enroll_voice():
     if frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập để đăng ký giọng nói."}
@@ -987,7 +987,7 @@ def get_enrolled_speakers():
         frappe.log_error(traceback.format_exc(), "Get Enrolled Speakers Error")
         return {"status": "error", "speakers": [], "message": str(e)}
 
-@frappe.whitelist(allow_guest=Fals)
+@frappe.whitelist(allow_guest=False)
 def get_meeting_history():
     """
     Chỉ trả về các meeting thuộc về user hiện tại.
@@ -1009,7 +1009,7 @@ def get_meeting_history():
         return {"status": "error", "message": str(e), "meetings": []}
 _logger = ActivityLogger(prefix="VOICE", module="voice_app")
 
-@frappe.whitelist(allow_guest=Fals)
+@frappe.whitelist(allow_guest=False)
 def get_context():
     if frappe.session.user == "Guest":
         frappe.throw("Vui lòng đăng nhập", frappe.AuthenticationError)
