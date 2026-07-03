@@ -117,14 +117,23 @@ class ActivityLogger:
             if elevenlabs_chars > 0:
                 sess.total_elevenlabs_chars = (getattr(sess, 'total_elevenlabs_chars', None) or 0) + elevenlabs_chars
 
-            total_used_now = prompt_tokens + completion_tokens
-            if ai_model and total_used_now > 0 and hasattr(sess, "token_breakdown"):
+            if ai_model and (prompt_tokens > 0 or completion_tokens > 0) and hasattr(sess, "token_breakdown"):
                 import json
                 try:
                     breakdown = json.loads(sess.token_breakdown) if sess.token_breakdown else {}
                 except (TypeError, ValueError):
                     breakdown = {}
-                breakdown[ai_model] = int(breakdown.get(ai_model, 0) or 0) + total_used_now
+                
+                current = breakdown.get(ai_model, {"input": 0, "output": 0})
+                if isinstance(current, int):
+                    current = {"input": current, "output": 0}
+                elif not isinstance(current, dict):
+                    current = {"input": 0, "output": 0}
+                    
+                current["input"] += prompt_tokens
+                current["output"] += completion_tokens
+                breakdown[ai_model] = current
+                
                 sess.token_breakdown = json.dumps(breakdown, ensure_ascii=False)
 
             sess.last_active_at         = now_datetime()

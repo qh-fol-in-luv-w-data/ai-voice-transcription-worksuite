@@ -10,6 +10,7 @@
   "title",
   "date",
   "status",
+  "error_message",
   "audio_file",
   "transcript",
   "raw_results",
@@ -38,7 +39,12 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Pending\nAnalyzed\nSynced"
+   "options": "Pending\nProcessing\nCompleted\nError\nAnalyzed\nSynced"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message"
   },
   {
    "fieldname": "audio_file",
@@ -77,7 +83,7 @@
    "fieldtype": "Code",
    "label": "Tasks (JSON)",
    "options": "JSON",
-   "description": "Toàn bộ danh sách task trích xuất được (JSON array) để xem lại"
+   "description": "To\u00e0n b\u1ed9 danh s\u00e1ch task tr\u00edch xu\u1ea5t \u0111\u01b0\u1ee3c (JSON array) \u0111\u1ec3 xem l\u1ea1i"
   }
  ],
  "grid_page_length": 50,

@@ -1,4 +1,12 @@
 import "./log_interceptor.js";
+
+// Suppress ResizeObserver loop warning (false positive from Element Plus)
+window.addEventListener('error', (e) => {
+  if (e.message?.includes('ResizeObserver loop')) {
+    e.stopImmediatePropagation()
+  }
+})
+
 import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'

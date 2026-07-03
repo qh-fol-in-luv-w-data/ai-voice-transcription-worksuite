@@ -1,7 +1,6 @@
 import os
 import json
 import re
-import sys
 from collections import Counter
 from datetime import datetime
 from typing import TypedDict, Optional, Annotated
@@ -136,7 +135,7 @@ def node_read_docx(state: AgentState) -> dict:
 
 
 # ─────────────────────────────────────────────
-# NODE 2: Trích xuất Task & Noti bằng GPT-4o
+# NODE 2: Trích xuất công việc bằng GPT-4o
 # ─────────────────────────────────────────────
 
 def node_extract_tasks(state: AgentState) -> dict:
@@ -152,11 +151,12 @@ def node_extract_tasks(state: AgentState) -> dict:
 
     client = OpenAI(api_key=api_key)
 
-    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất danh sách Task và Noti.
+    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất tất cả công việc cần xử lý.
 
-Phân loại:
-- Task: việc cụ thể được giao, có người thực hiện rõ ràng
-- Noti: thông tin/thông báo, không phải việc phải làm
+Nhiệm vụ của bạn:
+- Chỉ trả về các mục công việc.
+- Không phân biệt Task vs Noti.
+- Mỗi mục là một đầu việc riêng, có người thực hiện rõ ràng hoặc có thể là đầu việc chung.
 
 Điền thông tin:
 - "nguoi_thuc_hien": họ tên ĐẦY ĐỦ chính xác NHƯ TRONG BIÊN BẢN (không rút gọn, không suy diễn, không đảo thứ tự)
@@ -176,7 +176,6 @@ Trả về JSON hợp lệ, KHÔNG có markdown, KHÔNG có giải thích:
   "items": [
     {
       "id": 1,
-      "loai": "Task",
       "noi_dung": "mô tả ngắn gọn, rõ ràng",
       "nguoi_thuc_hien": "Họ và tên đầy đủ",
       "chuc_danh": "chức danh hoặc null",
@@ -205,9 +204,8 @@ Nội dung biên bản họp:
         raw = re.sub(r"```", "", raw).strip()
         data = json.loads(raw)
 
-        tasks_count = sum(1 for i in data.get("items", []) if i["loai"] == "Task")
-        noti_count  = sum(1 for i in data.get("items", []) if i["loai"] == "Noti")
-        print(f"   ✅ Tìm thấy {tasks_count} Task, {noti_count} Noti")
+        items_count = len(data.get("items", []))
+        print(f"   ✅ Tìm thấy {items_count} mục công việc")
         
         prompt_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') and response.usage else 0
         completion_tokens = response.usage.completion_tokens if hasattr(response, 'usage') and response.usage else 0
@@ -419,7 +417,7 @@ def node_create_tasks(state: AgentState) -> dict:
     if not session or not data:
         return {"errors": ["Thiếu session hoặc dữ liệu"]}
 
-    items        = [i for i in data.get("items", []) if i["loai"] == "Task"]
+    items        = data.get("items", [])
     ten_cuoc_hop = data.get("ten_cuoc_hop", "Họp")
     created, errors = [], []
 
@@ -529,7 +527,6 @@ def node_report(state: AgentState) -> dict:
 
     created = state.get("created_tasks", [])
     errors  = state.get("errors", [])
-    notis   = [i for i in data.get("items", []) if i.get("loai") == "Noti"]
 
     if created:
         print(f"\n✅ {len(created)} TASKS ĐÃ TẠO TRÊN ERPNEXT:")
@@ -543,12 +540,6 @@ def node_report(state: AgentState) -> dict:
             else:
                 a_str = f"→ {t['assignee_name']}{desig} ⚠️ chưa assign"
             print(f"   [{t['task_name']}] {t['title'][:50]} {a_str}{due}")
-
-    if notis:
-        print(f"\n📢 {len(notis)} NOTI:")
-        for n in notis:
-            desig = f" [{n.get('chuc_danh')}]" if n.get("chuc_danh") else ""
-            print(f"   [{n['nguoi_thuc_hien']}{desig}] {n['noi_dung'][:70]}")
 
     if errors:
         print(f"\n⚠️  {len(errors)} LỖI:")
@@ -627,9 +618,6 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
             
     items = []
     for item in data.get("items", []):
-        if item["loai"] != "Task":
-            continue
-            
         emp = _find_employee(
             name_raw         = item.get("nguoi_thuc_hien", ""),
             designation_hint = item.get("chuc_danh"),
@@ -884,269 +872,6 @@ def extract_tasks_stateless(docx_path, model_type="gpt-4o-mini"):
         })
         
     return items, result.get("errors", [])
-
-
-def clean_transcript_llm(results, model_type="gpt-4o", custom_vocabulary=""):
-    """
-    Dùng LLM lọc các câu hội thoại rác, không mang thông tin, đứt đoạn.
-    Trả về list of kết quả đã được lọc giữ nguyên định dạng: (start, end, spk_label, text)
-    """
-    api_key = get_openai_api_key()
-    if not api_key:
-        return results, "Thiếu OPENAI_API_KEY trong config", {}
-
-    client = OpenAI(api_key=api_key)
-
-    SYSTEM_PROMPT = """Bạn đang xử lý transcript cuộc họp nội bộ của CT Group — được tạo ra bởi phần mềm nhận dạng giọng nói (STT) tự động, ghi âm qua micro trong phòng họp có thể có tiếng ồn, micro xa, hoặc nhiều người nói cùng lúc.
-
-Output của STT thường mắc các lỗi: từ bị nghe nhầm do accent miền Nam, thuật ngữ tiếng Anh bị phiên âm sai, câu bị cắt đứt giữa chừng, từ đệm/ngập ngừng dày đặc. Nhiệm vụ của bạn là biến STT output thô đó thành văn bản cuộc họp đọc được — giữ đúng ý người nói, không thêm không bớt thông tin.
-
-━━━ NGUYÊN TẮC CỐT LÕI ━━━
-• OUTPUT là VĂN VIẾT dạng biên bản họp — không phải phiên âm giọng nói. Đọc lại phải tự nhiên như tài liệu nội bộ.
-• CHUẨN HOÁ là ưu tiên số 1: sửa lỗi STT, bỏ từ đệm, bỏ từ cuối câu kiểu nói, viết lại thành câu hoàn chỉnh — nhưng phải GIỮ ĐÚNG NGHĨA GỐC tuyệt đối.
-• XOÁ là phương án hai: khi câu hoàn toàn là filler/xác nhận không có thông tin.
-• GIỮ NGUYÊN là phương án ba: khi câu có thông tin nhưng ngữ cảnh không đủ để chắc chắn nghĩa → giữ nguyên nguyên văn, đừng viết lại.
-• TUYỆT ĐỐI KHÔNG CHẾ: không tự suy diễn, không điền nghĩa khi chưa chắc, không đặt lại cấu trúc câu khi có thể làm lệch nghĩa. Sai nghĩa còn tệ hơn câu vụng.
-• Câu đánh dấu >>> là câu cần xử lý; các câu khác chỉ là ngữ cảnh để hiểu "cái đó", "vậy đó"... — chỉ dùng context khi CHẮC CHẮN, không đoán mò.
-
-━━━ QUY TẮC XỬ LÝ ━━━
-1. Sửa từ nghe sai do accent/nhiễu dựa vào ngữ cảnh + bộ từ vựng bên dưới.
-2. Bỏ hết từ mang tính NÓI không mang nghĩa khi viết:
-   - Từ đệm/ngập ngừng: "ừm", "ờ", "à", "thì", "là", "mà", "cái", "thì là", "ý là", "tức là", "kiểu như", "cái này nó", "mà nó", "ấy mà"
-   - Từ cuối câu kiểu nói: "đó nha", "vậy nha", "nha anh", "nghen", "đó anh ơi", "vậy á", "thôi nha"
-   - Xưng hô thừa giữa câu: "anh ơi", "em ơi" (giữ lại chỉ khi cần rõ đối tượng)
-3. Câu ngắn/cụt/mơ hồ:
-   - Nếu là filler/xác nhận → xoá.
-   - Nếu có nội dung + ngữ cảnh đủ chắc chắn → chuẩn hoá, giữ đúng nghĩa.
-   - Nếu có nội dung nhưng nghĩa không chắc (câu có thể parse 2 chiều) → GIỮ NGUYÊN, đừng viết lại.
-4. Đại từ mơ hồ ("cái đó", "việc đó") → chỉ thay referent khi ngữ cảnh chỉ ra MỘT đáp án duy nhất, rõ ràng. Nếu có thể hiểu 2 cách → giữ nguyên đại từ.
-5. Giữ cấu trúc code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh sang tiếng Việt).
-6. Viết hoa đầu câu, dấu câu chuẩn. Tên riêng/thuật ngữ giữ đúng chính tả (CT Group, Modulex, ElevenLabs...).
-7. Câu hỏi giữ dạng câu hỏi. Câu khẳng định giữ dạng khẳng định. Không đổi tone.
-
-━━━ KHI NÀO ĐƯỢC XOÁ (trả rỗng "") ━━━
-Xoá khi câu KHÔNG có thông tin mới dù đã dùng hết ngữ cảnh — tức là nội dung chỉ là phản ứng xã giao:
-  a) Tiếng đệm đơn: "ừ", "dạ", "okay", "vâng", "à", "ờ", "ừm", "ừ ừ"
-  b) Xác nhận / đồng ý không kèm nội dung:
-     "dạ em hiểu rồi ạ", "vâng anh", "okay anh", "được anh", "ừ đúng rồi",
-     "dạ anh", "okay okay", "ừ vậy đi", "được rồi anh", "hiểu rồi", "ừ hiểu"
-  c) Câu cụt chỉ là từ chỉ định không thể giải nghĩa dù có ngữ cảnh:
-     "đó anh", "vậy đó", "ừ thì vậy", "vậy thôi", "đó thôi", "ừ vậy"
-  d) Nhiễu âm hoàn toàn: "xờ ê á mmm ờ", "tạch tạch tạch"
-→ Có BẤT KỲ thông tin thực (tên người/dự án, con số, thời hạn, hành động, ý kiến) → CHUẨN HOÁ, không xoá.
-
-{f"━━━ TỪ VỰNG DO NGƯỜI DÙNG BỔ SUNG ━━━\n{custom_vocabulary}\n" if custom_vocabulary else ""}
-━━━ BỘ TỪ VỰNG CT GROUP ━━━
-Tập đoàn & thành viên:
-  CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, CT Verse,
-  CT Solar Homes, CT Innovation Hub, CTrans Auto, CTOptimal, GASCO, DAIT, VGCT,
-  Diginal, Carbondo, CCTPA, Airbility
-
-Nền tảng & hệ thống nội bộ:
-  2AS, Worksuite, iMaster, ERP, CRM, HRM, NDT 15, CarbonFly, Catalyst, Sustain.Life,
-  LAE 1, OSAT, ATP (Assembly Test Packaging), CTDA200M
-
-Sản phẩm / dự án:
-  Modulex (← "mô điu lét" / "mô du lếch"), eVTOL (← "i vi tol"), UAV (← "u a vi"),
-  SkyDrive, LAE (Low Altitude Economy), NDT (National Digital Twin),
-  UAM (Urban Air Mobility), LiDAR (← "lai đa"), SoC, MCU, NPU, ADC, DAC
-
-AI / Machine Learning (hay bị nghe sai nhất):
-  AI (← "ây ai" / "yêu ai" / "ai ai" / "a i") ← ⚠️ STT THƯỜNG VIẾT "yêu ai" HOẶC "ai" THAY VÌ "AI"
-  AGI (← "ây gì ai" / "a gì i"), AIOps (← "ây ai óp")
-  LLM (← "eo eo em" / "lờ lờ mờ"), GPT (← "gờ pờ tờ" / "chi pi ti")
-  ChatGPT (← "chat chi pi ti"), Claude (← "cờ lọt"), Gemini (← "gờ mi ni")
-  Llama (← "la ma"), Mistral (← "mít trồ"), Grok (← "gờ rốc")
-  OpenAI (← "ô pen ây ai" / "ô pen yêu ai"), Anthropic (← "an thờ rô pích")
-  ElevenLabs (← "i lê ven lab"), Whisper (← "guýt pờ"), Stable Diffusion
-  machine learning (← "mê sin lơ ning" / "mờ sin lơ ninh")
-  deep learning (← "đíp lơ ning"), neural network (← "nơ ron net" / "nơ rồ net wớc")
-  transformer (← "trần phô mờ"), embedding (← "em bét đinh" / "em be đinh")
-  fine-tuning (← "phai tiu ning" / "phái chiu"), training (← "trây ning")
-  inference (← "in phờ rần xờ"), model (← "mô đồ" / "mờ đồ")
-  dataset (← "đa ta sét"), datapoint, benchmark (← "bân mác")
-  prompt (← "prôm" / "prăm"), system prompt, context window
-  RAG (← "rag" / "rắc"), vector (← "véc tơ"), embedding database
-  hallucination (← "ha lu xi nây shần" / "ha lu si"), token (← "tô ken")
-  agent (← "ây gần"), agentic, multi-agent, tool calling
-  speech-to-text / STT (← "ét tê tê"), text-to-speech / TTS
-  diarization (← "đai a ri zây shần"), speaker recognition
-  computer vision / CV, object detection, OCR (← "ô xê a" / "ô xê oa")
-  NLP (← "en lờ pi"), sentiment analysis, classification
-  TensorFlow (← "ten xờ phờ lâu"), PyTorch (← "pai tót" / "pi tót")
-  Hugging Face (← "hắc ging phây"), LangChain (← "lang chên")
-  automation (← "ô tô mây shần"), chatbot (← "chát bót")
-
-AI models / tools mới (hay bị nhầm):
-  DeepSeek (← "đíp xích" / "đi xíc"), Qwen (← "quên" / "ku en")
-  Phi (← "phai"), Falcon (← "phăn côn"), Yi (← "y ai" / "y i")
-  DALL-E (← "đan i" / "đa lờ i"), Midjourney (← "mít giơ ni")
-  Copilot (← "cô pai lọt"), GitHub Copilot, Perplexity (← "pờ plếch xi ti")
-  Cohere (← "cô hia"), Ollama (← "ô la ma"), vLLM (← "vi eo eo em")
-  LlamaIndex (← "la ma in đếch"), CrewAI (← "cru ây ai")
-  AutoGen (← "ô tô gen"), Langsmith (← "lang smít")
-  Gradio (← "grây đi ô"), Streamlit (← "xtrim lít")
-
-Kỹ thuật training / tối ưu model:
-  generative AI (← "gien ơ rờ típ ây ai" / "gien nờ rê típ")
-  multimodal (← "mắc ti mô đồ" / "mớn ti mô đồ"), vision-language model / VLM
-  RLHF (← "a eo en ết phờ" / "eo lờ ết phờ"), reinforcement learning
-  DPO (Direct Preference Optimization), SFT (Supervised Fine-Tuning)
-  LoRA (← "lô ra"), PEFT (← "pi ết phờ tê")
-  quantization (← "quăn ti zây shần" / "quần ti"), distillation (← "đít ti lây shần")
-  pruning (← "pru ninh"), overfitting (← "ô vờ phi ting"), underfitting
-  gradient descent (← "grây đi ần đi sen"), backpropagation (← "béc prô pa gây shần")
-  loss function (← "lốt phăng chần"), optimizer (← "óp ti mai zờ")
-  epoch (← "i pốc" / "ê pốc"), batch / batch size (← "bét xai")
-  checkpoint (← "chếc poin"), weight (← "oét"), parameter
-  accuracy (← "a kiu ra xi"), precision (← "pri zi shần"), recall (← "ri cồ")
-  F1 score (← "ép phờ oăn"), AUC (← "ây u xi")
-  attention mechanism (← "ờ ten shần"), self-attention, cross-attention
-  zero-shot (← "zi rô shot"), few-shot (← "phu shot"), one-shot, chain of thought / CoT
-  diffusion model (← "đi phiu zhần"), GAN (← "găn" / "gặn")
-  retrieval (← "ri trì vồ"), augmented generation, knowledge base (← "nô lịt bây xờ")
-  tokenizer (← "tô ke nai zờ"), tokenization, chunk (← "chăng" / "trăng")
-  vector store (← "véc tờ sto"), graph RAG, structured output (← "xtrắc tịt ầu pút")
-  streaming (← "xtrim minh"), latency (← "lây tần xi"), throughput (← "thru pút")
-
-Phần cứng AI / hạ tầng:
-  GPU (← "gờ pờ u" / "ji pi u"), CUDA (← "ku đa"), VRAM (← "vi ram")
-  H100 (← "ết trăm"), A100 (← "ây trăm"), TPU (← "tê pờ u")
-  inference server (← "in phờ rần xờ xớ vờ"), model serving
-  evaluation / eval (← "i va liu ây shần"), annotation (← "a nô tây shần")
-
-Thuật ngữ kinh doanh / tech hay bị STT nghe sai:
-  deadline (← "dề lai" / "đét lai" / "đi lai")
-  kickoff (← "kích ốp"), handover (← "hen dờ"), sign-off (← "xai ốp")
-  pipeline (← "pai pờ lai"), deployment (← "đi ploi men")
-  dashboard (← "đát bọt"), milestone, sprint, backlog, roadmap
-  invoice (← "in voi xờ"), purchase order, cash flow, capex, opex
-  KPI, OKR, ROI, EBITDA, P&L, Q1–Q4, YTD, MoM, YoY, ETA, EOD, EOM
-  onboarding, offboarding, headcount, payroll, probation
-  semiconductor (← "xê mi con đắc tờ"), localization (← "lô cồ lai zây shần")
-  API, backend, frontend, Docker, Kubernetes, CI/CD, DevOps, repository
-
-━━━ VÍ DỤ ━━━
-[Xoá — tiếng đệm đơn]
-"dạ" / "ừ" / "okay anh" / "vâng anh" / "dạ em hiểu rồi ạ" / "ừ đúng rồi"
-→ ""
-
-[Xoá — câu cụt không thông tin]
-"đó anh" / "vậy đó" / "ừ thì vậy" / "đó thôi anh"
-→ ""
-
-[Chuẩn hoá — giải đại từ từ ngữ cảnh]
-Context trước: "Sprint này tập trung vào module báo cáo."
->>> "ừ thì cái đó mình phải làm xong trước ngày 30 đúng không"
-→ "Module báo cáo phải hoàn thành trước ngày 30."
-
-[Chuẩn hoá — bỏ từ đệm + từ cuối câu kiểu nói]
-"thì là cái dề lai nó là ngày 30 đó anh vậy nha"
-→ "Deadline là ngày 30."
-
-[Chuẩn hoá — sửa STT + bỏ từ đệm]
-"cái yêu ai nó đang xử lý dữ liệu đó anh"
-→ "AI đang xử lý dữ liệu."
-
-"mình đang test cái eo eo em với cái mô đồ mới"
-→ "Mình đang test LLM với model mới."
-
-"mô điu lét nó chưa deploy lên production đâu anh ơi"
-→ "Modulex chưa được deploy lên production."
-
-"anh ơi cái kích ốp hôm qua mình chưa confirm với bên khách hàng đúng không"
-→ "Kickoff hôm qua chưa confirm với khách hàng đúng không anh?"
-
-"budget Q3 mình còn khoảng bao nhiêu vậy, cái p n l nó ra sao"
-→ "Budget Q3 còn khoảng bao nhiêu? P&L hiện tại như thế nào?"
-
-[Giữ nguyên — câu có nội dung nhưng có thể hiểu 2 chiều]
-"cũng được mà giờ có AI ko lâu lắm"
-→ "Cũng được, giờ có AI không lâu lắm." (giữ sát nghĩa gốc, không tự thêm "nên" hay "?" vì có thể lệch nghĩa)
-
-[Xoá — nhiễu âm]
-"xờ ê á mmm ờ tạch"
-→ ""
-
-Trả về text thuần. Không giải thích. Không markdown. Không dấu ngoặc kép bao ngoài."""
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
-
-    CONTEXT_WINDOW = 3  # số segment trước/sau để làm ngữ cảnh
-
-    def _build_context(idx):
-        """Lấy vài segment trước/sau làm ngữ cảnh cho LLM hiểu câu."""
-        lines = []
-        for j in range(max(0, idx - CONTEXT_WINDOW), min(len(results), idx + CONTEXT_WINDOW + 1)):
-            spk = results[j][2] or "?"
-            txt = results[j][3].strip()
-            if not txt:
-                continue
-            marker = ">>> " if j == idx else "    "
-            lines.append(f"{marker}[{spk}]: {txt}")
-        return "\n".join(lines)
-
-    def _clean_one(idx, seg):
-        """Gọi LLM cho 1 segment kèm ngữ cảnh. Trả về (idx, cleaned_text | None, usage)."""
-        text = seg[3].strip()
-        if not text:
-            return idx, None, None
-        context = _build_context(idx)
-        user_msg = f"Ngữ cảnh hội thoại (>>> là câu cần chuẩn hoá):\n{context}\n\nChuẩn hoá câu được đánh dấu >>>:"
-        try:
-            resp = client.chat.completions.create(
-                model=model_type,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
-                temperature=0,
-                max_tokens=512,
-            )
-            out = resp.choices[0].message.content.strip().strip('"').strip("'").strip()
-            return idx, (out if out else None), resp.usage
-        except Exception as e:
-            print(f"[clean_one] idx={idx} err={e}")
-            return idx, text, None  # fallback: giữ nguyên
-
-    try:
-        futures_map = {}
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            for i, seg in enumerate(results):
-                futures_map[pool.submit(_clean_one, i, seg)] = i
-
-        result_map = {}
-        for future in as_completed(futures_map):
-            ret = future.result()
-            idx, cleaned = ret[0], ret[1]
-            usage = ret[2] if len(ret) > 2 else None
-            result_map[idx] = cleaned
-            if usage:
-                total_prompt_tokens += usage.prompt_tokens or 0
-                total_completion_tokens += usage.completion_tokens or 0
-
-        cleaned_results = []
-        for i, seg in enumerate(results):
-            cleaned_text = result_map.get(i)
-            if cleaned_text:
-                cleaned_results.append((seg[0], seg[1], seg[2], cleaned_text))
-
-        if not cleaned_results and results:
-            return results, None, {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
-
-        usage = {
-            "prompt_tokens": total_prompt_tokens,
-            "completion_tokens": total_completion_tokens,
-            "tokens_used": total_prompt_tokens + total_completion_tokens,
-        }
-        return cleaned_results, None, usage
-
-    except Exception as e:
-        print(f"Lỗi clean_transcript_llm: {e}")
-        return results, str(e), {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
 
 
 def map_speakers_llm(segments: list, speaker_names: list, model_type: str = "gpt-4o") -> dict:
