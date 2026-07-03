@@ -611,6 +611,38 @@ def clean_transcript():
             cost = (p_tokens * 2.5 + c_tokens * 10.0) / 1000000
             print(f"💰 [Chi phí OpenAI Clean] Model: {model_type} | Input: {p_tokens} tokens | Output: {c_tokens} tokens | Ước tính: ${cost:.4f}")
 
+            try:
+                session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
+                session_name = _resolve_session(session_id_header)
+                if session_name:
+                    action_name = _logger.start_action(
+                        session_name,
+                        action_type="clean_transcript",
+                        input_summary=f"Clean transcript with {model_type}",
+                    )
+                    _logger.log_ai_call(
+                        session_name=session_name,
+                        action_name=action_name,
+                        call_type="clean_transcript",
+                        ai_model=model_type,
+                        prompt_tokens=p_tokens,
+                        completion_tokens=c_tokens,
+                        status="success",
+                    )
+                    _logger.finish_action(
+                        action_name,
+                        status="success",
+                        ai_model=model_type,
+                        prompt_tokens=p_tokens,
+                        completion_tokens=c_tokens,
+                    )
+            except Exception as log_ex:
+                try:
+                    frappe.db.rollback()
+                except Exception:
+                    pass
+                frappe.log_error(str(log_ex), "Log Clean Transcript AI Call Error")
+
         # Cập nhật raw_results trong Meeting (kết quả sau lọc = trạng thái cuối cùng)
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")

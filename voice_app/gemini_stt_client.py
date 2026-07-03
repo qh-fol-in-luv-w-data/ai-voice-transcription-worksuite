@@ -2,6 +2,7 @@ import os
 import time
 import json
 import re
+import random
 import requests as _requests
 from .audio_utils import get_duration
 from .constants import get_gemini_api_key, get_gemini_model
@@ -91,7 +92,13 @@ def _upload_file(wav_path, api_key):
             raise Exception(f"Gemini file processing FAILED: {file_name}")
         time.sleep(5)
 
-    raise Exception("Gemini file processing timeout sau 150s")
+    raise Exception("Gemini file processing timeout sau 200s")
+
+def _get_gemini_model():
+    return get_gemini_model()
+
+def _get_api_key():
+    return get_gemini_api_key()
 
 
 def _delete_file(file_name, api_key):
@@ -113,7 +120,7 @@ def _call_gemini_stream(file_uri, api_key, prompt):
     """
     Gọi Gemini Streaming API (streamGenerateContent) — giống hệt Gemini Web.
     Không bị cắt ngang do MAX_TOKENS vì nhận token liên tục cho đến hết.
-    Trả về danh sách segments đã parse.
+    Trả về (danh sách segments đã parse, usage, error).
     """
     model_name = _get_gemini_model()
 
@@ -207,18 +214,36 @@ def _call_gemini_stream(file_uri, api_key, prompt):
             else:
                 raise
 
-    cost = (total_in * 1.25 + total_out * 5.0) / 1_000_000
-    print(f"💰 [Gemini Stream] in={total_in} out={total_out} | ~${cost:.4f} | finish={finish_reason}")
+    # totalTokenCount là số tổng authoritative từ Gemini và có thể bao gồm
+    # thinking/tool tokens ngoài candidatesTokenCount.
+    billable_out = max(total_tokens - total_in, total_out + thoughts_tokens)
+    total_tokens = max(total_tokens, total_in + billable_out)
+    usage_result = {
+        "prompt_tokens": total_in,
+        "completion_tokens": billable_out,
+        "tokens_used": total_tokens,
+        "candidate_tokens": total_out,
+        "thoughts_tokens": thoughts_tokens,
+        "cached_tokens": cached_tokens,
+        "model": f"google/{model_name}",
+    }
+
+    cost = (total_in * 1.25 + billable_out * 5.0) / 1_000_000
+    print(
+        f"💰 [Gemini Stream] in={total_in} out={billable_out} "
+        f"(candidate={total_out}, thinking={thoughts_tokens}) "
+        f"| total={total_tokens} | ~${cost:.4f} | finish={finish_reason}"
+    )
 
     if finish_reason == "MAX_TOKENS":
         print("[Gemini STT] ⚠️ MAX_TOKENS — transcript bị cắt. Xem xét tăng output token limit.")
     elif finish_reason == "SAFETY":
-        raise RuntimeError("Safety filter rejected content")
+        return [], usage_result, "Safety filter rejected content"
 
     if not full_text:
-        raise RuntimeError(f"Gemini không trả về text (finish={finish_reason})")
+        return [], usage_result, f"Gemini không trả về text (finish={finish_reason})"
 
-    return _parse_gemini_response(full_text)
+    return _parse_gemini_response(full_text), usage_result, None
 
 
 def _build_prompt(num_speakers, language, custom_vocabulary=""):
@@ -370,9 +395,26 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
     Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
     Trả về: (segments, raw_words, full_text, error, 0, 0)
     """
+    model_name = _get_gemini_model()
+    empty_usage = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "tokens_used": 0,
+        "model": f"google/{model_name}" if model_name else "google/gemini",
+    }
     api_key = _get_api_key()
     if not api_key:
-        return [], [], "", "Chưa cấu hình gemini_api_key trong site_config.json", 0, 0
+        return (
+            [], [], "",
+            "Chưa cấu hình Gemini API Key trong Voice App Settings",
+            0, 0, empty_usage,
+        )
+    if not model_name:
+        return (
+            [], [], "",
+            "Chưa cấu hình Gemini Model trong Voice App Settings",
+            0, 0, empty_usage,
+        )
 
     try:
         from .audio_utils import split_audio_by_silence
