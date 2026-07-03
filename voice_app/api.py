@@ -9,7 +9,7 @@ from voice_app.utils.activity_logger import ActivityLogger
 from frappe.utils.file_manager import save_file
 from voice_app.elevenlabs_client import call_elevenlabs_stt, check_elevenlabs_balance
 from voice_app.gemini_stt_client import call_gemini_stt
-from voice_app.task_extractor import extract_tasks_only, create_tasks_to_erp, clean_transcript_llm
+from voice_app.task_extractor import extract_tasks_only, create_tasks_to_erp
 from voice_app.docx_utils import save_to_docx
 from voice_app.audio_utils import convert_to_wav
 from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
@@ -18,241 +18,54 @@ _logger = ActivityLogger("VOICE", "voice_app")
 
 
 @frappe.whitelist(allow_guest=False)
+
+@frappe.whitelist(allow_guest=True)
 def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs", num_speakers=None, custom_vocabulary=""):
-
-
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
 
     audio_file = frappe.request.files['file']
-
-    # Save uploaded file
     file_doc = save_file(audio_file.filename, audio_file.read(), None, None, is_private=1)
     file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
+    file_url = file_doc.file_url
+    
+    from datetime import datetime
+    meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    meeting_doc = frappe.get_doc({
+        "doctype": "Voice Meeting",
+        "title": meeting_title,
+        "date": frappe.utils.now(),
+        "status": "Processing",
+        "audio_file": file_url,
+    })
+    meeting_doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    
+    session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
 
-    try:
-        # Convert to WAV
-        wav, err = convert_to_wav(file_path)
-        if err:
-            return {"status": "error", "message": err}
+    frappe.enqueue(
+        'voice_app.api._transcribe_audio_async',
+        queue='long',
+        timeout=3600,
+        file_path=file_path,
+        file_url=file_url,
+        language=language,
+        filter_speakers=filter_speakers,
+        stt_mode=stt_mode,
+        num_speakers=num_speakers,
+        custom_vocabulary=custom_vocabulary,
+        meeting_name=meeting_doc.name,
+        session_id_header=session_id_header
+    )
 
-        # Xác định num_speakers: ưu tiên user nhập → filter_speakers count → None
-        auto_num_speakers = None
-        if num_speakers:
-            try:
-                auto_num_speakers = int(num_speakers)
-            except Exception:
-                pass
-        if not auto_num_speakers and filter_speakers:
-            try:
-                names = json.loads(filter_speakers)
-                if isinstance(names, list) and len(names) >= 2:
-                    auto_num_speakers = len(names)
-            except Exception:
-                pass
+    return {"status": "processing", "meeting_name": meeting_doc.name}
 
-        # Call STT theo mode
-        if stt_mode == "google":
-            segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
-        else:
-            segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
-        if err:
-            return {"status": "error", "message": err}
-
-        stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
-        el_speakers = set(s["speaker_id"] for s in segments)
-        print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
-
-        # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
-        spk_db = SpeakerDB()
-        unique_speakers = {}
-        for seg in segments:
-            spk = seg["speaker_id"]
-            if spk not in unique_speakers:
-                unique_speakers[spk] = []
-            unique_speakers[spk].append(seg)
-
-        # Trích xuất embedding cho mỗi speaker_id từ ElevenLabs
-        # Dùng concat nhiều đoạn → embedding đại diện hơn 1 đoạn ngắn
-        from scipy.spatial.distance import cosine as cos_dist
-        from voice_app.audio_utils import concat_speaker_segments
-        spk_embeddings = {}  # speaker_id -> embedding
-        spk_identified = {}  # speaker_id -> (name, score, email, user_info)
-
-        for spk, segs in unique_speakers.items():
-            # Ghép nhiều đoạn của speaker để embedding đại diện hơn 1 đoạn đơn lẻ
-            concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.0)
-            if concat_wav is None:
-                segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
-                sample = segs_sorted[0]
-                start = sample["start"]
-                end = min(sample["end"], start + 5.0)
-                if end - start < 0.5:
-                    continue
-                emb = get_segment_embedding(wav, start, end)
-            else:
-                from voice_app.audio_utils import get_duration
-                dur = get_duration(concat_wav)
-                emb = get_segment_embedding(concat_wav, 0.0, dur)
-                try: os.remove(concat_wav)
-                except: pass
-
-            if emb is not None:
-                spk_embeddings[spk] = emb
-
-        # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
-        # identify_ranked() đã filter >= SIMILARITY_THRESHOLD (0.65) rồi
-        # → fallback candidate nào cũng đảm bảo trên ngưỡng, không cần check lại
-        allowed = json.loads(filter_speakers) if filter_speakers else None
-
-        # Lấy ranked candidates cho mỗi speaker (tất cả đều >= threshold)
-        spk_ranked = {}  # speaker_id -> [(name, score, email, user_info), ...]
-        for spk, emb in spk_embeddings.items():
-            spk_ranked[spk] = spk_db.identify_ranked(emb, allowed_names=allowed)
-
-        # Greedy: sắp xếp tất cả (spk, name, score) theo score giảm dần
-        all_candidates = []
-        for spk, ranked in spk_ranked.items():
-            for name, score, email, user_info in ranked:
-                all_candidates.append((score, spk, name, email, user_info))
-        all_candidates.sort(key=lambda x: x[0], reverse=True)
-
-        claimed_names = {}   # name -> spk đã claim
-        claimed_spks  = set()  # spk đã được gán tên
-        spk_identified = {}
-
-        for score, spk, name, email, user_info in all_candidates:
-            if spk in claimed_spks:
-                continue  # speaker này đã có tên rồi
-            if name in claimed_names:
-                print(f"[Speaker] Greedy: {spk}({score:.3f}) muốn '{name}' nhưng đã bị {claimed_names[name]} claim → thử tiếp")
-                continue  # tên này đã bị người khác lấy, thử candidate tiếp theo
-            claimed_names[name] = spk
-            claimed_spks.add(spk)
-            spk_identified[spk] = (name, score, email, user_info)
-
-        # Các speaker không match được tên nào → Người lạ
-        for spk in spk_embeddings:
-            if spk not in spk_identified:
-                best_score = spk_ranked[spk][0][1] if spk_ranked.get(spk) else 0.0
-                spk_identified[spk] = ("Người lạ", best_score, "", None)
-
-        # Log kết quả greedy assignment
-        summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
-        print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
-
-        # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.75)
-        # Gemini đã tự tách giọng rồi — không merge để tránh nhầm lẫn
-        MERGE_THRESHOLD = 0.75
-        stranger_groups = {}
-        strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
-
-        if stt_mode != 'google':
-            for spk in strangers:
-                merged = False
-                for rep in list(stranger_groups.keys()):
-                    if rep in spk_embeddings and spk in spk_embeddings:
-                        sim = 1 - cos_dist(spk_embeddings[spk], spk_embeddings[rep])
-                        if sim >= MERGE_THRESHOLD:
-                            stranger_groups[spk] = stranger_groups[rep]
-                            merged = True
-                            break
-                if not merged:
-                    stranger_groups[spk] = spk
-        else:
-            for spk in strangers:
-                stranger_groups[spk] = spk
-
-        # Đánh số "Người lạ N" theo thứ tự xuất hiện
-        group_label = {}  # group_id -> "Người lạ N"
-        unknown_counter = 1
-        for spk in strangers:
-            group_id = stranger_groups.get(spk, spk)
-            if group_id not in group_label:
-                group_label[group_id] = f"Người lạ {unknown_counter}"
-                unknown_counter += 1
-
-        # Tạo speaker_cache với nhãn hiển thị sạch
-        speaker_cache = {}
-        for spk, info in spk_identified.items():
-            name, score, email, user_info = info
-            if name != "Người lạ":
-                if not email or email.lower() == "chưa cập nhật":
-                    speaker_cache[spk] = f"👤 {name}"
-                else:
-                    speaker_cache[spk] = f"👤 {name} ({email})"
-            else:
-                group_id = stranger_groups.get(spk, spk)
-                label = group_label.get(group_id, f"Người lạ {unknown_counter}")
-                speaker_cache[spk] = f"👤 {label}"
-
-        # Fallback cho những spk không có embedding
-        for spk in unique_speakers:
-            if spk not in speaker_cache:
-                speaker_cache[spk] = f"👤 Người lạ {unknown_counter}"
-                unknown_counter += 1
-
-        # ── LỌC SEGMENT VÔ NGHĨA ──────────────────────────────────────────────
-        def is_meaningful(text):
-            """Lọc bỏ segment quá ngắn hoặc không có nội dung hữu ích."""
-            import re
-            t = text.strip()
-            if not t:
-                return False
-            # Loại bỏ câu chỉ có dấu câu / ký tự đặc biệt
-            if re.fullmatch(r'[\W\d]+', t):
-                return False
-            words = t.split()
-            # Loại bỏ câu <= 2 từ đơn lẻ không có nghĩa
-            if len(words) <= 2:
-                # Cho phép nếu là tên riêng hoặc câu trả lời ngắn có nghĩa
-                meaningful_short = {'vâng', 'dạ', 'có', 'không', 'rồi', 'ừ', 'okay', 'ok',
-                                    'được', 'đúng', 'đồng ý', 'yes', 'no', 'sure'}
-                joined = ' '.join(words).lower().strip('.,!?')
-                if joined not in meaningful_short:
-                    return False
-            return True
-
-        # ── GỘP SEGMENT LIỀN KỀ CÙNG SPEAKER ─────────────────────────────────
-        # Nếu 2 segment liên tiếp của cùng 1 speaker và khoảng gap < 1.5s → gộp lại
-        MERGE_GAP = 1.5  # giây
-
-        merged_segments = []
-        segments.sort(key=lambda x: x["start"])
-
-        for seg in segments:
-            txt = " ".join(seg["text"].split())
-            if not txt or not is_meaningful(txt):
-                continue
-            spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
-
-            if (merged_segments
-                    and merged_segments[-1][2] == spk_label
-                    and seg["start"] - merged_segments[-1][1] <= MERGE_GAP):
-                # Gộp vào segment trước
-                prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1]
-                merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt)
-            else:
-                merged_segments.append((seg["start"], seg["end"], spk_label, txt))
-
-        # Format results
-        results = merged_segments[:]
-        final_output_text = ""
-        last_spk = None
-
-        for s, e, spk_label, txt in results:
-            if spk_label != last_spk:
-                final_output_text += f"\n**{spk_label}** [{s:.1f}s]\n{txt}"
-            else:
-                final_output_text += f" {txt}"
-            last_spk = spk_label
-
-        # Cleanup temp wav
-        if os.path.exists(wav): os.remove(wav)
-
+@frappe.whitelist(allow_guest=True)
+def check_meeting_status(meeting_name):
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if meeting.status == "Completed":
         from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
         import requests
-        
         employees = []
         try:
             session = requests.Session()
@@ -274,78 +87,345 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
                 )
                 if emp_resp.status_code == 200:
                     employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
-        except Exception as ex:
-            frappe.log_error(str(ex), "Fetch Employees Error in Transcribe")
+        except Exception:
+            pass
 
-        # Create Voice Meeting
-        meeting_name = None
-        for attempt in range(3):
+        import json
+        raw_results = []
+        try:
+            if meeting.raw_results:
+                raw_results = json.loads(meeting.raw_results)
+        except:
+            pass
+            
+        return {
+            "status": "success",
+            "results": raw_results,
+            "final_text": meeting.transcript,
+            "employees": employees,
+            "meeting_name": meeting.name
+        }
+    elif meeting.status == "Error":
+        # Check custom field if exists
+        error_msg = meeting.get("error_message") or "Có lỗi xảy ra khi xử lý âm thanh."
+        return {"status": "error", "message": error_msg}
+    else:
+        return {"status": "processing", "meeting_name": meeting.name}
+
+
+def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_mode, num_speakers, custom_vocabulary, meeting_name, session_id_header):
+    try:
+    
+    
+        pass
+    
+        try:
+            # Convert to WAV
+            wav, err = convert_to_wav(file_path)
+            if err:
+                frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
+    
+            # Xác định num_speakers: ưu tiên user nhập → filter_speakers count → None
+            auto_num_speakers = None
+            if num_speakers:
+                try:
+                    auto_num_speakers = int(num_speakers)
+                except Exception:
+                    pass
+            if not auto_num_speakers and filter_speakers:
+                try:
+                    names = json.loads(filter_speakers)
+                    if isinstance(names, list) and len(names) >= 2:
+                        auto_num_speakers = len(names)
+                except Exception:
+                    pass
+    
+            # Call STT theo mode
+            if stt_mode == "google":
+                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+            else:
+                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+            if err:
+                frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
+    
+            stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
+            el_speakers = set(s["speaker_id"] for s in segments)
+            print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
+    
+            # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
+            spk_db = SpeakerDB()
+            unique_speakers = {}
+            for seg in segments:
+                spk = seg["speaker_id"]
+                if spk not in unique_speakers:
+                    unique_speakers[spk] = []
+                unique_speakers[spk].append(seg)
+    
+            # Trích xuất embedding cho mỗi speaker_id từ ElevenLabs
+            # Dùng concat nhiều đoạn → embedding đại diện hơn 1 đoạn ngắn
+            from scipy.spatial.distance import cosine as cos_dist
+            from voice_app.audio_utils import concat_speaker_segments
+            spk_embeddings = {}  # speaker_id -> embedding
+            spk_identified = {}  # speaker_id -> (name, score, email, user_info)
+    
+            for spk, segs in unique_speakers.items():
+                # Ghép nhiều đoạn của speaker để embedding đại diện hơn 1 đoạn đơn lẻ
+                concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.0)
+                if concat_wav is None:
+                    segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
+                    sample = segs_sorted[0]
+                    start = sample["start"]
+                    end = min(sample["end"], start + 5.0)
+                    if end - start < 0.5:
+                        continue
+                    emb = get_segment_embedding(wav, start, end)
+                else:
+                    from voice_app.audio_utils import get_duration
+                    dur = get_duration(concat_wav)
+                    emb = get_segment_embedding(concat_wav, 0.0, dur)
+                    try: os.remove(concat_wav)
+                    except: pass
+    
+                if emb is not None:
+                    spk_embeddings[spk] = emb
+    
+            # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
+            # identify_ranked() đã filter >= SIMILARITY_THRESHOLD (0.65) rồi
+            # → fallback candidate nào cũng đảm bảo trên ngưỡng, không cần check lại
+            allowed = json.loads(filter_speakers) if filter_speakers else None
+    
+            # Lấy ranked candidates cho mỗi speaker (tất cả đều >= threshold)
+            spk_ranked = {}  # speaker_id -> [(name, score, email, user_info), ...]
+            for spk, emb in spk_embeddings.items():
+                spk_ranked[spk] = spk_db.identify_ranked(emb, allowed_names=allowed)
+    
+            # Greedy: sắp xếp tất cả (spk, name, score) theo score giảm dần
+            all_candidates = []
+            for spk, ranked in spk_ranked.items():
+                for name, score, email, user_info in ranked:
+                    all_candidates.append((score, spk, name, email, user_info))
+            all_candidates.sort(key=lambda x: x[0], reverse=True)
+    
+            claimed_names_by_chunk = {}   # chunk_prefix -> {name: spk}
+            claimed_spks  = set()  # spk đã được gán tên
+            spk_identified = {}
+    
+            for score, spk, name, email, user_info in all_candidates:
+                if spk in claimed_spks:
+                    continue  # speaker này đã có tên rồi
+                
+                chunk_prefix = "all"
+                if spk.startswith("c") and "_" in spk:
+                    prefix = spk.split("_")[0]
+                    if prefix[1:].isdigit():
+                        chunk_prefix = prefix
+
+                if chunk_prefix not in claimed_names_by_chunk:
+                    claimed_names_by_chunk[chunk_prefix] = {}
+
+                if name in claimed_names_by_chunk[chunk_prefix]:
+                    print(f"[Speaker] Greedy: {spk}({score:.3f}) muốn '{name}' nhưng đã bị {claimed_names_by_chunk[chunk_prefix][name]} trong cùng chunk {chunk_prefix} claim → thử tiếp")
+                    continue  # tên này đã bị người khác lấy trong cùng chunk, thử candidate tiếp theo
+                    
+                claimed_names_by_chunk[chunk_prefix][name] = spk
+                claimed_spks.add(spk)
+                spk_identified[spk] = (name, score, email, user_info)
+    
+            # Các speaker không match được tên nào → Người lạ
+            for spk in spk_embeddings:
+                if spk not in spk_identified:
+                    best_score = spk_ranked[spk][0][1] if spk_ranked.get(spk) else 0.0
+                    spk_identified[spk] = ("Người lạ", best_score, "", None)
+    
+            # Log kết quả greedy assignment
+            summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
+            print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
+    
+            # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.75)
+            # Gemini đã tự tách giọng rồi — không merge để tránh nhầm lẫn
+            MERGE_THRESHOLD = 0.5
+            stranger_groups = {}
+            strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
+    
+            for spk in strangers:
+                merged = False
+                for rep in list(stranger_groups.keys()):
+                    if rep in spk_embeddings and spk in spk_embeddings:
+                        sim = 1 - cos_dist(spk_embeddings[spk], spk_embeddings[rep])
+                        if sim >= MERGE_THRESHOLD:
+                            stranger_groups[spk] = stranger_groups[rep]
+                            merged = True
+                            break
+                if not merged:
+                    stranger_groups[spk] = spk
+    
+            # Đánh số "Người lạ N" theo thứ tự xuất hiện
+            group_label = {}  # group_id -> "Người lạ N"
+            unknown_counter = 1
+            for spk in strangers:
+                group_id = stranger_groups.get(spk, spk)
+                if group_id not in group_label:
+                    group_label[group_id] = f"Người lạ {unknown_counter}"
+                    unknown_counter += 1
+    
+            # Tạo speaker_cache với nhãn hiển thị sạch
+            speaker_cache = {}
+            for spk, info in spk_identified.items():
+                name, score, email, user_info = info
+                if name != "Người lạ":
+                    if not email or email.lower() == "chưa cập nhật":
+                        speaker_cache[spk] = f"👤 {name}"
+                    else:
+                        speaker_cache[spk] = f"👤 {name} ({email})"
+                else:
+                    group_id = stranger_groups.get(spk, spk)
+                    label = group_label.get(group_id, f"Người lạ {unknown_counter}")
+                    speaker_cache[spk] = f"👤 {label}"
+    
+            # Fallback cho những spk không có embedding
+            for spk in unique_speakers:
+                if spk not in speaker_cache:
+                    speaker_cache[spk] = f"👤 Người lạ {unknown_counter}"
+                    unknown_counter += 1
+    
+            # ── LỌC SEGMENT VÔ NGHĨA ──────────────────────────────────────────────
+            def is_meaningful(text):
+                """Lọc bỏ segment quá ngắn hoặc không có nội dung hữu ích."""
+                import re
+                t = text.strip()
+                if not t:
+                    return False
+                # Loại bỏ câu chỉ có dấu câu / ký tự đặc biệt
+                if re.fullmatch(r'[\W\d]+', t):
+                    return False
+                words = t.split()
+                # Loại bỏ câu <= 2 từ đơn lẻ không có nghĩa
+                if len(words) <= 2:
+                    # Cho phép nếu là tên riêng hoặc câu trả lời ngắn có nghĩa
+                    meaningful_short = {'vâng', 'dạ', 'có', 'không', 'rồi', 'ừ', 'okay', 'ok',
+                                        'được', 'đúng', 'đồng ý', 'yes', 'no', 'sure'}
+                    joined = ' '.join(words).lower().strip('.,!?')
+                    if joined not in meaningful_short:
+                        return False
+                return True
+    
+            # ── GỘP SEGMENT LIỀN KỀ CÙNG SPEAKER ─────────────────────────────────
+            # Nếu 2 segment liên tiếp của cùng 1 speaker và khoảng gap < 1.5s → gộp lại
+            MERGE_GAP = 1.5  # giây
+    
+            merged_segments = []
+            segments.sort(key=lambda x: x["start"])
+    
+            for seg in segments:
+                txt = " ".join(seg["text"].split())
+                if not txt or not is_meaningful(txt):
+                    continue
+                spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
+    
+                if (merged_segments
+                        and merged_segments[-1][2] == spk_label
+                        and seg["start"] - merged_segments[-1][1] <= MERGE_GAP):
+                    # Gộp vào segment trước
+                    prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1]
+                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt)
+                else:
+                    merged_segments.append((seg["start"], seg["end"], spk_label, txt))
+    
+            # Format results
+            results = merged_segments[:]
+            final_output_text = ""
+            last_spk = None
+    
+            for s, e, spk_label, txt in results:
+                if spk_label != last_spk:
+                    final_output_text += f"\n**{spk_label}** [{s:.1f}s]\n{txt}"
+                else:
+                    final_output_text += f" {txt}"
+                last_spk = spk_label
+    
+            # Cleanup temp wav
+            if os.path.exists(wav): os.remove(wav)
+    
+            from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+            import requests
+            
+            employees = []
             try:
-                from datetime import datetime
-                meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-                meeting_doc = frappe.get_doc({
-                    "doctype": "Voice Meeting",
-                    "title": meeting_title,
-                    "date": frappe.utils.now(),
-                    "status": "Pending",
-                    "audio_file": file_doc.file_url,
-                    "transcript": final_output_text.strip(),
-                    "raw_results": json.dumps(results, ensure_ascii=False)
-                })
-                meeting_doc.insert(ignore_permissions=True)
-                frappe.db.commit()
-                meeting_name = meeting_doc.name
-                break
+                session = requests.Session()
+                base_url = get_worksuite_url()
+                login_resp = session.post(
+                    f"{base_url}/api/method/login",
+                    json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()},
+                    timeout=10,
+                )
+                if login_resp.status_code == 200:
+                    emp_resp = session.get(
+                        f"{base_url}/api/resource/Employee",
+                        params={
+                            "fields": '["name","employee_name","user_id"]',
+                            "filters": '[["status","=","Active"]]',
+                            "limit_page_length": 5000,
+                        },
+                        timeout=10,
+                    )
+                    if emp_resp.status_code == 200:
+                        employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
             except Exception as ex:
+                frappe.log_error(str(ex), "Fetch Employees Error in Transcribe")
+    
+            # Update Voice Meeting
+            frappe.db.set_value("Voice Meeting", meeting_name, {
+                "status": "Completed",
+                "transcript": final_output_text.strip(),
+                "raw_results": json.dumps(results, ensure_ascii=False)
+            })
+            frappe.db.commit()
+    
+            # Log AI call (ElevenLabs)
+            try:
+                session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
+                session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
+                if session_name:
+                    ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
+                    action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary=f"Transcribe with {stt_label}")
+                    _logger.log_ai_call(
+                        session_name=session_name,
+                        action_name=action_name,
+                        call_type="transcribe_audio",
+                        ai_model=ai_model_log,
+                        duration_seconds=0,
+                        status="success",
+                        elevenlabs_chars_used=el_chars_used,
+                        elevenlabs_chars_remaining=el_chars_remaining,
+                    )
+                    _logger.finish_action(action_name, status="success")
+            except Exception as log_ex:
                 if getattr(frappe.db, "_cursor", None):
                     frappe.db._cursor.execute("ROLLBACK")
                 frappe.db.rollback()
-                if "SerializationFailure" in str(type(ex)) or "concurrent update" in str(ex):
-                    import time
-                    time.sleep(0.5)
-                    continue
-                frappe.log_error(str(ex), f"Create Voice Meeting Error (Attempt {attempt+1})")
-                break
-
-        # Log AI call (ElevenLabs)
-        try:
-            session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
-            session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
-            if session_name:
-                ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
-                action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary=f"Transcribe with {stt_label}")
-                _logger.log_ai_call(
-                    session_name=session_name,
-                    action_name=action_name,
-                    call_type="transcribe_audio",
-                    ai_model=ai_model_log,
-                    duration_seconds=0,
-                    status="success",
-                    elevenlabs_chars_used=el_chars_used,
-                    elevenlabs_chars_remaining=el_chars_remaining,
-                )
-                _logger.finish_action(action_name, status="success")
-        except Exception as log_ex:
+                frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
+    
+            return {
+                "status": "success",
+                "results": results,
+                "final_text": final_output_text.strip(),
+                "employees": employees,
+                "meeting_name": meeting_name
+            }
+    
+        except Exception as e:
             if getattr(frappe.db, "_cursor", None):
                 frappe.db._cursor.execute("ROLLBACK")
             frappe.db.rollback()
-            frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
-
-        return {
-            "status": "success",
-            "results": results,
-            "final_text": final_output_text.strip(),
-            "employees": employees,
-            "meeting_name": meeting_name
-        }
-
+            frappe.log_error(traceback.format_exc(), "Audio Transcription Error")
+            frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": str(e)}); frappe.db.commit(); return
+    
+    
+    
     except Exception as e:
-        if getattr(frappe.db, "_cursor", None):
-            frappe.db._cursor.execute("ROLLBACK")
-        frappe.db.rollback()
-        frappe.log_error(traceback.format_exc(), "Audio Transcription Error")
-        return {"status": "error", "message": str(e)}
-
+        frappe.log_error(traceback.format_exc(), "Transcribe Async Error")
+        frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": str(e)})
+        frappe.db.commit()
 
 @frappe.whitelist(allow_guest=False)
 def extract_tasks():
@@ -545,11 +625,13 @@ def clean_transcript():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def get_employees():
     import requests
     from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
 
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
 
 
     
@@ -578,10 +660,11 @@ def get_employees():
     return {"status": "success", "employees": employees}
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def update_meeting_results():
     """Cập nhật raw_results khi user hoàn tác lọc (undo clean)"""
-
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
 
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -622,14 +705,15 @@ def sync_tasks_to_erp():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def download_meeting_file():
     """
     Endpoint tải file (docx/xlsx) từ meeting về phía client.
     Chỉ cho phép chủ sở hữu cuộc họp tải.
     Params: meeting_name, file_type (docx | xlsx)
     """
-
+    if frappe.session.user == "Guest":
+        frappe.throw("Vui lòng đăng nhập để tải file", frappe.AuthenticationError)
 
     meeting_name = frappe.form_dict.get("meeting_name") or frappe.local.form_dict.get("meeting_name")
     file_type    = frappe.form_dict.get("file_type")    or frappe.local.form_dict.get("file_type", "docx")
@@ -689,9 +773,10 @@ def download_meeting_file():
 def get_elevenlabs_info():
     return {"balance": check_elevenlabs_balance()}
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def enroll_voice():
-
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập để đăng ký giọng nói."}
         
     email = frappe.session.user
     full_name = frappe.utils.get_fullname(email)
@@ -873,13 +958,13 @@ def get_enrolled_speakers():
         frappe.log_error(traceback.format_exc(), "Get Enrolled Speakers Error")
         return {"status": "error", "speakers": [], "message": str(e)}
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def get_meeting_history():
     """
     Chỉ trả về các meeting thuộc về user hiện tại.
     Guest không được truy cập.
     """
-    if False and frappe.session.user == "Guest":
+    if frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập", "meetings": []}
 
     try:
@@ -895,9 +980,10 @@ def get_meeting_history():
         return {"status": "error", "message": str(e), "meetings": []}
 _logger = ActivityLogger(prefix="VOICE", module="voice_app")
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def get_context():
-
+    if frappe.session.user == "Guest":
+        frappe.throw("Vui lòng đăng nhập", frappe.AuthenticationError)
 
     import uuid
     dept = ""

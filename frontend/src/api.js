@@ -131,4 +131,11 @@ export async function voiceToTask(file, existingTask = null) {
   return res.data.message
 }
 
+export async function checkMeetingStatus(meetingName) {
+  const res = await api.get('/api/method/voice_app.api.check_meeting_status', {
+    params: { meeting_name: meetingName }
+  })
+  return res.data.message
+}
+
 export default api
