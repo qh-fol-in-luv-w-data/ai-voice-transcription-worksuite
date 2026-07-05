@@ -12,8 +12,8 @@ GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{mode
 FILE_STATUS_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
 STREAM_URL      = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
 
-_RETRY_MAX        = 4   # số lần thử tối đa khi gặp 429
-_RETRY_BASE_DELAY = 10  # giây, tăng gấp đôi mỗi lần: 10 → 20 → 40 → 80
+_RETRY_MAX        = 6   # số lần thử tối đa khi gặp 429
+_RETRY_BASE_DELAY = 15  # giây, tăng gấp đôi mỗi lần: 15 → 30 → 60 → 120 → 240
 
 def _get_gemini_model():
     try:
@@ -404,7 +404,7 @@ def _words_to_segments(raw_words):
     if cur: segments.append(cur)
     return segments
 
-def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = ""):
+def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = "", progress_callback=None):
     """
     Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
     Trả về: (segments, raw_words, full_text, error, 0, 0)
@@ -445,6 +445,9 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         
         for idx, (chunk_wav, offset) in enumerate(chunks):
             print(f"[Gemini STT] Xử lý chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
+            if progress_callback:
+                progress_percent = int((idx / len(chunks)) * 100)
+                progress_callback(progress_percent, f"Đang dịch phần {idx+1}/{len(chunks)}...")
             chunk_duration = get_duration(chunk_wav)
             file_uri, file_name = _upload_file(chunk_wav, api_key)
             try:
