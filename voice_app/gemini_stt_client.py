@@ -83,6 +83,10 @@ def _upload_file(wav_path, api_key):
             f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
             timeout=30,
         )
+        if status_resp.status_code in [403, 429, 500, 502, 503, 504]:
+            print(f"[Gemini STT] File status polling returned {status_resp.status_code}, retrying...")
+            time.sleep(5)
+            continue
         status_resp.raise_for_status()
         state = status_resp.json().get("state", "")
         if state == "ACTIVE":
@@ -134,11 +138,12 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None):
             ]
         }],
         "generation_config": {
-            "temperature": 0,
+            "temperature": 0.2,
             "response_mime_type": "application/json",
-            "maxOutputTokens": 65536,
+            "maxOutputTokens": 8192,
         },
     }
+
 
     _retryable = (
         _requests.exceptions.ConnectionError,
@@ -150,20 +155,21 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None):
     total_in      = 0
     total_out     = 0
     finish_reason = None
+    url = f"{STREAM_URL.format(model=model_name)}?key={api_key}&alt=sse"
 
     for attempt in range(_RETRY_MAX):
         print(f"[Gemini STT] Streaming attempt {attempt + 1}/{_RETRY_MAX} (model={model_name})...")
         try:
             resp = _requests.post(
-                f"{STREAM_URL.format(model=model_name)}?key={api_key}&alt=sse",
+                url,
                 json=payload,
                 timeout=1800,
                 stream=True,
             )
-            if resp.status_code == 429:
+            if resp.status_code in [403, 429, 500, 502, 503, 504]:
                 if attempt < _RETRY_MAX - 1:
                     delay = _RETRY_BASE_DELAY * (2 ** attempt)
-                    print(f"[Gemini STT] 429 stream, thử lại sau {delay}s...")
+                    print(f"[Gemini STT] {resp.status_code} stream, thử lại sau {delay}s...")
                     time.sleep(delay)
                     continue
                 resp.raise_for_status()
@@ -241,11 +247,14 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None):
         "model": f"google/{model_name}",
     }
 
-    cost = (total_in * 1.25 + billable_out * 5.0) / 1_000_000
+    # Gemini 3.5 Flash pricing: input=$1.50/M, output=$9.00/M
+    PRICE_IN  = 1.50 / 1_000_000
+    PRICE_OUT = 9.00 / 1_000_000
+    cost = total_in * PRICE_IN + billable_out * PRICE_OUT
     print(
-        f"💰 [Gemini Stream] in={total_in} out={billable_out} "
-        f"(candidate={total_out}, thinking={thoughts_tokens}) "
-        f"| total={total_tokens} | ~${cost:.4f} | finish={finish_reason}"
+        f"💰 [Gemini STT] model={model_name} | "
+        f"in={total_in:,} out={billable_out:,} (think={thoughts_tokens}) | "
+        f"total={total_tokens:,} tokens | cost=~${cost:.4f} USD | finish={finish_reason}"
     )
 
     if finish_reason == "MAX_TOKENS":
@@ -282,6 +291,7 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
 - Trước khi gán speaker cho mỗi entry, hãy đối chiếu ÂM THANH THỰC TẾ: cao độ giọng, tốc độ nói, chất giọng. Nếu trong một đoạn liên tục có sự thay đổi âm sắc → phải tách entry mới ngay tại điểm đó.
 - KHÔNG suy đoán speaker theo ngữ cảnh (ai đặt câu hỏi thì ai trả lời) — chỉ dựa vào giọng nói thực tế nghe được.
 - Bỏ qua tạp âm, tiếng ồn, tiếng động nền.
+- CỰC KỲ QUAN TRỌNG: Nếu đoạn âm thanh LÀ KHOẢNG LẶNG, CHỈ CÓ TẠP ÂM, HOẶC KHÔNG CÓ TIẾNG NGƯỜI NÓI, TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ BỊA RA LỜI NÓI HOẶC LẶP LẠI LỜI CŨ. HÃY TRẢ VỀ MẢNG RỖNG [] NẾU KHÔNG NGHE THẤY GÌ.
 
 ━━━ BƯỚC 2: LÀM SẠCH VĂN BẢN ━━━
 Chỉ xoá các từ/âm KHÔNG mang thông tin BÊN TRONG câu, KHÔNG được xoá cả entry:
@@ -453,7 +463,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(file_uri, api_key, prompt, model_name)
                     if chunk_error:
                         print(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
-                        return idx, None, None, None
+                        return idx, None, None, None, chunk_error
                 finally:
                     _delete_file(file_name, api_key)
                     if chunk_wav != wav_path:
@@ -461,7 +471,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                         except: pass
                         
                 if not gemini_segments:
-                    return idx, None, None, None
+                    return idx, None, None, None, "Gemini trả về rỗng (có thể do safety filter hoặc file nhiễu)."
 
                 raw_words = _segments_to_raw_words(gemini_segments, file_duration=chunk_duration)
                 segments = _words_to_segments(raw_words)
@@ -479,17 +489,21 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     w["speaker_id"] = f"c{idx}_{w['speaker_id']}"
                     
                 chunk_text = " ".join(s.get("text", "") for s in gemini_segments)
-                return idx, segments, raw_words, chunk_text
+                return idx, segments, raw_words, chunk_text, chunk_usage, None
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                return idx, None, None, None
+                return idx, None, None, None, None, str(e)
 
         import concurrent.futures
         completed_count = 0
         total_chunks = len(chunks)
         results = [None] * total_chunks
 
+        total_in_all  = 0
+        total_out_all = 0
+        total_tok_all = 0
+        chunk_errors = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             future_to_idx = {
                 executor.submit(_process_single_chunk, idx, chunk_wav, offset): idx 
@@ -499,10 +513,17 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
             for future in concurrent.futures.as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
-                    res_idx, segments, raw_words, chunk_text = future.result()
+                    res_idx, segments, raw_words, chunk_text, chunk_usage, err_msg = future.result()
+                    if err_msg:
+                        chunk_errors.append(f"Chunk {idx+1}: {err_msg}")
                     results[res_idx] = (segments, raw_words, chunk_text)
+                    if chunk_usage:
+                        total_in_all  += chunk_usage.get("prompt_tokens", 0)
+                        total_out_all += chunk_usage.get("completion_tokens", 0)
+                        total_tok_all += chunk_usage.get("tokens_used", 0)
                 except Exception as e:
                     results[idx] = (None, None, None)
+                    chunk_errors.append(f"Chunk {idx+1}: {str(e)}")
                     print(f"[Gemini STT] Exception in chunk {idx+1}: {e}")
                 
                 completed_count += 1
@@ -518,11 +539,23 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 all_raw_words.extend(raw_words)
                 all_full_text += " " + chunk_text
 
+        if chunk_errors:
+            error_details = " | ".join(chunk_errors)
+            return [], [], "", f"Lỗi xử lý file (Gemini): {error_details}", 0, 0
+
         if not all_segments:
-            return [], [], "", "Gemini không nhận ra giọng nói trong file.", 0, 0
+            return [], [], "", "Gemini không nhận ra giọng nói trong file (file trống, nhiễu hoặc sai format).", 0, 0
 
         n_spk = len(set(s.get("speaker_id", "") for s in all_segments))
-        print(f"[Gemini STT] OK: {len(all_segments)} segments, {n_spk} speakers (across {len(chunks)} chunks)")
+        PRICE_IN  = 1.50 / 1_000_000
+        PRICE_OUT = 9.00 / 1_000_000
+        total_cost = total_in_all * PRICE_IN + total_out_all * PRICE_OUT
+        print(
+            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks)} chunks\n"
+            f"💰 [Gemini STT] TỔNG CHI PHÍ FILE: "
+            f"in={total_in_all:,} + out={total_out_all:,} = {total_tok_all:,} tokens | "
+            f"cost=~${total_cost:.4f} USD ({len(chunks)} chunks)"
+        )
         return all_segments, all_raw_words, all_full_text.strip(), None, 0, 0
 
     except Exception as e:
