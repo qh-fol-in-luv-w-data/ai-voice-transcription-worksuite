@@ -22,7 +22,14 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
         frappe.throw("Thiếu file âm thanh")
 
     audio_file = frappe.request.files['file']
-    file_doc = save_file(audio_file.filename, audio_file.read(), None, None, is_private=1)
+    file_doc = frappe.get_doc({
+        "doctype": "File",
+        "file_name": audio_file.filename,
+        "is_private": 1,
+        "content": audio_file.read()
+    })
+    file_doc.insert(ignore_permissions=True)
+    
     file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
     file_url = file_doc.file_url
     
@@ -107,7 +114,8 @@ def check_meeting_status(meeting_name):
         error_msg = meeting.get("error_message") or "Có lỗi xảy ra khi xử lý âm thanh."
         return {"status": "error", "message": error_msg}
     else:
-        return {"status": "processing", "meeting_name": meeting.name}
+        progress_info = frappe.cache().get_value(f"transcribe_progress_{meeting.name}")
+        return {"status": "processing", "meeting_name": meeting.name, "progress_info": progress_info}
 
 
 def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_mode, num_speakers, custom_vocabulary, meeting_name, session_id_header):
@@ -117,9 +125,19 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
         pass
     
         try:
+            def update_progress(stt_percent, stt_msg, spk_percent, spk_msg):
+                frappe.cache().set_value(f"transcribe_progress_{meeting_name}", {
+                    "stt": {"progress": stt_percent, "msg": stt_msg},
+                    "speaker": {"progress": spk_percent, "msg": spk_msg}
+                })
+
+            update_progress(5, "Đang chuẩn bị file âm thanh...", 0, "Chờ dịch văn bản...")
+
             # Convert to WAV
             wav, err = convert_to_wav(file_path)
             if err:
+                frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
+
                 frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
             # Xác định num_speakers: ưu tiên user nhập → filter_speakers count → None
@@ -138,8 +156,11 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                     pass
     
             # Call STT theo mode
+            def stt_cb(percent, msg):
+                update_progress(percent, msg, 0, "Chờ dịch văn bản...")
+
             if stt_mode == "google":
-                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary, progress_callback=stt_cb)
             else:
                 segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
             if err:
@@ -150,6 +171,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
     
             # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
+            update_progress(100, "Đã dịch xong văn bản!", 10, "Bắt đầu trích xuất đặc trưng giọng nói...")
             spk_db = SpeakerDB()
             unique_speakers = {}
             for seg in segments:
@@ -165,6 +187,9 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             spk_embeddings = {}  # speaker_id -> embedding
             spk_identified = {}  # speaker_id -> (name, score, email, user_info)
     
+            total_spk = len(unique_speakers)
+            completed_spk = 0
+
             for spk, segs in unique_speakers.items():
                 # Ghép nhiều đoạn của speaker để embedding đại diện hơn 1 đoạn đơn lẻ
                 concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.0)
@@ -174,6 +199,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                     start = sample["start"]
                     end = min(sample["end"], start + 5.0)
                     if end - start < 0.5:
+                        completed_spk += 1
                         continue
                     emb = get_segment_embedding(wav, start, end)
                 else:
@@ -185,7 +211,12 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
     
                 if emb is not None:
                     spk_embeddings[spk] = emb
+                
+                completed_spk += 1
+                spk_prog = 10 + int((completed_spk / total_spk) * 80) # reserve 10% for final assignment
+                update_progress(100, "Đã dịch xong văn bản!", spk_prog, f"Đang nhận diện giọng {completed_spk}/{total_spk}...")
     
+            update_progress(100, "Đã dịch xong văn bản!", 95, "Đang đối chiếu dữ liệu nhân sự...")
             # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
             # identify_ranked() đã filter >= SIMILARITY_THRESHOLD (0.65) rồi
             # → fallback candidate nào cũng đảm bảo trên ngưỡng, không cần check lại
