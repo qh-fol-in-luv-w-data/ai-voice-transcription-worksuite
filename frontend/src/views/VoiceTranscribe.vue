@@ -281,8 +281,11 @@ const startExtractTasks = async () => {
              class="p-4 rounded-lg text-sm border font-medium flex flex-col gap-2 shadow-inner"
              :class="transcribeStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (transcribeStatus.includes('⏳') || isTranscribing ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')">
            <span>{{ transcribeStatus }}</span>
-           <div v-if="isTranscribing && transcribeProgress > 0" class="w-full h-2 bg-foreground/10 rounded-full overflow-hidden mt-1">
-             <div class="h-full bg-primary transition-all duration-500 ease-out" :style="{ width: transcribeProgress + '%' }"></div>
+           <div v-if="isTranscribing" class="flex items-center gap-3 mt-1">
+             <div class="flex-1 h-2 bg-foreground/10 rounded-full overflow-hidden">
+               <div class="h-full bg-primary transition-all duration-500 ease-out" :style="{ width: transcribeProgress + '%' }"></div>
+             </div>
+             <span class="text-xs font-bold text-primary w-8 text-right">{{ transcribeProgress }}%</span>
            </div>
         </div>
       </div>
