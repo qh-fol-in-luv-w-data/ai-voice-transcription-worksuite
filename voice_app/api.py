@@ -22,7 +22,14 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
         frappe.throw("Thiếu file âm thanh")
 
     audio_file = frappe.request.files['file']
-    file_doc = save_file(audio_file.filename, audio_file.read(), None, None, is_private=1)
+    file_doc = frappe.get_doc({
+        "doctype": "File",
+        "file_name": audio_file.filename,
+        "is_private": 1,
+        "content": audio_file.read()
+    })
+    file_doc.insert(ignore_permissions=True)
+    
     file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
     file_url = file_doc.file_url
     
