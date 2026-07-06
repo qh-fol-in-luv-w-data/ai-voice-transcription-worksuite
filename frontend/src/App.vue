@@ -21,6 +21,10 @@ const modelType = ref('gpt-4o')
 
 const isTranscribing = ref(false)
 const transcribeStatus = ref('')
+const sttProgress = ref(0)
+const sttStatus = ref('')
+const spkProgress = ref(0)
+const spkStatus = ref('')
 const transcriptResults = ref([]) // Raw tuples [start, end, spk, txt]
 const originalTranscriptResults = ref([]) // Store original results for undo
 const isCleaned = ref(false)
@@ -703,8 +707,16 @@ const pollMeetingStatus = async (meetingName, isReanalyze = false) => {
       isTranscribing.value = false
       isReanalyzing.value = false
     } else if (res.status === 'processing') {
-      transcribeStatus.value = "Đang xử lý âm thanh (tiến trình chạy nền)..."
-      setTimeout(() => pollMeetingStatus(meetingName, isReanalyze), 5000)
+      if (res.progress_info && res.progress_info.stt) {
+        sttProgress.value = res.progress_info.stt.progress || 0
+        sttStatus.value = res.progress_info.stt.msg || ''
+        spkProgress.value = res.progress_info.speaker?.progress || 0
+        spkStatus.value = res.progress_info.speaker?.msg || ''
+        transcribeStatus.value = ''
+      } else {
+        transcribeStatus.value = "Đang xử lý âm thanh (tiến trình chạy nền)..."
+      }
+      setTimeout(() => pollMeetingStatus(meetingName, isReanalyze), 3000)
     } else {
       transcribeStatus.value = '❌ Lỗi: ' + (res.message || 'Unknown error')
       isTranscribing.value = false
@@ -723,7 +735,11 @@ const startTranscribe = async () => {
     return
   }
   isTranscribing.value = true
-  transcribeStatus.value = t('status_transcribe_wait')
+  sttProgress.value = 0
+  sttStatus.value = t('status_transcribe_wait')
+  spkProgress.value = 0
+  spkStatus.value = 'Đang đợi dịch văn bản...'
+  transcribeStatus.value = ''
   transcriptResults.value = []
   originalTranscriptResults.value = []
   isCleaned.value = false
@@ -1198,8 +1214,54 @@ onMounted(async () => {
                <el-button type="primary" size="large" class="w-full h-12 text-lg" @click="startTranscribe" :loading="isTranscribing" :disabled="!audioFile">
                   {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
                </el-button>
-               <div v-if="transcribeStatus && !isTranscribing" class="text-center text-sm font-medium mt-2 text-primary">
-                  {{ transcribeStatus }}
+               <div v-if="isTranscribing && (sttStatus || spkStatus)" class="flex flex-col gap-4 mt-4">
+                  <!-- Bar 1: STT -->
+                  <div v-if="sttProgress < 100" class="flex flex-col mt-2">
+                     <span class="font-medium text-xs truncate mb-8" :style="{ color: 'var(--el-text-color-regular)' }" :title="sttStatus">{{ sttStatus }}</span>
+                     <div class="relative w-full h-2 rounded-full" style="background-color: var(--el-fill-color-light);">
+                        
+                        <!-- Moving Bubble -->
+                        <div class="absolute top-[-30px] transition-all duration-1000 ease-out z-20" :style="{ left: `clamp(0%, ${sttProgress}%, 100%)` }">
+                           <div class="relative transform -translate-x-1/2 px-2.5 py-1 rounded-md text-[11px] font-bold shadow-sm whitespace-nowrap"
+                                style="background-color: var(--el-text-color-primary); color: var(--el-bg-color);">
+                              {{ sttProgress }}%
+                              <div class="absolute -bottom-[4px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent" 
+                                   style="border-top-color: var(--el-text-color-primary);"></div>
+                           </div>
+                        </div>
+                        
+                        <!-- Progress Fill -->
+                        <div class="h-full rounded-full transition-all duration-1000 ease-out relative overflow-hidden" 
+                             style="background-color: var(--el-color-primary);"
+                             :style="{ width: sttProgress + '%' }">
+                        </div>
+                     </div>
+                  </div>
+                  <!-- Bar 2: Speaker -->
+                  <div v-else class="flex flex-col mt-2">
+                     <span class="font-medium text-xs truncate mb-8" :style="{ color: 'var(--el-text-color-regular)' }" :title="spkStatus">{{ spkStatus }}</span>
+                     <div class="relative w-full h-2 rounded-full" style="background-color: var(--el-fill-color-light);">
+                        
+                        <!-- Moving Bubble -->
+                        <div class="absolute top-[-30px] transition-all duration-1000 ease-out z-20" :style="{ left: `clamp(0%, ${spkProgress}%, 100%)` }">
+                           <div class="relative transform -translate-x-1/2 px-2.5 py-1 rounded-md text-[11px] font-bold shadow-sm whitespace-nowrap"
+                                style="background-color: var(--el-text-color-primary); color: var(--el-bg-color);">
+                              {{ spkProgress }}%
+                              <div class="absolute -bottom-[4px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent" 
+                                   style="border-top-color: var(--el-text-color-primary);"></div>
+                           </div>
+                        </div>
+                        
+                        <!-- Progress Fill -->
+                        <div class="h-full rounded-full transition-all duration-1000 ease-out relative overflow-hidden" 
+                             style="background-color: var(--el-color-warning);"
+                             :style="{ width: spkProgress + '%' }">
+                        </div>
+                     </div>
+                  </div>
+               </div>
+               <div v-else-if="transcribeStatus" class="flex flex-col gap-2 mt-4 text-center">
+                  <div class="text-sm font-medium text-primary">{{ transcribeStatus }}</div>
                </div>
             </template>
           </el-card>
@@ -2355,4 +2417,6 @@ body {
 .task-table .el-input__wrapper,
 .task-table .el-select .el-input__wrapper { min-height: 32px; height: auto; }
 .task-table .el-textarea__inner { min-height: 56px !important; resize: vertical; }
+
+
 </style>
