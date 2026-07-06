@@ -12,8 +12,8 @@ GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{mode
 FILE_STATUS_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
 STREAM_URL      = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
 
-_RETRY_MAX        = 4   # số lần thử tối đa khi gặp 429
-_RETRY_BASE_DELAY = 10  # giây, tăng gấp đôi mỗi lần: 10 → 20 → 40 → 80
+_RETRY_MAX        = 6   # số lần thử tối đa khi gặp 429
+_RETRY_BASE_DELAY = 15  # giây, tăng gấp đôi mỗi lần: 15 → 30 → 60 → 120 → 240
 
 def _get_gemini_model():
     try:
@@ -116,13 +116,14 @@ def _delete_file(file_name, api_key):
         print(f"[Gemini STT] Delete error: {e}")
 
 
-def _call_gemini_stream(file_uri, api_key, prompt):
+def _call_gemini_stream(file_uri, api_key, prompt, model_name=None):
     """
     Gọi Gemini Streaming API (streamGenerateContent) — giống hệt Gemini Web.
     Không bị cắt ngang do MAX_TOKENS vì nhận token liên tục cho đến hết.
     Trả về (danh sách segments đã parse, usage, error).
     """
-    model_name = _get_gemini_model()
+    if not model_name:
+        model_name = _get_gemini_model()
 
     payload = {
         "contents": [{
@@ -404,7 +405,7 @@ def _words_to_segments(raw_words):
     if cur: segments.append(cur)
     return segments
 
-def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = ""):
+def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = "", progress_callback=None):
     """
     Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
     Trả về: (segments, raw_words, full_text, error, 0, 0)
@@ -443,43 +444,79 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         all_raw_words = []
         all_full_text = ""
         
-        for idx, (chunk_wav, offset) in enumerate(chunks):
-            print(f"[Gemini STT] Xử lý chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
-            chunk_duration = get_duration(chunk_wav)
-            file_uri, file_name = _upload_file(chunk_wav, api_key)
+        def _process_single_chunk(idx, chunk_wav, offset):
             try:
-                gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(file_uri, api_key, prompt)
-                if chunk_error:
-                    print(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
-                    continue
-            finally:
-                _delete_file(file_name, api_key)
-                if chunk_wav != wav_path:
-                    try: os.remove(chunk_wav)
-                    except: pass
-                    
-            if not gemini_segments:
-                continue
+                print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
+                chunk_duration = get_duration(chunk_wav)
+                file_uri, file_name = _upload_file(chunk_wav, api_key)
+                try:
+                    gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(file_uri, api_key, prompt, model_name)
+                    if chunk_error:
+                        print(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
+                        return idx, None, None, None
+                finally:
+                    _delete_file(file_name, api_key)
+                    if chunk_wav != wav_path:
+                        try: os.remove(chunk_wav)
+                        except: pass
+                        
+                if not gemini_segments:
+                    return idx, None, None, None
 
-            raw_words = _segments_to_raw_words(gemini_segments, file_duration=chunk_duration)
-            segments = _words_to_segments(raw_words)
+                raw_words = _segments_to_raw_words(gemini_segments, file_duration=chunk_duration)
+                segments = _words_to_segments(raw_words)
+                
+                # Offset timestamps & rename speakers by chunk index
+                for seg in segments:
+                    seg["start"] = round(seg["start"] + offset, 2)
+                    seg["end"] = round(seg["end"] + offset, 2)
+                    seg["speaker_id"] = f"c{idx}_{seg['speaker_id']}"
+                    seg["speaker"] = f"c{idx}_{seg.get('speaker', 'Speaker 1')}"
+                    
+                for w in raw_words:
+                    w["start"] = round(w["start"] + offset, 2)
+                    w["end"] = round(w["end"] + offset, 2)
+                    w["speaker_id"] = f"c{idx}_{w['speaker_id']}"
+                    
+                chunk_text = " ".join(s.get("text", "") for s in gemini_segments)
+                return idx, segments, raw_words, chunk_text
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return idx, None, None, None
+
+        import concurrent.futures
+        completed_count = 0
+        total_chunks = len(chunks)
+        results = [None] * total_chunks
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_idx = {
+                executor.submit(_process_single_chunk, idx, chunk_wav, offset): idx 
+                for idx, (chunk_wav, offset) in enumerate(chunks)
+            }
             
-            # Offset timestamps & rename speakers by chunk index
-            for seg in segments:
-                seg["start"] = round(seg["start"] + offset, 2)
-                seg["end"] = round(seg["end"] + offset, 2)
-                seg["speaker_id"] = f"c{idx}_{seg['speaker_id']}"
-                seg["speaker"] = f"c{idx}_{seg.get('speaker', 'Speaker 1')}"
+            for future in concurrent.futures.as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    res_idx, segments, raw_words, chunk_text = future.result()
+                    results[res_idx] = (segments, raw_words, chunk_text)
+                except Exception as e:
+                    results[idx] = (None, None, None)
+                    print(f"[Gemini STT] Exception in chunk {idx+1}: {e}")
                 
-            for w in raw_words:
-                w["start"] = round(w["start"] + offset, 2)
-                w["end"] = round(w["end"] + offset, 2)
-                w["speaker_id"] = f"c{idx}_{w['speaker_id']}"
-                
-            all_segments.extend(segments)
-            all_raw_words.extend(raw_words)
-            chunk_text = " ".join(s.get("text", "") for s in gemini_segments)
-            all_full_text += " " + chunk_text
+                completed_count += 1
+                if progress_callback:
+                    progress_percent = int((completed_count / total_chunks) * 100)
+                    progress_callback(progress_percent, f"Đang dịch đa luồng: xong {completed_count}/{total_chunks} phần...")
+
+        for res in results:
+            if not res: continue
+            segments, raw_words, chunk_text = res
+            if segments and raw_words:
+                all_segments.extend(segments)
+                all_raw_words.extend(raw_words)
+                all_full_text += " " + chunk_text
 
         if not all_segments:
             return [], [], "", "Gemini không nhận ra giọng nói trong file.", 0, 0

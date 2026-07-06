@@ -7,10 +7,11 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
+const transcribeProgress = ref(0)
 
 // ── STRANGER MAPPING ─────────────────────────────────────────────────────────
 const speakerMapping = ref({})
@@ -97,6 +98,7 @@ const startTranscribe = async () => {
     return
   }
   isTranscribing.value = true
+  transcribeProgress.value = 0
   transcribeStatus.value = t('status_transcribe_wait')
   transcriptResults.value = []
   originalTranscriptResults.value = []
@@ -107,7 +109,39 @@ const startTranscribe = async () => {
   
   try {
     const res = await transcribeAudio(audioFile.value, language.value)
-    if (res.status === 'success') {
+    if (res.status === 'processing' && res.meeting_name) {
+      currentMeetingName.value = res.meeting_name
+      
+      // Polling loop
+      const pollTimer = setInterval(async () => {
+        try {
+          const pollRes = await checkMeetingStatus(currentMeetingName.value)
+          if (pollRes.status === 'processing') {
+            if (pollRes.progress_info) {
+               transcribeProgress.value = pollRes.progress_info.progress || 0
+               transcribeStatus.value = pollRes.progress_info.message || "Đang xử lý..."
+            }
+          } else if (pollRes.status === 'success') {
+            clearInterval(pollTimer)
+            transcribeProgress.value = 100
+            transcribeStatus.value = t('status_transcribe_ok')
+            transcriptResults.value = pollRes.results
+            originalTranscriptResults.value = [...pollRes.results]
+            isCleaned.value = false
+            transcriptText.value = pollRes.final_text
+            dbEmployees.value = pollRes.employees || []
+            loadHistory()
+            isTranscribing.value = false
+          } else if (pollRes.status === 'error') {
+            clearInterval(pollTimer)
+            transcribeStatus.value = '❌ Error: ' + pollRes.message
+            isTranscribing.value = false
+          }
+        } catch (err) {
+          console.error("Polling error", err)
+        }
+      }, 3000)
+    } else if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results
       originalTranscriptResults.value = [...res.results]
@@ -116,12 +150,13 @@ const startTranscribe = async () => {
       dbEmployees.value = res.employees || []
       currentMeetingName.value = res.meeting_name || null
       if (res.meeting_name) loadHistory()
+      isTranscribing.value = false
     } else {
       transcribeStatus.value = '❌ Error: ' + res.message
+      isTranscribing.value = false
     }
   } catch (e) {
     transcribeStatus.value = t('error_connect')
-  } finally {
     isTranscribing.value = false
   }
 }
@@ -243,9 +278,15 @@ const startExtractTasks = async () => {
         </div>
 
         <div v-if="transcribeStatus" 
-             class="p-4 rounded-lg text-sm border font-medium flex items-center shadow-inner"
-             :class="transcribeStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (transcribeStatus.includes('⏳') ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')">
-           {{ transcribeStatus }}
+             class="p-4 rounded-lg text-sm border font-medium flex flex-col gap-2 shadow-inner"
+             :class="transcribeStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (transcribeStatus.includes('⏳') || isTranscribing ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')">
+           <span>{{ transcribeStatus }}</span>
+           <div v-if="isTranscribing" class="flex items-center gap-3 mt-1">
+             <div class="flex-1 h-2 bg-foreground/10 rounded-full overflow-hidden">
+               <div class="h-full bg-primary transition-all duration-500 ease-out" :style="{ width: transcribeProgress + '%' }"></div>
+             </div>
+             <span class="text-xs font-bold text-primary w-8 text-right">{{ transcribeProgress }}%</span>
+           </div>
         </div>
       </div>
     </div>
