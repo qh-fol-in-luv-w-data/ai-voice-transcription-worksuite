@@ -29,8 +29,8 @@ const unknownSpeakers = computed(() => {
 
 const employeeOptions = computed(() =>
   dbEmployees.value.map(emp => ({
-    value: emp.employee_name + ' (' + emp.name + ')',
-    label: emp.employee_name + ' (' + emp.name + ')' + (emp.user_id ? ' — ' + emp.user_id : '')
+    value: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : ''),
+    label: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '')
   }))
 )
 

@@ -603,7 +603,7 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
         assignee_hr_code = emp.get("name") if emp else None
         assignee_name    = emp.get("employee_name") if emp else item.get("nguoi_thuc_hien", "")
         
-        display_assignee = f"{assignee_name} ({assignee_hr_code})" if assignee_hr_code else assignee_name
+        display_assignee = f"{assignee_name} - {assignee_email}" if assignee_email else assignee_name
 
         item_enriched = {
             "title": item["noi_dung"],
