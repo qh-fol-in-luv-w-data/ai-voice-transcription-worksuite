@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { transcribeAudio, checkMeetingStatus, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
+import { transcribeAudio, checkMeetingStatus, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, updateTranscriptText, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
 import { initSession, useSession } from './utils/session'
 
 import CTSplashScreen from './components/CTSplashScreen.vue'
@@ -11,6 +11,11 @@ import CTAccessDenied from './components/CTAccessDenied.vue'
 const { authState, currentUser, currentFullName } = useSession()
 
 // States
+const isSidebarOpen = ref(true)
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value;
+  console.log('isSidebarOpen changed to:', isSidebarOpen.value);
+}
 const audioFile = ref(null)
 const audioPreviewUrl = ref('')
 const language = ref('vi')
@@ -33,6 +38,8 @@ const transcriptText = ref('')    // Formatted text
 const isExtracting = ref(false)
 const extractStatus = ref('')
 const isCleaning = ref(false)
+const isSavingTranscript = ref(false)
+const isTranscriptModified = ref(false)
 const docxUrl = ref('')
 const excelUrl = ref('')
 
@@ -60,8 +67,8 @@ const meetingChairperson = ref('')
 const globalEmployees = ref([])
 const employeeOptions = computed(() => {
   return globalEmployees.value.map(emp => ({
-    value: emp.employee_name + ' (' + emp.name + ')',
-    label: emp.employee_name + ' (' + emp.name + ')' + (emp.user_id ? ' - ' + emp.user_id : '')
+    value: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : ''),
+    label: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '')
   }))
 })
 
@@ -154,7 +161,21 @@ const loadPastMeeting = (meeting) => {
   // Reset trạng thái derived
   isCleaned.value = false
   originalTranscriptResults.value = []
-  tasks.value = []
+  if (meeting.tasks_json) {
+    try {
+      let raw_tasks = typeof meeting.tasks_json === 'string'
+        ? JSON.parse(meeting.tasks_json)
+        : meeting.tasks_json
+      tasks.value = raw_tasks.map(t => ({
+        ...t,
+        task_type: t.task_type || 'task'
+      }))
+    } catch (e) {
+      tasks.value = []
+    }
+  } else {
+    tasks.value = []
+  }
   extractStatus.value = ''
   docxUrl.value = meeting.minute_docx || ''
   excelUrl.value = meeting.task_xlsx || ''
@@ -502,7 +523,7 @@ const submitVoiceTask = async () => {
       let assignee = res.task.assignee_display || '';
       if (!assignee && currentUser.value && res.employees) {
         const emp = res.employees.find(e => e.user_id === currentUser.value);
-        if (emp) assignee = emp.employee_name + ' (' + emp.name + ')';
+        if (emp) assignee = emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '');
       }
       
       parsedVoiceTask.value = {
@@ -513,7 +534,7 @@ const submitVoiceTask = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
-        weight: 0,
+        task_type: res.task.task_type || "task",
         description: res.task.description || ''
       }
       
@@ -587,7 +608,7 @@ const submitVoiceTaskRefine = async () => {
       let assignee = res.task.assignee_display || '';
       if (!assignee && currentUser.value && res.employees) {
         const emp = res.employees.find(e => e.user_id === currentUser.value);
-        if (emp) assignee = emp.employee_name + ' (' + emp.name + ')';
+        if (emp) assignee = emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '');
       }
       
       parsedVoiceTask.value = {
@@ -598,7 +619,7 @@ const submitVoiceTaskRefine = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
-        weight: 0,
+        task_type: res.task.task_type || "task",
         description: res.task.description || ''
       }
       
@@ -631,7 +652,7 @@ const syncVoiceTaskToERP = async () => {
       const match = displayStr.match(/\((HR[-_]EMP[-_][^)]+)\)/i)
       if (match) parsedVoiceTask.value.assignee_hr_code = match[1]
       
-      const matchedEmp = voiceTaskEmployees.value.find(e => e.employee_name + ' (' + e.name + ')' === displayStr)
+      const matchedEmp = voiceTaskEmployees.value.find(e => e.employee_name + (e.user_id ? ' - ' + e.user_id : '') === displayStr)
       if (matchedEmp) {
         parsedVoiceTask.value.assignee_email = matchedEmp.user_id
         parsedVoiceTask.value.assignee_hr_code = matchedEmp.name
@@ -880,6 +901,27 @@ const startExtractTasks = async () => {
   }
 }
 
+const saveTranscriptChanges = async () => {
+  if (!currentMeetingName.value) return
+  isSavingTranscript.value = true
+  try {
+    const res = await updateTranscriptText(currentMeetingName.value, transcriptResults.value)
+    if (res.status === 'success') {
+      ElMessage.success('Đã lưu nội dung thoại')
+      isTranscriptModified.value = false
+      if (res.final_text) {
+        transcriptText.value = res.final_text
+      }
+    } else {
+      ElMessage.error('Lỗi lưu thay đổi: ' + res.message)
+    }
+  } catch (e) {
+    ElMessage.error('Lỗi kết nối khi lưu: ' + e)
+  } finally {
+    isSavingTranscript.value = false
+  }
+}
+
 const startCleanTranscript = async () => {
   if (isCleaned.value) {
     // Hoàn tác lọc — khôi phục kết quả gốc
@@ -923,13 +965,27 @@ const addTask = () => {
     project: '',
     start_date: '',
     due_date: '',
-    weight: 0,
+    task_type: "task",
     description: ''
   })
 }
 
 const removeTask = (idx) => {
   tasks.value.splice(idx, 1)
+}
+
+const removeSegment = (idx) => {
+  transcriptResults.value.splice(idx, 1);
+  isTranscriptModified.value = true;
+}
+
+const insertSegmentAfter = (idx) => {
+  let time = 0;
+  if (transcriptResults.value.length > 0 && transcriptResults.value[idx]) {
+     time = transcriptResults.value[idx][1] || transcriptResults.value[idx][0] || 0;
+  }
+  transcriptResults.value.splice(idx + 1, 0, [time, time, "Tên người nói", "Nhập nội dung..."]);
+  isTranscriptModified.value = true;
 }
 
 const getProjectsForHR = (displayStr) => {
@@ -1048,8 +1104,12 @@ onMounted(async () => {
   <div v-else class="flex flex-col h-screen w-full bg-background overflow-hidden text-foreground">
   
     <!-- UNIFIED TOPBAR -->
-    <header class="h-[72px] w-full flex items-center border-b border-border bg-background/80 backdrop-blur shrink-0 z-40 px-6">
-      <div class="w-[260px] shrink-0"></div>
+    <header class="h-[72px] w-full flex items-center border-b border-border bg-background/80 backdrop-blur shrink-0 z-40 px-4 relative">
+      <div class="flex items-center gap-2 transition-all duration-300 ease-in-out shrink-0" :style="{ width: isSidebarOpen ? '260px' : '48px' }">
+         <button @click="toggleSidebar" class="hover:bg-muted/50 p-2 rounded-md transition-colors cursor-pointer flex-shrink-0" style="color: hsl(var(--foreground)); z-index: 50;" title="Toggle Sidebar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="9" x2="9" y1="3" y2="21"/></svg>
+         </button>
+      </div>
       <div class="flex-1 flex justify-center items-center">
          <h1 class="font-bold text-lg tracking-tight text-primary m-0">2AS Worksuite</h1>
       </div>
@@ -1079,9 +1139,9 @@ onMounted(async () => {
 
     <div class="flex flex-1 overflow-hidden w-full">
       <!-- SIDEBAR -->
-      <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
+      <aside class="transition-all duration-300 ease-in-out bg-muted/10 flex flex-col h-full shrink-0 overflow-hidden border-border" :style="{ width: isSidebarOpen ? '260px' : '0px', minWidth: isSidebarOpen ? '260px' : '0px', maxWidth: isSidebarOpen ? '260px' : '0px', opacity: isSidebarOpen ? 1 : 0, borderRightWidth: isSidebarOpen ? '1px' : '0px' }">
       <!-- Navigation Menu -->
-      <div class="p-4 flex-1 overflow-y-auto space-y-8">
+      <div class="w-[260px] h-full flex flex-col p-4 overflow-y-auto space-y-8">
         
         <!-- Module Group 1 -->
         <div>
@@ -1269,6 +1329,16 @@ onMounted(async () => {
           <!-- AI FILTER + EXTRACT BUTTON ROW -->
           <div v-if="transcriptResults.length > 0" class="flex flex-wrap gap-3 items-center mt-2">
             <el-button
+              v-if="isTranscriptModified"
+              type="success"
+              @click="saveTranscriptChanges"
+              :loading="isSavingTranscript"
+              class="flex-1"
+            >
+              <template #icon><Check /></template>
+              Lưu Transcript
+            </el-button>
+            <el-button
               v-if="sttMode !== 'google'"
               @click="startCleanTranscript"
               :loading="isCleaning"
@@ -1311,12 +1381,18 @@ onMounted(async () => {
             </template>
             <div class="log-view p-6 space-y-6 max-h-[500px] overflow-auto">
                <template v-for="(seg, idx) in transcriptResults" :key="idx">
-                 <div v-if="seg[3] && seg[3].trim()" class="log-entry">
-                   <div class="log-meta">
-                     <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
-                     <span class="log-time">[{{ seg[0].toFixed(2) }}s]</span>
+                 <div class="log-entry relative group pb-4">
+                   <div class="log-meta flex justify-between items-center bg-muted/20 px-2 py-1 rounded-t-md">
+                     <div class="flex items-center gap-2">
+                       <el-input v-model="seg[2]" size="small" class="w-[150px] !bg-transparent border-none font-bold" :style="{ color: stringToColor(seg[2]) }" @input="isTranscriptModified = true" />
+                       <span class="log-time text-xs text-muted-foreground">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                     </div>
+                     <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <el-button size="small" type="primary" circle plain @click="insertSegmentAfter(idx)" title="Thêm hội thoại bên dưới"><el-icon><Plus /></el-icon></el-button>
+                       <el-button size="small" type="danger" circle plain @click="removeSegment(idx)" title="Xóa hội thoại này"><el-icon><Delete /></el-icon></el-button>
+                     </div>
                    </div>
-                   <p class="log-text">{{ seg[3] }}</p>
+                   <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text mt-1" @input="isTranscriptModified = true" />
                  </div>
                </template>
             </div>
@@ -1442,9 +1518,17 @@ onMounted(async () => {
             </template>
             <el-table :data="tasks" style="width: 100%" border size="small" class="task-table" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
               <el-table-column header-align="center" type="index" label="#" width="50" align="center" />
-              <el-table-column header-align="center" :label="t('col_name')" min-width="200">
+              <el-table-column header-align="center" :label="t('col_name')" min-width="250">
                 <template #default="{ row }">
-                  <el-input v-model="row.title" />
+                  <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" />
+                </template>
+              </el-table-column>
+              <el-table-column header-align="center" label="Phân loại" min-width="130">
+                <template #default="{ row }">
+                  <el-select v-model="row.task_type" placeholder="Phân loại">
+                    <el-option label="Task" value="task" />
+                    <el-option label="Thông báo" value="noti" />
+                  </el-select>
                 </template>
               </el-table-column>
               <el-table-column header-align="center" :label="t('col_assignee')" min-width="180">
@@ -1472,11 +1556,7 @@ onMounted(async () => {
                   <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                 </template>
               </el-table-column>
-              <el-table-column header-align="center" :label="t('col_weight')" width="90">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
-                </template>
-              </el-table-column>
+
               <el-table-column header-align="center" :label="t('col_desc')" min-width="200">
                 <template #default="{ row }">
                   <el-input v-model="row.description" type="textarea" :rows="2" resize="none" />
@@ -1721,11 +1801,19 @@ onMounted(async () => {
 
                    <!-- Form Fields Table -->
                    <el-table :data="[parsedVoiceTask]" style="width: 100%" border size="small" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
-                      <el-table-column :label="t('col_name')" min-width="200" header-align="center">
+                      <el-table-column :label="t('col_name')" min-width="250" header-align="center">
                         <template #default="{ row }">
                           <div :class="{ 'missing-field': !row.title }">
-                            <el-input v-model="row.title" placeholder="⚠️ Chưa có tên task" />
+                            <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" placeholder="⚠️ Chưa có tên task" />
                           </div>
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" label="Phân loại" min-width="130">
+                        <template #default="{ row }">
+                          <el-select v-model="row.task_type" placeholder="Phân loại">
+                            <el-option label="Task" value="task" />
+                            <el-option label="Thông báo" value="noti" />
+                          </el-select>
                         </template>
                       </el-table-column>
                       <el-table-column :label="t('col_assignee')" min-width="180" header-align="center">
@@ -1790,6 +1878,17 @@ onMounted(async () => {
                 <div class="flex flex-col gap-6">
                   <!-- Actions -->
                   <div class="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-lg border border-border">
+                     <!-- Lưu Thay Đổi -->
+                     <el-button
+                       v-if="isTranscriptModified"
+                       type="success"
+                       @click="saveTranscriptChanges"
+                       :loading="isSavingTranscript"
+                     >
+                       <template #icon><Check /></template>
+                       Lưu Transcript
+                     </el-button>
+
                      <!-- Lọc hội thoại -->
                      <el-button
                        v-if="sttMode !== 'google'"
@@ -1875,9 +1974,17 @@ onMounted(async () => {
                     </div>
                     <el-table :data="tasks" style="width: 100%" border size="small" class="task-table" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
                       <el-table-column header-align="center" type="index" label="#" width="50" align="center" />
-                      <el-table-column header-align="center" :label="t('col_name')" min-width="200">
+                      <el-table-column header-align="center" :label="t('col_name')" min-width="250">
                         <template #default="{ row }">
-                          <el-input v-model="row.title" />
+                          <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" label="Phân loại" min-width="130">
+                        <template #default="{ row }">
+                          <el-select v-model="row.task_type" placeholder="Phân loại">
+                            <el-option label="Task" value="task" />
+                            <el-option label="Thông báo" value="noti" />
+                          </el-select>
                         </template>
                       </el-table-column>
                       <el-table-column header-align="center" :label="t('col_assignee')" min-width="180">
@@ -1905,11 +2012,7 @@ onMounted(async () => {
                           <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                         </template>
                       </el-table-column>
-                      <el-table-column header-align="center" :label="t('col_weight')" width="90">
-                        <template #default="{ row }">
-                          <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
-                        </template>
-                      </el-table-column>
+
                       <el-table-column header-align="center" :label="t('col_desc')" min-width="200">
                         <template #default="{ row }">
                           <el-input v-model="row.description" type="textarea" :rows="2" resize="none" />
@@ -1942,12 +2045,18 @@ onMounted(async () => {
                     <div class="bg-muted/10 border border-border rounded-lg max-h-[550px] overflow-y-auto">
                       <div class="p-6 space-y-4">
                         <template v-for="(seg, idx) in transcriptResults" :key="idx">
-                          <div v-if="seg[3] && seg[3].trim()" class="log-entry">
-                            <div class="log-meta">
-                              <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
-                              <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                          <div class="log-entry relative group pb-4">
+                            <div class="log-meta flex justify-between items-center bg-muted/20 px-2 py-1 rounded-t-md">
+                              <div class="flex items-center gap-2">
+                                <el-input v-model="seg[2]" size="small" class="w-[150px] !bg-transparent border-none font-bold" :style="{ color: stringToColor(seg[2]) }" @input="isTranscriptModified = true" />
+                                <span class="log-time text-xs text-muted-foreground">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                              </div>
+                              <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <el-button size="small" type="primary" circle plain @click="insertSegmentAfter(idx)" title="Thêm hội thoại bên dưới"><el-icon><Plus /></el-icon></el-button>
+                       <el-button size="small" type="danger" circle plain @click="removeSegment(idx)" title="Xóa hội thoại này"><el-icon><Delete /></el-icon></el-button>
+                     </div>
                             </div>
-                            <p class="log-text">{{ seg[3] }}</p>
+                            <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text mt-1" @input="isTranscriptModified = true" />
                           </div>
                         </template>
                       </div>
@@ -2293,6 +2402,25 @@ body {
 .log-speaker { font-size: 0.75rem; font-weight: 600; color: hsl(var(--primary)); letter-spacing: 0.05em; }
 .log-time { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
 .log-text { font-size: 0.875rem; line-height: 1.5; margin: 0; color: hsl(var(--foreground)); word-break: break-word; white-space: pre-wrap; }
+
+/* Transparent Textarea */
+.transparent-input .el-textarea__inner {
+  border: 1px solid transparent;
+  background-color: transparent;
+  padding: 0;
+  box-shadow: none !important;
+  color: inherit;
+  font-family: inherit;
+  resize: none;
+}
+.transparent-input .el-textarea__inner:hover {
+  border-color: hsl(var(--border));
+  background-color: hsl(var(--muted)/0.3);
+}
+.transparent-input .el-textarea__inner:focus {
+  border-color: hsl(var(--primary)/0.5);
+  background-color: hsl(var(--background));
+}
 
 /* Attendee Chips */
 .attendee-chip {

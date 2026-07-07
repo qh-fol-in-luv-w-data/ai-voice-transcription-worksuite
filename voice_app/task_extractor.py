@@ -10,7 +10,7 @@ import requests
 from docx import Document
 from openai import OpenAI
 from langgraph.graph import StateGraph, END
-from .constants import get_openai_api_key, get_worksuite_url, get_worksuite_email, get_worksuite_password
+from .constants import get_openai_api_key, get_worksuite_url, get_worksuite_token
 
 
 # ─────────────────────────────────────────────
@@ -151,12 +151,12 @@ def node_extract_tasks(state: AgentState) -> dict:
 
     client = OpenAI(api_key=api_key)
 
-    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất tất cả công việc cần xử lý.
+    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất tất cả các thông báo và công việc cần xử lý.
 
 Nhiệm vụ của bạn:
-- Chỉ trả về các mục công việc.
-- Không phân biệt Task vs Noti.
-- Mỗi mục là một đầu việc riêng, có người thực hiện rõ ràng hoặc có thể là đầu việc chung.
+- Chỉ trả về các mục công việc và thông báo.
+- Bắt buộc phải trích xuất ĐẦY ĐỦ tất cả các Task (nhiệm vụ/công việc) và Noti (thông báo) được nhắc đến trong biên bản, tuyệt đối không được bỏ sót bất kỳ mục nào.
+- Mỗi mục là một đầu việc hoặc thông báo riêng, có người thực hiện hoặc người tiếp nhận rõ ràng hoặc là thông báo chung.
 
 Điền thông tin:
 - "nguoi_thuc_hien": họ tên ĐẦY ĐỦ chính xác NHƯ TRONG BIÊN BẢN (không rút gọn, không suy diễn, không đảo thứ tự)
@@ -182,6 +182,7 @@ Trả về JSON hợp lệ, KHÔNG có markdown, KHÔNG có giải thích:
       "phong_ban": "phòng ban hoặc null",
       "ngay_bat_dau": "dd/mm/yyyy",
       "ngay_ket_thuc": "dd/mm/yyyy hoặc null",
+      "loai": "task hoặc noti",
       "note": "ghi chú ngắn hoặc null"
     }
   ]
@@ -229,47 +230,15 @@ Nội dung biên bản họp:
 def node_login_frappe(state: AgentState) -> dict:
     print("\n🔐 [Node 3] Đăng nhập ERPNext/Frappe...")
 
-    base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+    base_url = get_worksuite_url()
+    token = get_worksuite_token()
 
     session = requests.Session()
-    resp = session.post(
-        f"{base_url}/api/method/login",
-        json={"usr": ws_email, "pwd": ws_pwd},
-        timeout=15,
-    )
-
-    if resp.status_code != 200 or "Logged In" not in resp.text:
-        return {
-            "errors": [f"Login thất bại: {resp.status_code} - {resp.text[:200]}"],
-            "session": None,
-        }
-
-    print(f"   ✅ Login thành công: {resp.json().get('full_name', '')}")
-
-    # Frappe v14+ trả CSRF qua endpoint riêng, không phải cookie sau login
-    csrf_token = None
-    try:
-        r = session.get(
-            f"{base_url}/api/method/frappe.utils.get_csrf_token",
-            timeout=10,
-        )
-        if r.status_code == 200:
-            csrf_token = r.json().get("message") or session.cookies.get("csrf_token")
-    except Exception:
-        pass
-
-    # Fallback: lấy từ cookie nếu endpoint trên không có
-    if not csrf_token:
-        csrf_token = session.cookies.get("csrf_token")
-
-    if csrf_token:
-        session.headers.update({
-            "X-Frappe-CSRF-Token": csrf_token,
-            "X-Frappe-Site-Name":  base_url.replace("https://", "").replace("http://", ""),
-        })
-        print(f"   🔑 CSRF token: {csrf_token[:20]}...")
-    else:
-        print("   ⚠️  Không lấy được CSRF token — tiếp tục bằng session cookie.")
+    session.headers.update({
+        "Authorization": f"token {token}",
+        "Accept": "application/json"
+    })
+    print("   ✅ Auth thành công bằng token.")
 
     return {"session": session}
 
@@ -287,10 +256,10 @@ def node_fetch_users(state: AgentState) -> dict:
 
     base_url = get_worksuite_url()
     resp = session.get(
-        f"{base_url}/api/resource/Employee",
+        f"{base_url}/api/resource/User",
         params={
-            "fields":  '["name","employee_name","user_id","department","designation","company","status"]',
-            "filters": '[["status","=","Active"]]',
+            "fields":  '["name","full_name","email","enabled"]',
+            "filters": '[["enabled","=",1]]',
             "limit":   500,
         },
         timeout=15,
@@ -300,10 +269,15 @@ def node_fetch_users(state: AgentState) -> dict:
         print(f"   ⚠️  Không lấy được employees: {resp.status_code}")
         return {"frappe_users": []}
 
-    employees = [
-        e for e in resp.json().get("data", [])
-        if e.get("user_id") and "@" in e.get("user_id", "")
-    ]
+    raw_users = resp.json().get("data", [])
+    employees = []
+    for u in raw_users:
+        employees.append({
+            "name": u.get("name"),
+            "employee_name": u.get("full_name"),
+            "user_id": u.get("email") or u.get("name")
+        })
+    employees = [e for e in employees if e.get("user_id") and "@" in e.get("user_id", "")]
 
     # Log tên trùng
     name_counter   = Counter(_norm(e.get("employee_name", "")) for e in employees)
@@ -629,13 +603,14 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
         assignee_hr_code = emp.get("name") if emp else None
         assignee_name    = emp.get("employee_name") if emp else item.get("nguoi_thuc_hien", "")
         
-        display_assignee = f"{assignee_name} ({assignee_hr_code})" if assignee_hr_code else assignee_name
+        display_assignee = f"{assignee_name} - {assignee_email}" if assignee_email else assignee_name
 
         item_enriched = {
             "title": item["noi_dung"],
             "assignee_display": display_assignee,
             "start_date": item.get("ngay_bat_dau") or data.get("ngay_hop") or "",
             "end_date": item.get("ngay_ket_thuc") or "",
+            "task_type": "noti" if any(k in str(item.get("loai", "")).lower() for k in ["noti", "thông báo"]) else "task",
             "weight": 0,
             "description": item.get('note', '') or ""
         }
@@ -658,30 +633,14 @@ def create_tasks_to_erp(tasks_list):
     """
     print("\n📝 Bắt đầu tạo Tasks lên ERPNext...")
     
-    # Login lại
-    base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+    # Auth bằng token
+    base_url = get_worksuite_url()
+    token = get_worksuite_token()
     session = requests.Session()
-    resp = session.post(
-        f"{base_url}/api/method/login",
-        json={"usr": ws_email, "pwd": ws_pwd},
-        timeout=15,
-    )
-    if resp.status_code != 200:
-        return {"errors": [f"Login thất bại: {resp.status_code}"], "created_tasks": []}
-        
-    # Get CSRF
-    csrf_token = None
-    try:
-        r = session.get(f"{base_url}/api/method/frappe.utils.get_csrf_token", timeout=10)
-        if r.status_code == 200:
-            csrf_token = r.json().get("message") or session.cookies.get("csrf_token")
-    except: pass
-    if not csrf_token: csrf_token = session.cookies.get("csrf_token")
-    if csrf_token:
-        session.headers.update({
-            "X-Frappe-CSRF-Token": csrf_token,
-            "X-Frappe-Site-Name":  base_url.replace("https://", "").replace("http://", ""),
-        })
+    session.headers.update({
+        "Authorization": f"token {token}",
+        "Accept": "application/json"
+    })
 
     # Fetch existing tasks to check duplicates
     existing_tasks = []
@@ -737,10 +696,10 @@ def create_tasks_to_erp(tasks_list):
             break
             
         payload = {
-            "subject":        subject,
+            "subject":        f"[{str(item.get('task_type', 'task')).upper()}] {subject}",
             "status":         "Open",
             "description":    item.get("description", ""),
-            "task_weight":    float(item.get("weight", 0) or 0),
+            "custom_loai_nhiem_vu": item.get("task_type", "task"),
             "exp_start_date": _parse_date(item.get("start_date")),
             "exp_end_date":   _parse_date(item.get("due_date") or item.get("end_date")),
             "custom_assignee":  hr_code,
@@ -859,14 +818,13 @@ def extract_tasks_stateless(docx_path, model_type="gpt-4o-mini"):
     items = []
     data = result.get("json_data", {})
     for item in data.get("items", []):
-        if item.get("loai") != "Task":
-            continue
-            
+
         items.append({
             "title": item.get("noi_dung", ""),
             "assignee_display": item.get("nguoi_thuc_hien", ""),
             "start_date": item.get("ngay_bat_dau") or data.get("ngay_hop") or "",
             "end_date": item.get("ngay_ket_thuc") or "",
+            "task_type": "noti" if any(k in str(item.get("loai", "")).lower() for k in ["noti", "thông báo"]) else "task",
             "weight": 0,
             "description": item.get('note', '') or ""
         })

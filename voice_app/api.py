@@ -68,18 +68,15 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
 def check_meeting_status(meeting_name):
     meeting = frappe.get_doc("Voice Meeting", meeting_name)
     if meeting.status == "Completed":
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         import requests
         employees = []
         try:
+            token = get_worksuite_token()
             session = requests.Session()
             base_url = get_worksuite_url()
-            login_resp = session.post(
-                f"{base_url}/api/method/login",
-                json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()},
-                timeout=10,
-            )
-            if login_resp.status_code == 200:
+            session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+            if True:
                 emp_resp = session.get(
                     f"{base_url}/api/resource/Employee",
                     params={
@@ -374,19 +371,16 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             # Cleanup temp wav
             if os.path.exists(wav): os.remove(wav)
     
-            from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+            from voice_app.constants import get_worksuite_url, get_worksuite_token
             import requests
             
             employees = []
             try:
+                token = get_worksuite_token()
                 session = requests.Session()
                 base_url = get_worksuite_url()
-                login_resp = session.post(
-                    f"{base_url}/api/method/login",
-                    json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()},
-                    timeout=10,
-                )
-                if login_resp.status_code == 200:
+                session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+                if True:
                     emp_resp = session.get(
                         f"{base_url}/api/resource/Employee",
                         params={
@@ -472,7 +466,7 @@ def extract_tasks():
 
     try:
         # Fetch speaker roles: Voice Speaker DB (speaker_name→email) → CTERP (email→designation)
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         speaker_roles = {}
         try:
             # Step 1: Lấy Voice Speaker DB để map speaker_name → email
@@ -485,8 +479,9 @@ def extract_tasks():
             # Step 2: Lấy CTERP Employee để map email (user_id) → designation
             sess = requests.Session()
             base_url = get_worksuite_url()
-            lr = sess.post(f"{base_url}/api/method/login", json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()}, timeout=8)
-            if lr.status_code == 200:
+            token = get_worksuite_token()
+            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+            if True:
                 er = sess.get(f"{base_url}/api/resource/Employee",
                     params={"fields": '["user_id","designation","employee_name"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
                     timeout=8)
@@ -688,34 +683,66 @@ def clean_transcript():
 @frappe.whitelist(allow_guest=False)
 def get_employees():
     import requests
-    from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+    from voice_app.constants import get_worksuite_url, get_worksuite_token
 
     if frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập"}
 
-
-    
     employees = []
     try:
-        base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
-        with requests.Session() as sess:
-            lr = sess.post(f"{base_url}/api/method/login", json={"usr": ws_email, "pwd": ws_pwd}, timeout=8)
-            if lr.status_code != 200:
-                frappe.log_error(f"Worksuite Login Error: {lr.text}", "Fetch Employees Login Error")
-            else:
-                emp_resp = sess.get(
-                    f"{base_url}/api/resource/Employee",
-                    params={
-                        "fields": '["name","employee_name","user_id","designation"]',
-                        "filters": '[["status","=","Active"]]',
-                        "limit_page_length": 5000
-                    },
-                    timeout=10
-                )
-                if emp_resp.status_code == 200:
-                    employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
+        base_url, token = get_worksuite_url(), get_worksuite_token()
+        
+        if not base_url or not token:
+            return {"status": "error", "message": "Vui lòng cấu hình Sync API URL và Sync API Token trong Voice App Settings."}
+            
+        if not base_url.startswith("http"):
+            base_url = "https://" + base_url
+            
+        url = f"{base_url.rstrip('/')}/api/method/ct_agent_hub.api.admin.get_admin_users"
+        
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/json"
+        }
+        data = {
+            "page": "1",
+            "limit": "9999999999"
+        }
+        
+        response = requests.post(url, headers=headers, data=data, timeout=30)
+        
+        if response.status_code == 401:
+            return {"status": "error", "message": "Xác thực thất bại (401). Token có thể đã hết hạn hoặc không hợp lệ."}
+            
+        response.raise_for_status()
+        resp_json = response.json()
+        
+        resp_data = resp_json.get("message", {}) if "message" in resp_json else resp_json
+        users = resp_data.get("users", [])
+        
+        for u in users:
+            email = (u.get("email") or "").strip()
+            if not email:
+                continue
+                
+            full_name = (u.get("full_name") or "").strip()
+            
+            departments = u.get("departments") or []
+            dept = str(departments[0]).strip() if departments else ""
+            
+            employees.append({
+                "name": email,
+                "employee_name": full_name,
+                "user_id": email,
+                "designation": dept
+            })
+
+    except requests.RequestException as e:
+        frappe.log_error(message=str(e), title="Fetch Employees Error in get_employees")
+        return {"status": "error", "message": f"Lỗi khi gọi API hệ thống ngoài: {str(e)}"}
     except Exception as e:
         frappe.log_error(message=str(e), title="Fetch Employees Error in get_employees")
+        return {"status": "error", "message": f"Lỗi xử lý dữ liệu đồng bộ: {str(e)}"}
         
     return {"status": "success", "employees": employees}
 
@@ -746,6 +773,40 @@ def update_meeting_results():
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Update Meeting Results Error")
         return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+def update_transcript_text():
+    """Cập nhật nội dung transcript khi user chỉnh sửa thủ công"""
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+    results = payload.get("results", [])
+
+    if not meeting_name or not results:
+        return {"status": "error", "message": "Thiếu meeting_name hoặc results"}
+
+    try:
+        if frappe.db.exists("Voice Meeting", meeting_name):
+            meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
+            if meeting_owner != frappe.session.user:
+                return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+            
+            # Gộp lại nội dung text
+            final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
+            
+            frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
+                                json.dumps(results, ensure_ascii=False))
+            frappe.db.set_value("Voice Meeting", meeting_name, "transcript", final_text)
+            frappe.db.commit()
+        return {"status": "success", "final_text": final_text}
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Update Transcript Error")
+        return {"status": "error", "message": str(e)}
+
 
 
 @frappe.whitelist(allow_guest=False)
@@ -883,7 +944,7 @@ def map_and_enroll_speakers():
     import os
     from voice_app.api import convert_to_wav
     from voice_app.speaker_manager import _extract_embedding_subprocess, SpeakerDB
-    from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+    from voice_app.constants import get_worksuite_url, get_worksuite_token
     import requests
 
     data = frappe.request.get_data()
@@ -906,8 +967,9 @@ def map_and_enroll_speakers():
     try:
         session = requests.Session()
         base_url = get_worksuite_url()
-        login_resp = session.post(f"{base_url}/api/method/login", json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()}, timeout=10)
-        if login_resp.status_code == 200:
+        token = get_worksuite_token()
+        session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+        if True:
             emp_resp = session.get(f"{base_url}/api/resource/Employee", params={"fields": '["name","employee_name","user_id"]', "limit_page_length": 5000}, timeout=10)
             if emp_resp.status_code == 200:
                 for emp in emp_resp.json().get("data", []):
@@ -994,12 +1056,12 @@ def get_enrolled_speakers():
             order_by="speaker_name asc"
         )
         # Enrich với designation từ CTERP nếu có email khớp
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         try:
-            base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+            base_url, token = get_worksuite_url(), get_worksuite_token()
             sess = requests.Session()
-            lr = sess.post(f"{base_url}/api/method/login", json={"usr": ws_email, "pwd": ws_pwd}, timeout=8)
-            if lr.status_code == 200:
+            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+            if True:
                 emp_resp = sess.get(f"{base_url}/api/resource/Employee",
                     params={"fields": '["employee_name","designation","user_id"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
                     timeout=8)
@@ -1031,7 +1093,7 @@ def get_meeting_history():
         meetings = frappe.get_all(
             "Voice Meeting",
             filters={"owner": frappe.session.user},
-            fields=["name", "title", "date", "status", "audio_file", "minute_docx", "task_xlsx", "transcript", "raw_results"],
+            fields=["name", "title", "date", "status", "audio_file", "minute_docx", "task_xlsx", "transcript", "raw_results", "tasks_json"],
             order_by="creation desc"
         )
         return {"status": "success", "meetings": meetings}
@@ -1137,10 +1199,10 @@ def voice_to_task(existing_task=None):
             return {"status": "error", "message": "Không thể trích xuất văn bản từ âm thanh."}
 
         # Lấy danh sách dự án và nhân viên từ ERPNext
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         BASE_URL = get_worksuite_url()
-        WS_EMAIL = get_worksuite_email()
-        WS_PASSWORD = get_worksuite_password()
+        
+        
         from voice_app.constants import get_openai_api_key
         OPENAI_API_KEY = get_openai_api_key()
         from openai import OpenAI
@@ -1148,6 +1210,7 @@ def voice_to_task(existing_task=None):
         from voice_app.utils.activity_logger import Timer
         
         projects = []
+        employees = []
         employees = []
         try:
             session = requests.Session()
@@ -1184,16 +1247,23 @@ def voice_to_task(existing_task=None):
 
                 # Lấy danh sách Employees active
                 emp_resp = session.get(
-                    f"{BASE_URL}/api/resource/Employee",
+                    f"{BASE_URL}/api/resource/User",
                     params={
-                        "fields": '["name","employee_name","user_id","designation"]',
-                        "filters": '[["status","=","Active"]]',
+                        "fields": '["name","full_name","email","enabled"]',
+                        "filters": '[["enabled","=",1]]',
                         "limit_page_length": 5000,
                     },
                     timeout=10,
                 )
                 if emp_resp.status_code == 200:
-                    employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
+                    employees = []
+                    for u in emp_resp.json().get("data", []):
+                        if u.get("email") or u.get("name"):
+                            employees.append({
+                                "name": u.get("name"),
+                                "employee_name": u.get("full_name"),
+                                "user_id": u.get("email") or u.get("name")
+                            })
         except Exception as ex:
             frappe.log_error(str(ex), "Fetch Projects/Employees Error in Voice to Task")
 
@@ -1271,6 +1341,7 @@ Yêu cầu nhiệm vụ:
    - "assignee_display": So sánh tên người thực hiện được nhắc tới với danh sách nhân viên khả dụng. Nếu khớp, điền 'employee_name (name)'. LƯU Ý QUAN TRỌNG: Nếu người dùng xưng "tôi", "mình", hoặc KHÔNG nhắc tới ai thực hiện, hãy tự động lấy "Người đang tạo Task" ở trên làm người thực hiện (điền '{assignee_default if assignee_default else "null"}' nếu có thông tin, ngược lại để null). Nếu nhắc tới tên không có trong danh sách, điền tên đó. Nếu không nhắc tới và không có Người đang tạo Task, trả về null (hoặc giữ nguyên người cũ từ thông tin Task hiện tại).
    - "start_date": Ngày bắt đầu (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Ví dụ: "ngày mai" là ngày {(now + timedelta(days=1)).strftime("%Y-%m-%d")}. Nếu không nhắc tới, mặc định lấy ngày hôm nay ({current_date_str}).
    - "end_date": Ngày kết thúc / Hạn chót (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Nếu không nhắc tới, trả về null (hoặc giữ nguyên hạn chót cũ từ thông tin Task hiện tại).
+   - "task_type": Phân loại mục này là "task" (Nhiệm vụ cần làm) hay "noti" (Thông báo thông tin chung). Hãy xác định rõ dựa vào ngữ nghĩa (VD: giao việc là task, báo cáo trạng thái / thông tin là noti).
    - "description": Mô tả chi tiết nhiệm vụ (nếu có chi tiết hơn). Lọc bỏ các từ thừa, ậm ừ.
 3. Kiểm tra tính đầy đủ của thông tin cốt lõi:
    - Một nhiệm vụ được coi là thiếu thông tin cốt lõi nếu:
@@ -1283,6 +1354,7 @@ Yêu cầu nhiệm vụ:
 Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdown (```json), KHÔNG giải thích thêm:
 {{
   "task_name": "...",
+  "task_type": "...",
   "project_id": "...",
   "project_name": "...",
   "assignee_display": "...",
@@ -1302,6 +1374,9 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
             )
         
         parsed_data = json.loads(response.choices[0].message.content.strip())
+        if "task_type" in parsed_data and parsed_data["task_type"]:
+            loai_raw = str(parsed_data["task_type"]).lower()
+            parsed_data["task_type"] = "noti" if "noti" in loai_raw or "thông báo" in loai_raw else "task"
         usage = response.usage
         p_tok = usage.prompt_tokens if usage else 0
         c_tok = usage.completion_tokens if usage else 0
