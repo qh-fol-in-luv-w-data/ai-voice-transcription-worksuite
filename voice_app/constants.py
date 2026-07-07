@@ -92,7 +92,7 @@ def get_worksuite_url():
         if frappe.db:
             frappe.flags.ignore_permissions = True
             doc = frappe.get_doc("Voice App Settings")
-            val = doc.worksuite_url
+            val = doc.sync_api_url or doc.worksuite_url
             frappe.flags.ignore_permissions = False
             if val: return val
     except Exception: pass
@@ -103,7 +103,7 @@ def get_worksuite_token():
         if frappe.db:
             frappe.flags.ignore_permissions = True
             doc = frappe.get_doc("Voice App Settings")
-            val = doc.get_password("worksuite_token")
+            val = doc.get_password("sync_api_token") or doc.get_password("worksuite_token")
             frappe.flags.ignore_permissions = False
             if val: return val
     except Exception: pass
