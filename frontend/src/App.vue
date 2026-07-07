@@ -154,7 +154,17 @@ const loadPastMeeting = (meeting) => {
   // Reset trạng thái derived
   isCleaned.value = false
   originalTranscriptResults.value = []
-  tasks.value = []
+  if (meeting.tasks_json) {
+    try {
+      tasks.value = typeof meeting.tasks_json === 'string'
+        ? JSON.parse(meeting.tasks_json)
+        : meeting.tasks_json
+    } catch (e) {
+      tasks.value = []
+    }
+  } else {
+    tasks.value = []
+  }
   extractStatus.value = ''
   docxUrl.value = meeting.minute_docx || ''
   excelUrl.value = meeting.task_xlsx || ''
