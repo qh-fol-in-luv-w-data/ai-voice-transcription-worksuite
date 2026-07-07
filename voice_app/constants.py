@@ -98,27 +98,16 @@ def get_worksuite_url():
     except Exception: pass
     return os.getenv("WORKSUITE_URL", "https://deverp.ctgroupvietnam.com")
 
-def get_worksuite_email():
+def get_worksuite_token():
     try:
         if frappe.db:
             frappe.flags.ignore_permissions = True
             doc = frappe.get_doc("Voice App Settings")
-            val = doc.worksuite_email
+            val = doc.get_password("worksuite_token")
             frappe.flags.ignore_permissions = False
             if val: return val
     except Exception: pass
-    return os.getenv("WORKSUITE_EMAIL", "ai.worksuit.dev@ctmcorp.com.vn")
-
-def get_worksuite_password():
-    try:
-        if frappe.db:
-            frappe.flags.ignore_permissions = True
-            doc = frappe.get_doc("Voice App Settings")
-            val = doc.get_password("worksuite_password")
-            frappe.flags.ignore_permissions = False
-            if val: return val
-    except Exception: pass
-    return os.getenv("WORKSUITE_PASSWORD", "")
+    return os.getenv("WORKSUITE_TOKEN", "b88248d0241d472:94a1889151c0543")
 
 def get_google_service_account_path():
     """Đường dẫn file JSON service account Google."""

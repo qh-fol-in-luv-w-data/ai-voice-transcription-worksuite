@@ -68,18 +68,15 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs",
 def check_meeting_status(meeting_name):
     meeting = frappe.get_doc("Voice Meeting", meeting_name)
     if meeting.status == "Completed":
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         import requests
         employees = []
         try:
+            token = get_worksuite_token()
             session = requests.Session()
             base_url = get_worksuite_url()
-            login_resp = session.post(
-                f"{base_url}/api/method/login",
-                json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()},
-                timeout=10,
-            )
-            if login_resp.status_code == 200:
+            session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+            if True:
                 emp_resp = session.get(
                     f"{base_url}/api/resource/Employee",
                     params={
@@ -374,19 +371,16 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             # Cleanup temp wav
             if os.path.exists(wav): os.remove(wav)
     
-            from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+            from voice_app.constants import get_worksuite_url, get_worksuite_token
             import requests
             
             employees = []
             try:
+                token = get_worksuite_token()
                 session = requests.Session()
                 base_url = get_worksuite_url()
-                login_resp = session.post(
-                    f"{base_url}/api/method/login",
-                    json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()},
-                    timeout=10,
-                )
-                if login_resp.status_code == 200:
+                session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+                if True:
                     emp_resp = session.get(
                         f"{base_url}/api/resource/Employee",
                         params={
@@ -472,7 +466,7 @@ def extract_tasks():
 
     try:
         # Fetch speaker roles: Voice Speaker DB (speaker_name→email) → CTERP (email→designation)
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         speaker_roles = {}
         try:
             # Step 1: Lấy Voice Speaker DB để map speaker_name → email
@@ -485,8 +479,9 @@ def extract_tasks():
             # Step 2: Lấy CTERP Employee để map email (user_id) → designation
             sess = requests.Session()
             base_url = get_worksuite_url()
-            lr = sess.post(f"{base_url}/api/method/login", json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()}, timeout=8)
-            if lr.status_code == 200:
+            token = get_worksuite_token()
+            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+            if True:
                 er = sess.get(f"{base_url}/api/resource/Employee",
                     params={"fields": '["user_id","designation","employee_name"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
                     timeout=8)
@@ -688,7 +683,7 @@ def clean_transcript():
 @frappe.whitelist(allow_guest=False)
 def get_employees():
     import requests
-    from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+    from voice_app.constants import get_worksuite_url, get_worksuite_token
 
     if frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập"}
@@ -697,12 +692,10 @@ def get_employees():
     
     employees = []
     try:
-        base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+        base_url, token = get_worksuite_url(), get_worksuite_token()
         with requests.Session() as sess:
-            lr = sess.post(f"{base_url}/api/method/login", json={"usr": ws_email, "pwd": ws_pwd}, timeout=8)
-            if lr.status_code != 200:
-                frappe.log_error(f"Worksuite Login Error: {lr.text}", "Fetch Employees Login Error")
-            else:
+            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+            if True:
                 emp_resp = sess.get(
                     f"{base_url}/api/resource/Employee",
                     params={
@@ -917,7 +910,7 @@ def map_and_enroll_speakers():
     import os
     from voice_app.api import convert_to_wav
     from voice_app.speaker_manager import _extract_embedding_subprocess, SpeakerDB
-    from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+    from voice_app.constants import get_worksuite_url, get_worksuite_token
     import requests
 
     data = frappe.request.get_data()
@@ -940,8 +933,9 @@ def map_and_enroll_speakers():
     try:
         session = requests.Session()
         base_url = get_worksuite_url()
-        login_resp = session.post(f"{base_url}/api/method/login", json={"usr": get_worksuite_email(), "pwd": get_worksuite_password()}, timeout=10)
-        if login_resp.status_code == 200:
+        token = get_worksuite_token()
+        session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+        if True:
             emp_resp = session.get(f"{base_url}/api/resource/Employee", params={"fields": '["name","employee_name","user_id"]', "limit_page_length": 5000}, timeout=10)
             if emp_resp.status_code == 200:
                 for emp in emp_resp.json().get("data", []):
@@ -1028,12 +1022,12 @@ def get_enrolled_speakers():
             order_by="speaker_name asc"
         )
         # Enrich với designation từ CTERP nếu có email khớp
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         try:
-            base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+            base_url, token = get_worksuite_url(), get_worksuite_token()
             sess = requests.Session()
-            lr = sess.post(f"{base_url}/api/method/login", json={"usr": ws_email, "pwd": ws_pwd}, timeout=8)
-            if lr.status_code == 200:
+            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+            if True:
                 emp_resp = sess.get(f"{base_url}/api/resource/Employee",
                     params={"fields": '["employee_name","designation","user_id"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
                     timeout=8)
@@ -1171,10 +1165,10 @@ def voice_to_task(existing_task=None):
             return {"status": "error", "message": "Không thể trích xuất văn bản từ âm thanh."}
 
         # Lấy danh sách dự án và nhân viên từ ERPNext
-        from voice_app.constants import get_worksuite_url, get_worksuite_email, get_worksuite_password
+        from voice_app.constants import get_worksuite_url, get_worksuite_token
         BASE_URL = get_worksuite_url()
-        WS_EMAIL = get_worksuite_email()
-        WS_PASSWORD = get_worksuite_password()
+        
+        
         from voice_app.constants import get_openai_api_key
         OPENAI_API_KEY = get_openai_api_key()
         from openai import OpenAI

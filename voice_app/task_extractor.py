@@ -10,7 +10,7 @@ import requests
 from docx import Document
 from openai import OpenAI
 from langgraph.graph import StateGraph, END
-from .constants import get_openai_api_key, get_worksuite_url, get_worksuite_email, get_worksuite_password
+from .constants import get_openai_api_key, get_worksuite_url, get_worksuite_token
 
 
 # ─────────────────────────────────────────────
@@ -229,47 +229,15 @@ Nội dung biên bản họp:
 def node_login_frappe(state: AgentState) -> dict:
     print("\n🔐 [Node 3] Đăng nhập ERPNext/Frappe...")
 
-    base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+    base_url = get_worksuite_url()
+    token = get_worksuite_token()
 
     session = requests.Session()
-    resp = session.post(
-        f"{base_url}/api/method/login",
-        json={"usr": ws_email, "pwd": ws_pwd},
-        timeout=15,
-    )
-
-    if resp.status_code != 200 or "Logged In" not in resp.text:
-        return {
-            "errors": [f"Login thất bại: {resp.status_code} - {resp.text[:200]}"],
-            "session": None,
-        }
-
-    print(f"   ✅ Login thành công: {resp.json().get('full_name', '')}")
-
-    # Frappe v14+ trả CSRF qua endpoint riêng, không phải cookie sau login
-    csrf_token = None
-    try:
-        r = session.get(
-            f"{base_url}/api/method/frappe.utils.get_csrf_token",
-            timeout=10,
-        )
-        if r.status_code == 200:
-            csrf_token = r.json().get("message") or session.cookies.get("csrf_token")
-    except Exception:
-        pass
-
-    # Fallback: lấy từ cookie nếu endpoint trên không có
-    if not csrf_token:
-        csrf_token = session.cookies.get("csrf_token")
-
-    if csrf_token:
-        session.headers.update({
-            "X-Frappe-CSRF-Token": csrf_token,
-            "X-Frappe-Site-Name":  base_url.replace("https://", "").replace("http://", ""),
-        })
-        print(f"   🔑 CSRF token: {csrf_token[:20]}...")
-    else:
-        print("   ⚠️  Không lấy được CSRF token — tiếp tục bằng session cookie.")
+    session.headers.update({
+        "Authorization": f"token {token}",
+        "Accept": "application/json"
+    })
+    print("   ✅ Auth thành công bằng token.")
 
     return {"session": session}
 
@@ -658,30 +626,14 @@ def create_tasks_to_erp(tasks_list):
     """
     print("\n📝 Bắt đầu tạo Tasks lên ERPNext...")
     
-    # Login lại
-    base_url, ws_email, ws_pwd = get_worksuite_url(), get_worksuite_email(), get_worksuite_password()
+    # Auth bằng token
+    base_url = get_worksuite_url()
+    token = get_worksuite_token()
     session = requests.Session()
-    resp = session.post(
-        f"{base_url}/api/method/login",
-        json={"usr": ws_email, "pwd": ws_pwd},
-        timeout=15,
-    )
-    if resp.status_code != 200:
-        return {"errors": [f"Login thất bại: {resp.status_code}"], "created_tasks": []}
-        
-    # Get CSRF
-    csrf_token = None
-    try:
-        r = session.get(f"{base_url}/api/method/frappe.utils.get_csrf_token", timeout=10)
-        if r.status_code == 200:
-            csrf_token = r.json().get("message") or session.cookies.get("csrf_token")
-    except: pass
-    if not csrf_token: csrf_token = session.cookies.get("csrf_token")
-    if csrf_token:
-        session.headers.update({
-            "X-Frappe-CSRF-Token": csrf_token,
-            "X-Frappe-Site-Name":  base_url.replace("https://", "").replace("http://", ""),
-        })
+    session.headers.update({
+        "Authorization": f"token {token}",
+        "Accept": "application/json"
+    })
 
     # Fetch existing tasks to check duplicates
     existing_tasks = []
