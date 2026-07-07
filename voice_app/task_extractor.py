@@ -151,12 +151,12 @@ def node_extract_tasks(state: AgentState) -> dict:
 
     client = OpenAI(api_key=api_key)
 
-    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất tất cả công việc cần xử lý.
+    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất tất cả các thông báo và công việc cần xử lý.
 
 Nhiệm vụ của bạn:
-- Chỉ trả về các mục công việc.
-- Không phân biệt Task vs Noti.
-- Mỗi mục là một đầu việc riêng, có người thực hiện rõ ràng hoặc có thể là đầu việc chung.
+- Chỉ trả về các mục công việc và thông báo.
+- Bắt buộc phải trích xuất ĐẦY ĐỦ tất cả các Task (nhiệm vụ/công việc) và Noti (thông báo) được nhắc đến trong biên bản, tuyệt đối không được bỏ sót bất kỳ mục nào.
+- Mỗi mục là một đầu việc hoặc thông báo riêng, có người thực hiện hoặc người tiếp nhận rõ ràng hoặc là thông báo chung.
 
 Điền thông tin:
 - "nguoi_thuc_hien": họ tên ĐẦY ĐỦ chính xác NHƯ TRONG BIÊN BẢN (không rút gọn, không suy diễn, không đảo thứ tự)
@@ -182,6 +182,7 @@ Trả về JSON hợp lệ, KHÔNG có markdown, KHÔNG có giải thích:
       "phong_ban": "phòng ban hoặc null",
       "ngay_bat_dau": "dd/mm/yyyy",
       "ngay_ket_thuc": "dd/mm/yyyy hoặc null",
+      "loai": "task hoặc noti",
       "note": "ghi chú ngắn hoặc null"
     }
   ]
@@ -689,10 +690,10 @@ def create_tasks_to_erp(tasks_list):
             break
             
         payload = {
-            "subject":        subject,
+            "subject":        f"[{str(item.get('task_type', 'task')).upper()}] {subject}",
             "status":         "Open",
             "description":    item.get("description", ""),
-            "task_weight":    float(item.get("weight", 0) or 0),
+            "custom_loai_nhiem_vu": item.get("task_type", "task"),
             "exp_start_date": _parse_date(item.get("start_date")),
             "exp_end_date":   _parse_date(item.get("due_date") or item.get("end_date")),
             "custom_assignee":  hr_code,

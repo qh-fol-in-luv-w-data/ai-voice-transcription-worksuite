@@ -525,7 +525,7 @@ const submitVoiceTask = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
-        weight: 0,
+        task_type: "task",
         description: res.task.description || ''
       }
       
@@ -610,7 +610,7 @@ const submitVoiceTaskRefine = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
-        weight: 0,
+        task_type: "task",
         description: res.task.description || ''
       }
       
@@ -956,7 +956,7 @@ const addTask = () => {
     project: '',
     start_date: '',
     due_date: '',
-    weight: 0,
+    task_type: "task",
     description: ''
   })
 }
@@ -1485,9 +1485,17 @@ onMounted(async () => {
             </template>
             <el-table :data="tasks" style="width: 100%" border size="small" class="task-table" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
               <el-table-column header-align="center" type="index" label="#" width="50" align="center" />
-              <el-table-column header-align="center" :label="t('col_name')" min-width="200">
+              <el-table-column header-align="center" :label="t('col_name')" min-width="250">
                 <template #default="{ row }">
-                  <el-input v-model="row.title" />
+                  <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" />
+                </template>
+              </el-table-column>
+              <el-table-column header-align="center" label="Phân loại" min-width="130">
+                <template #default="{ row }">
+                  <el-select v-model="row.task_type" placeholder="Phân loại">
+                    <el-option label="Task" value="task" />
+                    <el-option label="Thông báo" value="noti" />
+                  </el-select>
                 </template>
               </el-table-column>
               <el-table-column header-align="center" :label="t('col_assignee')" min-width="180">
@@ -1515,11 +1523,7 @@ onMounted(async () => {
                   <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                 </template>
               </el-table-column>
-              <el-table-column header-align="center" :label="t('col_weight')" width="90">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
-                </template>
-              </el-table-column>
+
               <el-table-column header-align="center" :label="t('col_desc')" min-width="200">
                 <template #default="{ row }">
                   <el-input v-model="row.description" type="textarea" :rows="2" resize="none" />
@@ -1764,11 +1768,19 @@ onMounted(async () => {
 
                    <!-- Form Fields Table -->
                    <el-table :data="[parsedVoiceTask]" style="width: 100%" border size="small" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
-                      <el-table-column :label="t('col_name')" min-width="200" header-align="center">
+                      <el-table-column :label="t('col_name')" min-width="250" header-align="center">
                         <template #default="{ row }">
                           <div :class="{ 'missing-field': !row.title }">
-                            <el-input v-model="row.title" placeholder="⚠️ Chưa có tên task" />
+                            <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" placeholder="⚠️ Chưa có tên task" />
                           </div>
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" label="Phân loại" min-width="130">
+                        <template #default="{ row }">
+                          <el-select v-model="row.task_type" placeholder="Phân loại">
+                            <el-option label="Task" value="task" />
+                            <el-option label="Thông báo" value="noti" />
+                          </el-select>
                         </template>
                       </el-table-column>
                       <el-table-column :label="t('col_assignee')" min-width="180" header-align="center">
@@ -1929,9 +1941,17 @@ onMounted(async () => {
                     </div>
                     <el-table :data="tasks" style="width: 100%" border size="small" class="task-table" :cell-style="{ verticalAlign: 'top', padding: '6px' }">
                       <el-table-column header-align="center" type="index" label="#" width="50" align="center" />
-                      <el-table-column header-align="center" :label="t('col_name')" min-width="200">
+                      <el-table-column header-align="center" :label="t('col_name')" min-width="250">
                         <template #default="{ row }">
-                          <el-input v-model="row.title" />
+                          <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" />
+                        </template>
+                      </el-table-column>
+                      <el-table-column header-align="center" label="Phân loại" min-width="130">
+                        <template #default="{ row }">
+                          <el-select v-model="row.task_type" placeholder="Phân loại">
+                            <el-option label="Task" value="task" />
+                            <el-option label="Thông báo" value="noti" />
+                          </el-select>
                         </template>
                       </el-table-column>
                       <el-table-column header-align="center" :label="t('col_assignee')" min-width="180">
@@ -1959,11 +1979,7 @@ onMounted(async () => {
                           <el-date-picker v-model="row.due_date" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
                         </template>
                       </el-table-column>
-                      <el-table-column header-align="center" :label="t('col_weight')" width="90">
-                        <template #default="{ row }">
-                          <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
-                        </template>
-                      </el-table-column>
+
                       <el-table-column header-align="center" :label="t('col_desc')" min-width="200">
                         <template #default="{ row }">
                           <el-input v-model="row.description" type="textarea" :rows="2" resize="none" />
