@@ -1031,7 +1031,7 @@ def get_meeting_history():
         meetings = frappe.get_all(
             "Voice Meeting",
             filters={"owner": frappe.session.user},
-            fields=["name", "title", "date", "status", "audio_file", "minute_docx", "task_xlsx", "transcript", "raw_results"],
+            fields=["name", "title", "date", "status", "audio_file", "minute_docx", "task_xlsx", "transcript", "raw_results", "tasks_json"],
             order_by="creation desc"
         )
         return {"status": "success", "meetings": meetings}
