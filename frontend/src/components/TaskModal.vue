@@ -151,9 +151,18 @@ const onAttendeeSelect = (val) => {
         <el-table :data="tasks" style="width: 100%" border stripe size="large">
           <el-table-column type="index" label="#" width="50" align="center" />
           
-          <el-table-column :label="t('col_name')" min-width="200">
+          <el-table-column :label="t('col_name')" min-width="250">
             <template #default="{ row }">
-              <el-input v-model="row.title" placeholder="Tên nhiệm vụ" />
+              <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" placeholder="Tên nhiệm vụ" />
+            </template>
+          </el-table-column>
+          
+          <el-table-column label="Phân loại" min-width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.task_type" placeholder="Phân loại">
+                <el-option label="Task" value="task" />
+                <el-option label="Thông báo" value="noti" />
+              </el-select>
             </template>
           </el-table-column>
           
@@ -209,11 +218,7 @@ const onAttendeeSelect = (val) => {
             </template>
           </el-table-column>
 
-          <el-table-column :label="t('col_weight')" width="100">
-            <template #default="{ row }">
-              <el-input-number v-model="row.weight" :min="0" :max="100" :controls="false" style="width: 100%" />
-            </template>
-          </el-table-column>
+
 
           <el-table-column :label="t('col_desc')" min-width="250">
             <template #default="{ row }">
