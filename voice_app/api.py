@@ -688,27 +688,61 @@ def get_employees():
     if frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập"}
 
-
-    
     employees = []
     try:
         base_url, token = get_worksuite_url(), get_worksuite_token()
-        with requests.Session() as sess:
-            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
-            if True:
-                emp_resp = sess.get(
-                    f"{base_url}/api/resource/Employee",
-                    params={
-                        "fields": '["name","employee_name","user_id","designation"]',
-                        "filters": '[["status","=","Active"]]',
-                        "limit_page_length": 5000
-                    },
-                    timeout=10
-                )
-                if emp_resp.status_code == 200:
-                    employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
+        
+        if not base_url or not token:
+            return {"status": "error", "message": "Vui lòng cấu hình Sync API URL và Sync API Token trong Voice App Settings."}
+            
+        if not base_url.startswith("http"):
+            base_url = "https://" + base_url
+            
+        url = f"{base_url.rstrip('/')}/api/method/ct_agent_hub.api.admin.get_admin_users"
+        
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/json"
+        }
+        data = {
+            "page": "1",
+            "limit": "9999999999"
+        }
+        
+        response = requests.post(url, headers=headers, data=data, timeout=30)
+        
+        if response.status_code == 401:
+            return {"status": "error", "message": "Xác thực thất bại (401). Token có thể đã hết hạn hoặc không hợp lệ."}
+            
+        response.raise_for_status()
+        resp_json = response.json()
+        
+        resp_data = resp_json.get("message", {}) if "message" in resp_json else resp_json
+        users = resp_data.get("users", [])
+        
+        for u in users:
+            email = (u.get("email") or "").strip()
+            if not email:
+                continue
+                
+            full_name = (u.get("full_name") or "").strip()
+            
+            departments = u.get("departments") or []
+            dept = str(departments[0]).strip() if departments else ""
+            
+            employees.append({
+                "name": email,
+                "employee_name": full_name,
+                "user_id": email,
+                "designation": dept
+            })
+
+    except requests.RequestException as e:
+        frappe.log_error(message=str(e), title="Fetch Employees Error in get_employees")
+        return {"status": "error", "message": f"Lỗi khi gọi API hệ thống ngoài: {str(e)}"}
     except Exception as e:
         frappe.log_error(message=str(e), title="Fetch Employees Error in get_employees")
+        return {"status": "error", "message": f"Lỗi xử lý dữ liệu đồng bộ: {str(e)}"}
         
     return {"status": "success", "employees": employees}
 

@@ -15,7 +15,9 @@
         "google_gcs_bucket",
         "worksuite_url",
         "worksuite_email",
-        "worksuite_password"
+        "worksuite_password",
+        "sync_api_url",
+        "sync_api_token"
     ],
     "fields": [
         {
@@ -77,6 +79,16 @@
             "fieldname": "worksuite_password",
             "fieldtype": "Password",
             "label": "Worksuite Password"
+        },
+        {
+            "fieldname": "sync_api_url",
+            "fieldtype": "Data",
+            "label": "Sync API URL"
+        },
+        {
+            "fieldname": "sync_api_token",
+            "fieldtype": "Password",
+            "label": "Sync API Token"
         }
     ],
     "issingle": 1,
