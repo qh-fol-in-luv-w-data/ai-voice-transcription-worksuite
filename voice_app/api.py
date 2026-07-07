@@ -1177,6 +1177,7 @@ def voice_to_task(existing_task=None):
         
         projects = []
         employees = []
+        employees = []
         try:
             session = requests.Session()
             login_resp = session.post(
@@ -1212,16 +1213,23 @@ def voice_to_task(existing_task=None):
 
                 # Lấy danh sách Employees active
                 emp_resp = session.get(
-                    f"{BASE_URL}/api/resource/Employee",
+                    f"{BASE_URL}/api/resource/User",
                     params={
-                        "fields": '["name","employee_name","user_id","designation"]',
-                        "filters": '[["status","=","Active"]]',
+                        "fields": '["name","full_name","email","enabled"]',
+                        "filters": '[["enabled","=",1]]',
                         "limit_page_length": 5000,
                     },
                     timeout=10,
                 )
                 if emp_resp.status_code == 200:
-                    employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
+                    employees = []
+                    for u in emp_resp.json().get("data", []):
+                        if u.get("email") or u.get("name"):
+                            employees.append({
+                                "name": u.get("name"),
+                                "employee_name": u.get("full_name"),
+                                "user_id": u.get("email") or u.get("name")
+                            })
         except Exception as ex:
             frappe.log_error(str(ex), "Fetch Projects/Employees Error in Voice to Task")
 
@@ -1299,6 +1307,7 @@ Yêu cầu nhiệm vụ:
    - "assignee_display": So sánh tên người thực hiện được nhắc tới với danh sách nhân viên khả dụng. Nếu khớp, điền 'employee_name (name)'. LƯU Ý QUAN TRỌNG: Nếu người dùng xưng "tôi", "mình", hoặc KHÔNG nhắc tới ai thực hiện, hãy tự động lấy "Người đang tạo Task" ở trên làm người thực hiện (điền '{assignee_default if assignee_default else "null"}' nếu có thông tin, ngược lại để null). Nếu nhắc tới tên không có trong danh sách, điền tên đó. Nếu không nhắc tới và không có Người đang tạo Task, trả về null (hoặc giữ nguyên người cũ từ thông tin Task hiện tại).
    - "start_date": Ngày bắt đầu (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Ví dụ: "ngày mai" là ngày {(now + timedelta(days=1)).strftime("%Y-%m-%d")}. Nếu không nhắc tới, mặc định lấy ngày hôm nay ({current_date_str}).
    - "end_date": Ngày kết thúc / Hạn chót (định dạng YYYY-MM-DD). Tính toán dựa trên ngày hôm nay ({current_date_str}). Nếu không nhắc tới, trả về null (hoặc giữ nguyên hạn chót cũ từ thông tin Task hiện tại).
+   - "task_type": Phân loại mục này là "task" (Nhiệm vụ cần làm) hay "noti" (Thông báo thông tin chung). Hãy xác định rõ dựa vào ngữ nghĩa (VD: giao việc là task, báo cáo trạng thái / thông tin là noti).
    - "description": Mô tả chi tiết nhiệm vụ (nếu có chi tiết hơn). Lọc bỏ các từ thừa, ậm ừ.
 3. Kiểm tra tính đầy đủ của thông tin cốt lõi:
    - Một nhiệm vụ được coi là thiếu thông tin cốt lõi nếu:
@@ -1311,6 +1320,7 @@ Yêu cầu nhiệm vụ:
 Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdown (```json), KHÔNG giải thích thêm:
 {{
   "task_name": "...",
+  "task_type": "...",
   "project_id": "...",
   "project_name": "...",
   "assignee_display": "...",
@@ -1330,6 +1340,9 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
             )
         
         parsed_data = json.loads(response.choices[0].message.content.strip())
+        if "task_type" in parsed_data and parsed_data["task_type"]:
+            loai_raw = str(parsed_data["task_type"]).lower()
+            parsed_data["task_type"] = "noti" if "noti" in loai_raw or "thông báo" in loai_raw else "task"
         usage = response.usage
         p_tok = usage.prompt_tokens if usage else 0
         c_tok = usage.completion_tokens if usage else 0
