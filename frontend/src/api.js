@@ -108,6 +108,14 @@ export async function updateMeetingResults(meetingName, results) {
   return res.data.message
 }
 
+export async function updateTranscriptText(meetingName, results) {
+  const res = await api.post('/api/method/voice_app.api.update_transcript_text', {
+    meeting_name: meetingName,
+    results: results
+  })
+  return res.data
+}
+
 export async function enrollMappedSpeakers(meetingName, mappings) {
   const res = await api.post('/api/method/voice_app.api.map_and_enroll_speakers', {
     meeting_name: meetingName,

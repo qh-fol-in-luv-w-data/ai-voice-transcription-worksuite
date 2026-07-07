@@ -749,6 +749,40 @@ def update_meeting_results():
 
 
 @frappe.whitelist(allow_guest=False)
+def update_transcript_text():
+    """Cập nhật nội dung transcript khi user chỉnh sửa thủ công"""
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+    results = payload.get("results", [])
+
+    if not meeting_name or not results:
+        return {"status": "error", "message": "Thiếu meeting_name hoặc results"}
+
+    try:
+        if frappe.db.exists("Voice Meeting", meeting_name):
+            meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
+            if meeting_owner != frappe.session.user:
+                return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+            
+            # Gộp lại nội dung text
+            final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
+            
+            frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
+                                json.dumps(results, ensure_ascii=False))
+            frappe.db.set_value("Voice Meeting", meeting_name, "transcript", final_text)
+            frappe.db.commit()
+        return {"status": "success", "final_text": final_text}
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Update Transcript Error")
+        return {"status": "error", "message": str(e)}
+
+
+
+@frappe.whitelist(allow_guest=False)
 def sync_tasks_to_erp():
     data = frappe.request.get_data()
     payload = json.loads(data)
