@@ -96,7 +96,7 @@ def get_worksuite_url():
             frappe.flags.ignore_permissions = False
             if val: return val
     except Exception: pass
-    return os.getenv("WORKSUITE_URL", "https://erp.ctgroupvietnam.com")
+    return os.getenv("WORKSUITE_URL", "https://cterp.ctgroupvietnam.com")
 
 def get_worksuite_token():
     try:
