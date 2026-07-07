@@ -256,10 +256,10 @@ def node_fetch_users(state: AgentState) -> dict:
 
     base_url = get_worksuite_url()
     resp = session.get(
-        f"{base_url}/api/resource/Employee",
+        f"{base_url}/api/resource/User",
         params={
-            "fields":  '["name","employee_name","user_id","department","designation","company","status"]',
-            "filters": '[["status","=","Active"]]',
+            "fields":  '["name","full_name","email","enabled"]',
+            "filters": '[["enabled","=",1]]',
             "limit":   500,
         },
         timeout=15,
@@ -269,10 +269,15 @@ def node_fetch_users(state: AgentState) -> dict:
         print(f"   ⚠️  Không lấy được employees: {resp.status_code}")
         return {"frappe_users": []}
 
-    employees = [
-        e for e in resp.json().get("data", [])
-        if e.get("user_id") and "@" in e.get("user_id", "")
-    ]
+    raw_users = resp.json().get("data", [])
+    employees = []
+    for u in raw_users:
+        employees.append({
+            "name": u.get("name"),
+            "employee_name": u.get("full_name"),
+            "user_id": u.get("email") or u.get("name")
+        })
+    employees = [e for e in employees if e.get("user_id") and "@" in e.get("user_id", "")]
 
     # Log tên trùng
     name_counter   = Counter(_norm(e.get("employee_name", "")) for e in employees)
@@ -605,6 +610,7 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
             "assignee_display": display_assignee,
             "start_date": item.get("ngay_bat_dau") or data.get("ngay_hop") or "",
             "end_date": item.get("ngay_ket_thuc") or "",
+            "task_type": "noti" if any(k in str(item.get("loai", "")).lower() for k in ["noti", "thông báo"]) else "task",
             "weight": 0,
             "description": item.get('note', '') or ""
         }
@@ -812,14 +818,13 @@ def extract_tasks_stateless(docx_path, model_type="gpt-4o-mini"):
     items = []
     data = result.get("json_data", {})
     for item in data.get("items", []):
-        if item.get("loai") != "Task":
-            continue
-            
+
         items.append({
             "title": item.get("noi_dung", ""),
             "assignee_display": item.get("nguoi_thuc_hien", ""),
             "start_date": item.get("ngay_bat_dau") or data.get("ngay_hop") or "",
             "end_date": item.get("ngay_ket_thuc") or "",
+            "task_type": "noti" if any(k in str(item.get("loai", "")).lower() for k in ["noti", "thông báo"]) else "task",
             "weight": 0,
             "description": item.get('note', '') or ""
         })

@@ -11,6 +11,11 @@ import CTAccessDenied from './components/CTAccessDenied.vue'
 const { authState, currentUser, currentFullName } = useSession()
 
 // States
+const isSidebarOpen = ref(true)
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value;
+  console.log('isSidebarOpen changed to:', isSidebarOpen.value);
+}
 const audioFile = ref(null)
 const audioPreviewUrl = ref('')
 const language = ref('vi')
@@ -158,9 +163,13 @@ const loadPastMeeting = (meeting) => {
   originalTranscriptResults.value = []
   if (meeting.tasks_json) {
     try {
-      tasks.value = typeof meeting.tasks_json === 'string'
+      let raw_tasks = typeof meeting.tasks_json === 'string'
         ? JSON.parse(meeting.tasks_json)
         : meeting.tasks_json
+      tasks.value = raw_tasks.map(t => ({
+        ...t,
+        task_type: t.task_type || 'task'
+      }))
     } catch (e) {
       tasks.value = []
     }
@@ -525,7 +534,7 @@ const submitVoiceTask = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
-        task_type: "task",
+        task_type: res.task.task_type || "task",
         description: res.task.description || ''
       }
       
@@ -610,7 +619,7 @@ const submitVoiceTaskRefine = async () => {
         project: res.task.project_id || '',
         start_date: res.task.start_date || '',
         due_date: res.task.end_date || '',
-        task_type: "task",
+        task_type: res.task.task_type || "task",
         description: res.task.description || ''
       }
       
@@ -965,6 +974,20 @@ const removeTask = (idx) => {
   tasks.value.splice(idx, 1)
 }
 
+const removeSegment = (idx) => {
+  transcriptResults.value.splice(idx, 1);
+  isTranscriptModified.value = true;
+}
+
+const insertSegmentAfter = (idx) => {
+  let time = 0;
+  if (transcriptResults.value.length > 0 && transcriptResults.value[idx]) {
+     time = transcriptResults.value[idx][1] || transcriptResults.value[idx][0] || 0;
+  }
+  transcriptResults.value.splice(idx + 1, 0, [time, time, "Tên người nói", "Nhập nội dung..."]);
+  isTranscriptModified.value = true;
+}
+
 const getProjectsForHR = (displayStr) => {
   if (!displayStr) return []
   // Extract HR code e.g. "Nguyen Van A (HR-EMP-001)"
@@ -1081,8 +1104,12 @@ onMounted(async () => {
   <div v-else class="flex flex-col h-screen w-full bg-background overflow-hidden text-foreground">
   
     <!-- UNIFIED TOPBAR -->
-    <header class="h-[72px] w-full flex items-center border-b border-border bg-background/80 backdrop-blur shrink-0 z-40 px-6">
-      <div class="w-[260px] shrink-0"></div>
+    <header class="h-[72px] w-full flex items-center border-b border-border bg-background/80 backdrop-blur shrink-0 z-40 px-4 relative">
+      <div class="flex items-center gap-2 transition-all duration-300 ease-in-out shrink-0" :style="{ width: isSidebarOpen ? '260px' : '48px' }">
+         <button @click="toggleSidebar" class="hover:bg-muted/50 p-2 rounded-md transition-colors cursor-pointer flex-shrink-0" style="color: hsl(var(--foreground)); z-index: 50;" title="Toggle Sidebar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="9" x2="9" y1="3" y2="21"/></svg>
+         </button>
+      </div>
       <div class="flex-1 flex justify-center items-center">
          <h1 class="font-bold text-lg tracking-tight text-primary m-0">2AS Worksuite</h1>
       </div>
@@ -1112,9 +1139,9 @@ onMounted(async () => {
 
     <div class="flex flex-1 overflow-hidden w-full">
       <!-- SIDEBAR -->
-      <aside class="w-[260px] border-r border-border bg-muted/10 flex flex-col h-full shrink-0">
+      <aside class="transition-all duration-300 ease-in-out bg-muted/10 flex flex-col h-full shrink-0 overflow-hidden border-border" :style="{ width: isSidebarOpen ? '260px' : '0px', minWidth: isSidebarOpen ? '260px' : '0px', maxWidth: isSidebarOpen ? '260px' : '0px', opacity: isSidebarOpen ? 1 : 0, borderRightWidth: isSidebarOpen ? '1px' : '0px' }">
       <!-- Navigation Menu -->
-      <div class="p-4 flex-1 overflow-y-auto space-y-8">
+      <div class="w-[260px] h-full flex flex-col p-4 overflow-y-auto space-y-8">
         
         <!-- Module Group 1 -->
         <div>
@@ -1354,12 +1381,18 @@ onMounted(async () => {
             </template>
             <div class="log-view p-6 space-y-6 max-h-[500px] overflow-auto">
                <template v-for="(seg, idx) in transcriptResults" :key="idx">
-                 <div v-if="seg[3] && seg[3].trim()" class="log-entry">
-                   <div class="log-meta">
-                     <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
-                     <span class="log-time">[{{ seg[0].toFixed(2) }}s]</span>
+                 <div class="log-entry relative group pb-4">
+                   <div class="log-meta flex justify-between items-center bg-muted/20 px-2 py-1 rounded-t-md">
+                     <div class="flex items-center gap-2">
+                       <el-input v-model="seg[2]" size="small" class="w-[150px] !bg-transparent border-none font-bold" :style="{ color: stringToColor(seg[2]) }" @input="isTranscriptModified = true" />
+                       <span class="log-time text-xs text-muted-foreground">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                     </div>
+                     <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <el-button size="small" type="primary" circle plain @click="insertSegmentAfter(idx)" title="Thêm hội thoại bên dưới"><el-icon><Plus /></el-icon></el-button>
+                       <el-button size="small" type="danger" circle plain @click="removeSegment(idx)" title="Xóa hội thoại này"><el-icon><Delete /></el-icon></el-button>
+                     </div>
                    </div>
-                   <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text" @input="isTranscriptModified = true" />
+                   <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text mt-1" @input="isTranscriptModified = true" />
                  </div>
                </template>
             </div>
@@ -2012,12 +2045,18 @@ onMounted(async () => {
                     <div class="bg-muted/10 border border-border rounded-lg max-h-[550px] overflow-y-auto">
                       <div class="p-6 space-y-4">
                         <template v-for="(seg, idx) in transcriptResults" :key="idx">
-                          <div v-if="seg[3] && seg[3].trim()" class="log-entry">
-                            <div class="log-meta">
-                              <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
-                              <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                          <div class="log-entry relative group pb-4">
+                            <div class="log-meta flex justify-between items-center bg-muted/20 px-2 py-1 rounded-t-md">
+                              <div class="flex items-center gap-2">
+                                <el-input v-model="seg[2]" size="small" class="w-[150px] !bg-transparent border-none font-bold" :style="{ color: stringToColor(seg[2]) }" @input="isTranscriptModified = true" />
+                                <span class="log-time text-xs text-muted-foreground">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+                              </div>
+                              <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <el-button size="small" type="primary" circle plain @click="insertSegmentAfter(idx)" title="Thêm hội thoại bên dưới"><el-icon><Plus /></el-icon></el-button>
+                       <el-button size="small" type="danger" circle plain @click="removeSegment(idx)" title="Xóa hội thoại này"><el-icon><Delete /></el-icon></el-button>
+                     </div>
                             </div>
-                            <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text" @input="isTranscriptModified = true" />
+                            <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text mt-1" @input="isTranscriptModified = true" />
                           </div>
                         </template>
                       </div>
