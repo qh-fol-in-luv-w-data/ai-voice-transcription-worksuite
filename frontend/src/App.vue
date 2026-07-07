@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { transcribeAudio, checkMeetingStatus, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
+import { transcribeAudio, checkMeetingStatus, extractTasks, syncTasksToERP, getElevenLabsInfo, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript, updateMeetingResults, updateTranscriptText, voiceToTask, getEmployees, enrollMappedSpeakers } from './api'
 import { initSession, useSession } from './utils/session'
 
 import CTSplashScreen from './components/CTSplashScreen.vue'
@@ -33,6 +33,8 @@ const transcriptText = ref('')    // Formatted text
 const isExtracting = ref(false)
 const extractStatus = ref('')
 const isCleaning = ref(false)
+const isSavingTranscript = ref(false)
+const isTranscriptModified = ref(false)
 const docxUrl = ref('')
 const excelUrl = ref('')
 
@@ -890,6 +892,27 @@ const startExtractTasks = async () => {
   }
 }
 
+const saveTranscriptChanges = async () => {
+  if (!currentMeetingName.value) return
+  isSavingTranscript.value = true
+  try {
+    const res = await updateTranscriptText(currentMeetingName.value, transcriptResults.value)
+    if (res.status === 'success') {
+      ElMessage.success('Đã lưu nội dung thoại')
+      isTranscriptModified.value = false
+      if (res.final_text) {
+        transcriptText.value = res.final_text
+      }
+    } else {
+      ElMessage.error('Lỗi lưu thay đổi: ' + res.message)
+    }
+  } catch (e) {
+    ElMessage.error('Lỗi kết nối khi lưu: ' + e)
+  } finally {
+    isSavingTranscript.value = false
+  }
+}
+
 const startCleanTranscript = async () => {
   if (isCleaned.value) {
     // Hoàn tác lọc — khôi phục kết quả gốc
@@ -1279,6 +1302,16 @@ onMounted(async () => {
           <!-- AI FILTER + EXTRACT BUTTON ROW -->
           <div v-if="transcriptResults.length > 0" class="flex flex-wrap gap-3 items-center mt-2">
             <el-button
+              v-if="isTranscriptModified"
+              type="success"
+              @click="saveTranscriptChanges"
+              :loading="isSavingTranscript"
+              class="flex-1"
+            >
+              <template #icon><Check /></template>
+              Lưu Transcript
+            </el-button>
+            <el-button
               v-if="sttMode !== 'google'"
               @click="startCleanTranscript"
               :loading="isCleaning"
@@ -1326,7 +1359,7 @@ onMounted(async () => {
                      <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
                      <span class="log-time">[{{ seg[0].toFixed(2) }}s]</span>
                    </div>
-                   <p class="log-text">{{ seg[3] }}</p>
+                   <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text" @input="isTranscriptModified = true" />
                  </div>
                </template>
             </div>
@@ -1800,6 +1833,17 @@ onMounted(async () => {
                 <div class="flex flex-col gap-6">
                   <!-- Actions -->
                   <div class="flex flex-wrap items-center gap-4 p-4 bg-muted/30 rounded-lg border border-border">
+                     <!-- Lưu Thay Đổi -->
+                     <el-button
+                       v-if="isTranscriptModified"
+                       type="success"
+                       @click="saveTranscriptChanges"
+                       :loading="isSavingTranscript"
+                     >
+                       <template #icon><Check /></template>
+                       Lưu Transcript
+                     </el-button>
+
                      <!-- Lọc hội thoại -->
                      <el-button
                        v-if="sttMode !== 'google'"
@@ -1957,7 +2001,7 @@ onMounted(async () => {
                               <span class="log-speaker" :style="{ color: stringToColor(seg[2]) }">{{ seg[2] }}</span>
                               <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
                             </div>
-                            <p class="log-text">{{ seg[3] }}</p>
+                            <el-input v-model="seg[3]" type="textarea" :autosize="{ minRows: 1 }" class="transparent-input log-text" @input="isTranscriptModified = true" />
                           </div>
                         </template>
                       </div>
@@ -2303,6 +2347,25 @@ body {
 .log-speaker { font-size: 0.75rem; font-weight: 600; color: hsl(var(--primary)); letter-spacing: 0.05em; }
 .log-time { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
 .log-text { font-size: 0.875rem; line-height: 1.5; margin: 0; color: hsl(var(--foreground)); word-break: break-word; white-space: pre-wrap; }
+
+/* Transparent Textarea */
+.transparent-input .el-textarea__inner {
+  border: 1px solid transparent;
+  background-color: transparent;
+  padding: 0;
+  box-shadow: none !important;
+  color: inherit;
+  font-family: inherit;
+  resize: none;
+}
+.transparent-input .el-textarea__inner:hover {
+  border-color: hsl(var(--border));
+  background-color: hsl(var(--muted)/0.3);
+}
+.transparent-input .el-textarea__inner:focus {
+  border-color: hsl(var(--primary)/0.5);
+  background-color: hsl(var(--background));
+}
 
 /* Attendee Chips */
 .attendee-chip {
