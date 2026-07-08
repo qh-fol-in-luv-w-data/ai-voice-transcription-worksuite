@@ -89,7 +89,6 @@ const onAttendeeSelect = (val) => {
               {{ isReanalyzing ? t('reanalyzing') : t('btn_reanalyze') }}
             </el-button>
           </div>
-          </div>
         </div>
         
         <div class="p-5 flex flex-wrap items-center gap-3">
@@ -121,7 +120,6 @@ const onAttendeeSelect = (val) => {
               :value="spk.speaker_name"
             />
           </el-select>
-        </div>
         </div>
       </div>
 
@@ -237,8 +235,6 @@ const onAttendeeSelect = (val) => {
               </el-button>
             </template>
           </el-table-column>
-        </el-table>
-
         </el-table>
         </div>
       </div>
