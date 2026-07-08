@@ -13,7 +13,7 @@ import { currentMeetingName, originalTranscriptResults, loadHistory } from '../c
 const t = (key) => dict[uiLang.value][key] || key
 const transcribeProgress = ref(0)
 
-const numAttendees = ref('Tự động')
+const numAttendees = ref(0) // 0 means auto
 const vocabulary = ref('')
 const meetingDate = ref(new Date().toLocaleString('vi-VN', { hour12: false }))
 const meetingLocation = ref('')
@@ -97,6 +97,10 @@ const handleFileChange = (e) => {
     audioFile.value = e.target.files[0]
   }
 }
+
+const audioUrl = computed(() => {
+  return audioFile.value ? URL.createObjectURL(audioFile.value) : null
+})
 
 const startTranscribe = async () => {
   if (!audioFile.value) {
@@ -232,116 +236,159 @@ const startExtractTasks = async () => {
 </script>
 
 <template>
-<div class="max-w-[1000px] mx-auto space-y-lg pb-xl pt-lg">
-<!-- Section 1: Xử lý Âm thanh -->
-<section class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm">
-<div class="mb-lg">
-<h2 class="font-headline-md text-headline-md text-on-surface mb-xs">Xử lý Âm thanh</h2>
-<p class="font-body-md text-body-md text-on-surface-variant">Tải lên file ghi âm để dịch và nhận diện người nói.</p>
-</div>
-<div class="grid grid-cols-1 md:grid-cols-2 gap-lg mb-lg">
-<div class="flex flex-col gap-xs">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÔN NGỮ</label>
-<div class="relative">
-<select v-model="language" class="w-full bg-transparent border border-outline-variant rounded-md pl-3 pr-10 py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
-<option v-for="l in languages" :key="l.val" :value="l.val" class="bg-surface">{{ l.label }}</option>
-</select>
-<span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
-</div>
-</div>
-<div class="flex flex-col gap-xs">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">SỐ NGƯỜI THAM DỰ</label>
-<div class="relative">
-<select v-model="numAttendees" class="w-full bg-transparent border border-outline-variant rounded-md pl-3 pr-10 py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
-<option class="bg-surface">Tự động</option>
-<option class="bg-surface">1</option>
-<option class="bg-surface">2</option>
-<option class="bg-surface">3</option>
-<option class="bg-surface">4+</option>
-</select>
-<span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">unfold_more</span>
-</div>
-</div>
-</div>
-<div class="flex flex-col gap-xs">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider flex justify-between">
-<span class="">TỪ VỰNG ĐẶC BIỆT (TÙY CHỌN)</span>
-</label>
-<textarea v-model="vocabulary" class="w-full bg-transparent border border-outline-variant rounded-md px-md py-sm text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow resize-y" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." rows="2"></textarea>
-</div>
-</section>
-<!-- Section 2: Thông tin cuộc họp -->
-<section class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm">
-<div class="mb-lg">
-<h2 class="font-headline-md text-headline-md text-on-surface mb-xs">Thông tin cuộc họp (Dùng cho Biên bản)</h2>
-</div>
-<div class="grid grid-cols-1 md:grid-cols-2 gap-lg">
-<div class="flex flex-col gap-xs">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÀY GIỜ BẮT ĐẦU</label>
-<div class="relative">
-<span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">schedule</span>
-<input v-model="meetingDate" class="w-full bg-transparent border border-outline-variant rounded-md pl-10 pr-md py-2.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" type="text" />
-</div>
-</div>
-<div class="flex flex-col gap-xs">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">ĐỊA ĐIỂM</label>
-<input v-model="meetingLocation" class="w-full bg-transparent border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" placeholder="Nhập địa điểm..." type="text">
-</div>
-<div class="flex flex-col gap-xs md:col-span-2">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGƯỜI CHỦ TRÌ</label>
-<div class="relative">
-<select v-model="hostId" class="w-full bg-transparent border border-outline-variant rounded-md pl-3 pr-10 py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow text-on-surface">
-<option disabled value="" class="bg-surface">Chọn người chủ trì...</option>
-<option v-for="emp in dbEmployees" :key="emp.user_id" :value="emp.user_id" class="bg-surface">{{ emp.employee_name }}</option>
-</select>
-<span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
-</div>
-</div>
-</div>
-</section>
-<!-- Section 3: Upload & Progress -->
-<section class="space-y-lg">
-<!-- Dropzone -->
-<div class="relative border-2 border-dashed border-outline-variant bg-surface-container/50 hover:bg-surface-container hover:border-primary rounded-xl p-xl flex flex-col items-center justify-center cursor-pointer transition-all min-h-[200px] group">
-<input type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-<div class="w-16 h-16 rounded-full bg-surface-variant flex items-center justify-center mb-md group-hover:bg-primary/20 transition-colors">
-<span class="material-symbols-outlined text-4xl text-on-surface-variant group-hover:text-primary transition-colors">cloud_upload</span>
-</div>
-<p class="font-body-md text-body-md text-on-surface font-medium mb-xs">Drag &amp; drop a file here, or click to select</p>
-<p v-if="audioFile" class="font-body-sm text-body-sm text-primary">{{ audioFile.name }}</p>
-<p v-else class="font-body-sm text-body-sm text-on-surface-variant/50">Chưa chọn file</p>
-</div>
+<div class="max-w-[1200px] mx-auto pb-xl pt-lg">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+    
+    <!-- LEFT COLUMN: Audio Analysis -->
+    <div class="bg-surface-container/60 backdrop-blur-2xl border border-outline-variant/30 rounded-3xl p-6 shadow-2xl flex flex-col h-full">
+      <h2 class="text-2xl font-bold text-on-surface mb-6 font-headline-md tracking-tight">Audio Analysis</h2>
+      
+      <!-- Dropzone -->
+      <div class="relative border-2 border-dashed border-outline-variant/50 hover:bg-primary/5 hover:border-primary/50 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all group flex-1 min-h-[250px]" :class="{ 'border-primary/50 bg-primary/5': audioFile }">
+        <input type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+        <div class="relative mb-6">
+          <div class="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          <span class="material-symbols-outlined text-[80px] text-primary drop-shadow-[0_0_15px_rgba(192,193,255,0.3)] transition-transform group-hover:scale-110">cloud_upload</span>
+          <div v-if="audioFile" class="absolute bottom-2 right-2 w-8 h-8 bg-surface rounded-full flex items-center justify-center shadow-lg border border-primary">
+            <span class="material-symbols-outlined text-primary text-sm">play_arrow</span>
+          </div>
+        </div>
+        
+        <p class="font-body-md text-on-surface font-medium mb-4 text-center">Drag &amp; drop a file here, or click to select.</p>
+        
+        <div v-if="audioFile" class="flex items-center gap-2 bg-surface-container-highest/50 px-4 py-2 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden">
+           <span class="font-body-sm text-on-surface truncate">{{ audioFile.name }}</span>
+           <span class="material-symbols-outlined text-[16px] text-on-surface-variant cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
+        </div>
+      </div>
 
-<div class="flex justify-end gap-md items-center">
-<div class="flex items-center gap-xs">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Model:</label>
-<select v-model="modelType" class="bg-surface border border-outline-variant rounded-md px-md py-1.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary">
-  <option value="gpt-4o-mini">GPT-4o-mini</option>
-  <option value="gpt-4o">GPT-4o</option>
-</select>
-</div>
-<button @click="startTranscribe" :disabled="isTranscribing" class="bg-primary hover:bg-primary/90 text-on-primary font-bold py-2.5 px-6 rounded-md shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-  <span class="material-symbols-outlined">{{ isTranscribing ? 'autorenew' : 'play_arrow' }}</span>
-  {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
-</button>
-</div>
+      <!-- Progress Bar -->
+      <div v-if="isTranscribing || transcribeStatus" class="mt-6 space-y-3">
+        <div class="h-4 bg-surface-container-highest rounded-full overflow-hidden relative shadow-inner border border-outline-variant/20">
+          <div class="absolute inset-y-0 left-0 bg-gradient-to-r from-secondary to-primary transition-all duration-1000 rounded-full flex items-center justify-end pr-2" :style="{ width: transcribeProgress + '%' }">
+             <div class="w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_5px_white]"></div>
+          </div>
+        </div>
+        <div class="flex justify-between items-center text-sm font-medium">
+          <span class="text-primary">{{ transcribeProgress }}%</span>
+          <span class="text-on-surface-variant flex items-center gap-2">
+            <span class="material-symbols-outlined text-[16px] animate-spin">autorenew</span>
+            {{ transcribeStatus || 'Preparing audio file for analysis...' }}
+          </span>
+        </div>
+      </div>
 
-<!-- Progress Bar -->
-<div v-if="isTranscribing || transcribeStatus" class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden shadow-sm relative">
-  <div class="absolute inset-0 bg-primary/10" :class="{ 'animate-pulse': isTranscribing }"></div>
-  <div class="absolute top-0 left-0 bottom-0 bg-primary/80 transition-all duration-1000" :style="{ width: transcribeProgress + '%' }"></div>
-  <div class="relative z-10 flex items-center justify-between px-md py-2">
-    <div class="flex items-center gap-sm">
-      <span class="material-symbols-outlined text-primary text-[18px]" :class="{ 'animate-spin': isTranscribing }">autorenew</span>
-      <span class="font-body-sm text-body-sm font-medium text-primary">Đang phân tích... {{ transcribeProgress }}%</span>
+      <!-- Audio Player -->
+      <div v-if="audioUrl" class="mt-8 border-t border-outline-variant/30 pt-6">
+        <div class="flex items-center gap-4 bg-surface-container-highest/30 rounded-2xl p-4 border border-outline-variant/20">
+           <button class="w-12 h-12 rounded-full bg-gradient-to-br from-secondary to-primary flex items-center justify-center text-on-primary shadow-[0_0_15px_rgba(192,193,255,0.4)] hover:scale-105 transition-transform shrink-0">
+              <span class="material-symbols-outlined">play_arrow</span>
+           </button>
+           <audio controls class="w-full h-10 custom-audio-player opacity-70 hover:opacity-100 transition-opacity" :src="audioUrl"></audio>
+        </div>
+      </div>
+      
+      <div class="mt-6 flex justify-center">
+        <button @click="startTranscribe" :disabled="isTranscribing" class="w-full bg-gradient-to-r from-secondary/80 to-primary/80 hover:from-secondary hover:to-primary text-on-primary font-headline-md text-[18px] font-bold py-3.5 px-8 rounded-full shadow-lg transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-3 border border-white/20">
+          <span class="material-symbols-outlined text-[24px]" :class="{ 'animate-spin': isTranscribing }">{{ isTranscribing ? 'autorenew' : 'graphic_eq' }}</span>
+          {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
+        </button>
+      </div>
+
     </div>
-    <div class="flex items-center gap-sm text-on-surface-variant opacity-80">
-      <span class="text-xs font-body-sm">{{ transcribeStatus }}</span>
+
+    <!-- RIGHT COLUMN: Meeting Details -->
+    <div class="bg-surface-container/60 backdrop-blur-2xl border border-outline-variant/30 rounded-3xl p-6 shadow-2xl flex flex-col h-full space-y-6">
+      <h2 class="text-2xl font-bold text-on-surface mb-2 font-headline-md tracking-tight">Meeting Details</h2>
+      
+      <!-- Language -->
+      <div class="flex gap-4 items-start">
+         <div class="w-12 h-12 rounded-2xl bg-error-container/30 flex items-center justify-center shrink-0 border border-error-container/50 shadow-sm">
+            <span class="material-symbols-outlined text-error font-light text-[24px]">language</span>
+         </div>
+         <div class="flex-1">
+            <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Language</label>
+            <div class="relative">
+               <select v-model="language" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface focus:outline-none focus:border-primary/70 transition-colors shadow-inner" style="-webkit-appearance: none; -moz-appearance: none; appearance: none;">
+                  <option v-for="l in languages" :key="l.val" :value="l.val" class="bg-surface">{{ l.label }}</option>
+               </select>
+               <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">keyboard_arrow_down</span>
+            </div>
+         </div>
+      </div>
+
+      <!-- Participants -->
+      <div class="flex gap-4 items-start">
+         <div class="w-12 h-12 rounded-2xl bg-secondary-container/30 flex items-center justify-center shrink-0 border border-secondary-container/50 shadow-sm">
+            <span class="material-symbols-outlined text-secondary font-light text-[24px]">group</span>
+         </div>
+         <div class="flex-1">
+            <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Participants</label>
+            <input type="number" v-model="numAttendees" min="0" max="20" placeholder="0 = Tự động" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface focus:outline-none focus:border-primary/70 transition-colors shadow-inner">
+         </div>
+      </div>
+
+      <!-- Keywords -->
+      <div class="flex gap-4 items-start">
+         <div class="w-12 h-12 rounded-2xl bg-tertiary-container/30 flex items-center justify-center shrink-0 border border-tertiary-container/50 shadow-sm">
+            <span class="material-symbols-outlined text-tertiary font-light text-[24px]">format_list_bulleted</span>
+         </div>
+         <div class="flex-1">
+            <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Keywords</label>
+            <textarea v-model="vocabulary" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors shadow-inner resize-none min-h-[90px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
+         </div>
+      </div>
+
+      <!-- Meeting Info Header -->
+      <div class="flex gap-4 items-center mt-2">
+         <div class="w-12 h-12 rounded-2xl bg-primary-container/30 flex items-center justify-center shrink-0 border border-primary-container/50 shadow-sm">
+            <span class="material-symbols-outlined text-primary font-light text-[24px]">event_note</span>
+         </div>
+         <h3 class="text-[15px] font-bold text-on-surface-variant uppercase tracking-wider">Meeting Info</h3>
+      </div>
+      
+      <div class="pl-[64px] space-y-5 -mt-3">
+         <!-- Date -->
+         <div class="flex-1">
+            <el-date-picker
+               v-model="meetingDate"
+               type="datetime"
+               format="DD/MM/YYYY HH:mm"
+               placeholder="08/07/2026 17:51"
+               class="custom-el-date-premium w-full"
+               style="width: 100%"
+            />
+         </div>
+         
+         <!-- Location -->
+         <div class="flex-1">
+            <label class="text-[12px] font-bold text-on-surface-variant/70 mb-1 block">Location</label>
+            <input v-model="meetingLocation" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 rounded-xl px-4 py-2.5 text-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+         </div>
+         
+         <!-- Host -->
+         <div class="flex-1">
+            <label class="text-[12px] font-bold text-on-surface-variant/70 mb-1 block">Host</label>
+            <el-select
+               v-model="hostId"
+               filterable
+               placeholder="Chọn người chủ trì..."
+               class="custom-el-select-premium w-full"
+            >
+               <el-option
+                  v-for="emp in dbEmployees"
+                  :key="emp.user_id"
+                  :label="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')"
+                  :value="emp.user_id"
+               />
+            </el-select>
+         </div>
+      </div>
+
     </div>
   </div>
-</div>
 
-</section>
+
 
 <!-- STRANGER MAPPING CARD -->
 <div v-if="unknownSpeakers.length > 0" class="bg-error-container/10 border border-error/20 rounded-xl p-lg shadow-sm">
