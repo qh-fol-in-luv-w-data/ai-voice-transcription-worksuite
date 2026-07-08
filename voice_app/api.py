@@ -1,6 +1,6 @@
+import json
 import frappe
 import os
-import json
 import traceback
 import pandas as pd
 import requests
@@ -91,7 +91,6 @@ def check_meeting_status(meeting_name):
         except Exception:
             pass
 
-        import json
         raw_results = []
         try:
             if meeting.raw_results:
@@ -134,7 +133,6 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             wav, err = convert_to_wav(file_path)
             if err:
                 if segments:
-                    import json
                     results_json = json.dumps(segments, ensure_ascii=False)
                     frappe.db.set_value("Voice Meeting", meeting_name, {
                         "status": "Partial Error",
@@ -174,7 +172,6 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 try:
                     meeting_doc = frappe.get_doc("Voice Meeting", meeting_name)
                     if meeting_doc.status == "Partial Error" and meeting_doc.raw_results:
-                        import json
                         existing_segments = json.loads(meeting_doc.raw_results)
                 except: pass
 
@@ -291,8 +288,8 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
             print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
     
-            # Gộp các "Người lạ" có giọng giống nhau (cosine sim >= 0.75)
-            # Gemini đã tự tách giọng rồi — không merge để tránh nhầm lẫn
+            # Gộp các "Người lạ" có giọng giống nhau giữa các chunk (cosine sim >= 0.5)
+            # Vì nhiều chunk trả ra nhiều speaker độc lập, nên phải so khớp để gán chung
             MERGE_THRESHOLD = 0.5
             stranger_groups = {}
             strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
@@ -1010,7 +1007,6 @@ def map_and_enroll_speakers():
     Nếu nhân viên đã có mẫu giọng thì bỏ qua.
     Tìm đoạn hội thoại dài nhất của người đó trong meeting để làm mẫu.
     """
-    import json
     import os
     from voice_app.api import convert_to_wav
     from voice_app.speaker_manager import _extract_embedding_subprocess, SpeakerDB
@@ -1543,7 +1539,6 @@ def undo_mapping(meeting_name):
         frappe.db.set_value("Voice Meeting", meeting_name, "raw_results", meeting_doc.original_raw_results)
         frappe.db.commit()
         
-        import json
         return {"status": "success", "results": json.loads(meeting_doc.original_raw_results)}
     except Exception as e:
         return {"status": "error", "message": str(e)}

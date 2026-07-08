@@ -1256,7 +1256,7 @@ onMounted(async () => {
           <ul class="space-y-1" style="list-style-type: none; margin: 0; padding: 0;">
             <li v-for="meeting in meetingHistory" :key="meeting.name">
               <button @click="loadPastMeeting(meeting)" :class="activeTab==='view_meeting' && currentMeeting?.name === meeting.name ? 'bg-muted/30 text-primary font-medium' : 'text-muted-foreground hover:bg-muted/30'" class="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-left bg-transparent border-none shadow-none focus:outline-none cursor-pointer" style="background: none; border: none; box-shadow: none;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-history shrink-0"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-history shrink-0"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
                 <span class="flex flex-col w-full min-w-0">
                   <span class="truncate block w-full">{{ meeting.title }}</span>
                   <span class="text-xs text-muted-foreground block truncate">{{ meeting.date }}</span>
