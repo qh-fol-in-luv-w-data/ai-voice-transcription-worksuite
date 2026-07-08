@@ -194,13 +194,16 @@ const openTaskModal = () => {
             placeholder="Chọn nhân viên hoặc nhập tên..."
             style="flex: 1; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent;"
             class="w-full custom-el-override"
+            fit-input-width
           >
             <el-option
               v-for="opt in employeeOptions"
               :key="opt.value"
               :label="opt.label"
               :value="opt.value"
-            />
+            >
+              <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
+            </el-option>
           </el-select>
         </div>
         <div class="flex justify-end mt-sm">
