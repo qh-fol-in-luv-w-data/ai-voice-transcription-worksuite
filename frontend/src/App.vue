@@ -79,4 +79,51 @@ body {
   overflow-x: hidden;
   max-width: 100vw;
 }
+
+/* Global Dark Theme Overrides for Element Plus Poppers */
+.dark .el-popper.is-light {
+  background-color: #111827 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+}
+
+.dark .el-popper.is-light .el-popper__arrow::before {
+  background-color: #111827 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.dark .el-select-dropdown__item {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.dark .el-select-dropdown__item.hover, 
+.dark .el-select-dropdown__item:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.dark .el-select-dropdown__item.is-selected {
+  color: #a8c7fa !important;
+  background-color: rgba(168, 199, 250, 0.1) !important;
+}
+
+.dark .el-picker-panel {
+  background-color: #111827 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+}
+
+.dark .el-picker-panel__icon-btn,
+.dark .el-date-picker__header-label,
+.dark .el-date-table th,
+.dark .el-date-table td {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.dark .el-date-table td.available:hover {
+  color: #a8c7fa !important;
+}
+.dark .el-date-table td.current:not(.disabled) .el-date-table-cell__text {
+  background-color: #a8c7fa !important;
+  color: #000 !important;
+}
 </style>
