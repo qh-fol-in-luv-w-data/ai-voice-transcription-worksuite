@@ -83,9 +83,9 @@ const localSubmitEnrollment = async () => {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px] px-4 md:px-8 mx-auto flex flex-col gap-lg pb-xl pt-lg fade-in">
-    <header class="mb-md">
-      <h2 class="font-headline-lg text-headline-lg text-on-surface mb-sm">{{ t('enroll_title') }}</h2>
+  <div class="w-full max-w-[1200px] px-4 md:px-8 mx-auto flex flex-col gap-md py-4 fade-in h-[calc(100vh-80px)]">
+    <header class="mb-2 shrink-0">
+      <h2 class="font-headline-lg text-headline-lg text-on-surface mb-1">{{ t('enroll_title') }}</h2>
       <p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">{{ t('enroll_desc') }}</p>
     </header>
     
@@ -103,11 +103,11 @@ const localSubmitEnrollment = async () => {
       <!-- Action Area -->
       <div class="flex flex-col gap-md flex-1">
         <h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Cung cấp mẫu giọng nói</h3>
-        <div class="bg-surface-container/30 p-lg rounded-xl flex flex-col items-center justify-center min-h-[300px] border-dashed border-2 border-outline-variant hover:border-primary transition-colors relative group h-full">
-          <div class="w-full max-w-md flex flex-col items-center gap-xl relative z-10 gap-lg">
+        <div class="bg-surface-container/30 p-lg rounded-xl flex flex-col items-center justify-center border-dashed border-2 border-outline-variant hover:border-primary transition-colors relative group flex-1 min-h-[200px]">
+          <div class="w-full max-w-md flex flex-col items-center gap-md relative z-10">
             
             <!-- Record Button -->
-            <button @click="localToggleRecording" :class="['flex items-center justify-center gap-sm font-headline-md text-lg px-xl py-md rounded-full transition-all active:scale-95 w-full max-w-[280px]', localIsRecording ? 'bg-error text-on-error shadow-[0_0_25px_rgba(255,180,171,0.5)] animate-pulse' : 'bg-primary text-on-primary shadow-[0_0_15px_rgba(192,193,255,0.3)] hover:shadow-[0_0_25px_rgba(192,193,255,0.5)]']">
+            <button @click="localToggleRecording" :class="['flex items-center justify-center gap-sm font-headline-md text-lg px-lg py-3 rounded-full transition-all active:scale-95 w-full max-w-[280px]', localIsRecording ? 'bg-error text-on-error shadow-[0_0_25px_rgba(255,180,171,0.5)] animate-pulse' : 'bg-primary text-on-primary shadow-[0_0_15px_rgba(192,193,255,0.3)] hover:shadow-[0_0_25px_rgba(192,193,255,0.5)]']">
               <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">{{ localIsRecording ? 'stop_circle' : 'mic' }}</span>
               {{ localIsRecording ? t('btn_stop') : 'Bắt đầu thu âm' }}
             </button>
@@ -137,7 +137,7 @@ const localSubmitEnrollment = async () => {
     </div>
     
     <!-- Final Action -->
-    <div class="mt-xl flex flex-col items-center pt-lg border-t border-outline-variant justify-center gap-md">
+    <div class="mt-4 flex flex-col items-center pt-4 border-t border-outline-variant justify-center gap-md shrink-0">
       <button @click="localSubmitEnrollment" :disabled="localIsEnrolling || !localEnrollAudioFile" :class="['font-headline-md text-lg px-xl py-sm rounded-lg transition-colors min-w-[200px] flex items-center justify-center gap-2', (localIsEnrolling || !localEnrollAudioFile) ? 'bg-surface-variant text-on-surface-variant opacity-50 cursor-not-allowed' : 'bg-primary-container text-on-primary-container hover:bg-primary active:scale-95']">
         <span v-if="localIsEnrolling" class="material-symbols-outlined animate-spin text-[20px]">autorenew</span>
         {{ localIsEnrolling ? t('status_enrolling') : 'Đăng ký Hệ thống' }}

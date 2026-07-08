@@ -45,7 +45,7 @@ const selectMeetingFromModal = (meeting) => {
 </script>
 
 <template>
-<aside class="bg-surface/95 dark:bg-[#0a0f1c]/95 backdrop-blur-xl flex flex-col py-6 docked fixed left-0 h-full w-[280px] border-r border-outline-variant/30 dark:border-white/5 z-20 hidden md:flex shadow-2xl">
+<aside class="bg-white dark:bg-[#0a0f1c]/95 backdrop-blur-xl flex flex-col py-6 docked fixed left-0 h-full w-[280px] border-r border-outline-variant/30 dark:border-white/5 z-20 hidden md:flex shadow-2xl">
 <!-- Header Logo -->
 <div class="px-6 mb-10 flex items-center gap-3">
 <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-secondary to-primary flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(192,193,255,0.3)]">
@@ -84,7 +84,7 @@ const selectMeetingFromModal = (meeting) => {
 <!-- History Modal -->
 <Teleport to="body">
 <div v-if="isHistoryModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
-  <div class="bg-surface dark:bg-surface-container border border-outline-variant/30 rounded-3xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+  <div class="bg-white dark:bg-surface-container border border-outline-variant/30 rounded-3xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-xl font-bold text-on-surface dark:text-white tracking-wide">Lịch sử Cuộc họp</h2>
       <button @click="isHistoryModalOpen = false" class="w-8 h-8 rounded-full hover:bg-surface-variant/50 dark:hover:bg-white/10 flex items-center justify-center text-on-surface-variant hover:text-error transition-colors">

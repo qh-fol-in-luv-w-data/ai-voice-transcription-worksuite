@@ -284,153 +284,105 @@ const startExtractTasks = async () => {
 </script>
 
 <template>
-<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-xl pt-lg">
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md h-[calc(100vh-20px)] flex flex-col">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch flex-1 overflow-hidden">
     
     <!-- LEFT COLUMN: Audio Analysis -->
-    <div class="bg-surface-container/60 backdrop-blur-2xl border border-outline-variant/30 rounded-3xl p-6 shadow-2xl flex flex-col h-full">
-      <h2 class="text-2xl font-bold text-on-surface mb-6 font-headline-md tracking-tight">Audio Analysis</h2>
+    <div class="bg-white border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
+      <h2 class="text-xl font-bold text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
       <!-- Dropzone & Progress Overlay -->
-      <div class="relative border-2 border-dashed border-outline-variant/50 rounded-2xl p-8 flex flex-col items-center justify-center transition-all group flex-1 min-h-[250px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
+      <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group flex-1 min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
         <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
         
-        <div class="relative mb-6">
-          <div class="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <span class="material-symbols-outlined text-[80px] text-primary drop-shadow-[0_0_15px_rgba(192,193,255,0.3)] transition-transform group-hover:scale-110">cloud_upload</span>
-          <div v-if="audioFile" class="absolute bottom-2 right-2 w-8 h-8 bg-surface rounded-full flex items-center justify-center shadow-lg border border-primary">
-            <span class="material-symbols-outlined text-primary text-sm">play_arrow</span>
-          </div>
+        <div class="relative mb-4">
+          <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
         </div>
         
-        <p class="font-body-md text-on-surface font-medium mb-4 text-center">Drag &amp; drop a file here, or click to select.</p>
+        <p class="font-body-md text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
         
-        <div v-if="audioFile" class="flex items-center gap-2 bg-surface-container-highest/80 px-4 py-2 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm backdrop-blur-sm">
-           <span class="font-body-sm text-on-surface truncate font-bold">{{ audioFile.name }}</span>
-           <span v-if="!isTranscribing" class="material-symbols-outlined text-[16px] text-on-surface-variant cursor-pointer hover:text-error transition-colors" @click.stop.prevent="audioFile = null">close</span>
+        <div v-if="audioFile" class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
+           <span class="font-body-sm text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
+           <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-on-surface-variant cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
         </div>
 
-        <!-- Progress Bar Overlay (Blocks Dropzone) -->
-        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-[#0a0f1c]/90 backdrop-blur-md z-30 flex flex-col justify-end p-8">
-          <div class="w-full space-y-3">
-            <div class="h-4 bg-surface-container-highest/50 rounded-full overflow-hidden relative shadow-inner border border-outline-variant/20">
-              <div class="absolute inset-y-0 left-0 bg-gradient-to-r from-secondary to-primary transition-all duration-1000 rounded-full flex items-center justify-end pr-2" :style="{ width: transcribeProgress + '%' }">
-                 <div class="w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_5px_white]"></div>
-              </div>
+        <!-- Progress Bar Overlay -->
+        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
+          <div class="w-full space-y-2">
+            <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
+              <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
             </div>
-            <div class="flex justify-between items-center text-sm font-medium">
-              <span class="text-white">{{ transcribeProgress }}%</span>
-              <span class="text-on-surface-variant flex items-center gap-2 text-xs">
-                <span class="material-symbols-outlined text-[14px] animate-spin text-primary">autorenew</span>
-                {{ transcribeStatus || 'Đang chuẩn bị file âm thanh...' }}
-              </span>
+            <div class="flex justify-between items-center text-xs font-medium text-on-surface-variant">
+              <span>{{ transcribeProgress }}%</span>
+              <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px] animate-spin">autorenew</span> {{ transcribeStatus || 'Processing...' }}</span>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Custom Audio Player -->
-      <div v-if="audioUrl" class="mt-8 border-t border-outline-variant/30 pt-6">
-        <div class="flex items-center gap-4 bg-surface-container-highest/30 rounded-2xl p-4 border border-outline-variant/20 shadow-inner">
+      <div v-if="audioUrl" class="mt-4 border-t border-outline-variant/30 pt-4">
+        <div class="flex items-center gap-3 bg-white rounded-xl p-3 border border-outline-variant/20 shadow-inner">
            <audio ref="audioPlayerRef" :src="audioUrl" @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @ended="isPlaying = false" class="hidden"></audio>
-           
-           <button @click="togglePlay" class="w-12 h-12 rounded-full bg-gradient-to-br from-secondary to-primary flex items-center justify-center text-on-primary shadow-[0_0_15px_rgba(192,193,255,0.4)] hover:scale-105 transition-transform shrink-0">
-              <span class="material-symbols-outlined text-[24px]">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
+           <button @click="togglePlay" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shrink-0 hover:scale-105 transition-transform">
+              <span class="material-symbols-outlined">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
            </button>
-           
-           <div class="flex-1 flex flex-col gap-1.5">
-              <div class="flex justify-between text-[11px] font-bold text-on-surface-variant/80 tracking-wider">
-                 <span>{{ formatTime(currentTime) }}</span>
-                 <span>{{ formatTime(duration) }}</span>
-              </div>
-              <input type="range" min="0" :max="duration || 100" v-model="currentTime" @input="seek" class="w-full h-1.5 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary outline-none focus:outline-none shadow-inner" />
+           <div class="flex-1 flex flex-col gap-1">
+              <input type="range" min="0" :max="duration || 100" v-model="currentTime" @input="seek" class="w-full h-1 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary" />
            </div>
-
-           <div class="flex items-center gap-2 w-24 shrink-0 border-l border-outline-variant/30 pl-4">
-              <span class="material-symbols-outlined text-on-surface-variant text-[18px]">volume_up</span>
-              <input type="range" min="0" max="1" step="0.01" v-model="volume" @input="updateVolume" class="w-full h-1.5 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary outline-none focus:outline-none" />
-           </div>
+           <span class="text-[10px] font-bold text-on-surface-variant">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
         </div>
       </div>
       
-      <div class="mt-6 flex justify-center">
-        <button @click="startTranscribe" :disabled="isTranscribing" class="w-full bg-gradient-to-r from-secondary/80 to-primary/80 hover:from-secondary hover:to-primary text-on-primary font-headline-md text-[18px] font-bold py-3.5 px-8 rounded-full shadow-lg transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-3 border border-white/20">
-          <span class="material-symbols-outlined text-[24px]" :class="{ 'animate-spin': isTranscribing }">{{ isTranscribing ? 'autorenew' : 'graphic_eq' }}</span>
-          {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
-        </button>
-      </div>
-
+      <button @click="startTranscribe" :disabled="isTranscribing" class="mt-4 w-full bg-primary text-white font-bold py-2.5 px-6 rounded-xl shadow-md transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 flex justify-center items-center gap-2">
+        <span class="material-symbols-outlined text-[20px]" :class="{ 'animate-spin': isTranscribing }">{{ isTranscribing ? 'autorenew' : 'graphic_eq' }}</span>
+        {{ isTranscribing ? 'Analyzing...' : 'Start Transcribe' }}
+      </button>
     </div>
 
     <!-- RIGHT COLUMN: Meeting Details -->
-    <div class="bg-surface-container/60 backdrop-blur-2xl border border-outline-variant/30 rounded-3xl p-6 shadow-2xl flex flex-col h-full space-y-6">
-      <h2 class="text-2xl font-bold text-on-surface mb-2 font-headline-md tracking-tight">Meeting Details</h2>
+    <div class="bg-white border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
+      <h2 class="text-xl font-bold text-on-surface mb-4 font-headline-md">Meeting Details</h2>
       
       <!-- Language -->
-      <div class="flex gap-4 items-start">
-         <div class="w-12 h-12 rounded-2xl bg-error-container/30 flex items-center justify-center shrink-0 border border-error-container/50 shadow-sm">
-            <span class="material-symbols-outlined text-error font-light text-[24px]">language</span>
-         </div>
-         <div class="flex-1">
-            <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Language</label>
-            <div class="relative">
-               <select v-model="language" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface dark:text-white dark:bg-[#1a1c22] focus:outline-none focus:border-primary/70 transition-colors shadow-inner" style="-webkit-appearance: none; -moz-appearance: none; appearance: none;">
-                  <option v-for="l in languages" :key="l.val" :value="l.val" class="bg-surface dark:bg-[#1a1c22]">{{ l.label }}</option>
-               </select>
-               <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">keyboard_arrow_down</span>
-            </div>
-         </div>
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Language</label>
+         <select v-model="language" class="w-full bg-white border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
+            <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
+         </select>
       </div>
 
       <!-- Participants -->
-      <div class="flex gap-4 items-start">
-         <div class="w-12 h-12 rounded-2xl bg-secondary-container/30 flex items-center justify-center shrink-0 border border-secondary-container/50 shadow-sm">
-            <span class="material-symbols-outlined text-secondary font-light text-[24px]">group</span>
-         </div>
-         <div class="flex-1">
-            <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Participants</label>
-            <input type="number" v-model="numAttendees" min="0" max="20" placeholder="0 = Tự động" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-3 text-body-md text-on-surface dark:text-white focus:outline-none focus:border-primary/70 transition-colors shadow-inner">
-         </div>
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Participants</label>
+         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-white border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
       </div>
 
       <!-- Keywords -->
-      <div class="flex gap-4 items-start">
-         <div class="w-12 h-12 rounded-2xl bg-tertiary-container/30 flex items-center justify-center shrink-0 border border-tertiary-container/50 shadow-sm">
-            <span class="material-symbols-outlined text-tertiary font-light text-[24px]">format_list_bulleted</span>
-         </div>
-         <div class="flex-1">
-            <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Keywords</label>
-            <textarea v-model="vocabulary" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-3 text-body-md text-on-surface dark:text-white placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors shadow-inner resize-none min-h-[90px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
-         </div>
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Keywords</label>
+         <textarea v-model="vocabulary" class="w-full bg-white border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
       </div>
 
-      <!-- Meeting Info Header -->
-      <div class="flex gap-4 items-center mt-2">
-         <div class="w-12 h-12 rounded-2xl bg-primary-container/30 flex items-center justify-center shrink-0 border border-primary-container/50 shadow-sm">
-            <span class="material-symbols-outlined text-primary font-light text-[24px]">event_note</span>
+      <!-- Date -->
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Date</label>
+         <div class="w-full bg-white border border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
+            <el-date-picker
+               v-model="meetingDate"
+               type="datetime"
+               format="DD/MM/YYYY HH:mm"
+               placeholder="08/07/2026 17:51"
+               class="w-full custom-el-override"
+               style="width: 100%; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;"
+            />
          </div>
-         <h3 class="text-[15px] font-bold text-on-surface-variant uppercase tracking-wider">Meeting Info</h3>
       </div>
-      
-      <div class="pl-[64px] space-y-5 -mt-3">
-         <!-- Date -->
-         <div class="flex-1">
-            <div class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-1 py-1 transition-colors overflow-hidden">
-               <el-date-picker
-                  v-model="meetingDate"
-                  type="datetime"
-                  format="DD/MM/YYYY HH:mm"
-                  placeholder="08/07/2026 17:51"
-                  class="w-full custom-el-override"
-                  style="width: 100%; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;"
-               />
-            </div>
-         </div>
          
          <!-- Location -->
          <div class="flex-1">
             <label class="text-[12px] font-bold text-on-surface-variant/70 mb-1 block">Location</label>
-            <input v-model="meetingLocation" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-2.5 text-body-md text-on-surface dark:text-white placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+            <input v-model="meetingLocation" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-2 text-body-md text-on-surface dark:text-white placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
          </div>
          
          <!-- Host -->
@@ -453,7 +405,6 @@ const startExtractTasks = async () => {
                </el-select>
             </div>
          </div>
-      </div>
 
     </div>
   </div>
@@ -483,7 +434,7 @@ const startExtractTasks = async () => {
         default-first-option
         placeholder="Chọn nhân viên hoặc nhập tên..."
         style="flex: 1"
-        class="custom-el-select-premium"
+        class="w-full custom-el-override"
       >
         <el-option
           v-for="opt in employeeOptions"
@@ -503,7 +454,7 @@ const startExtractTasks = async () => {
 </div>
 
 <!-- TRANSCRIPT CARD -->
-<div v-if="transcriptResults.length > 0" class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm flex flex-col h-[700px]">
+<div v-if="transcriptResults.length > 0" class="bg-white dark:bg-[#0a0f1c]/90 border border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[300px]">
   <div class="border-b border-outline-variant pb-md mb-md flex flex-col md:flex-row md:items-center justify-between gap-md shrink-0">
     <div>
       <h3 class="font-headline-md text-headline-md text-on-surface">{{ t('transcript_result') }}</h3>
@@ -544,30 +495,44 @@ const startExtractTasks = async () => {
 
 <style>
 /* Base override for element plus in light/dark mode */
-.custom-el-override .el-input__wrapper {
+.custom-el-override {
+  --el-fill-color-blank: transparent !important;
+  --el-input-bg-color: transparent !important;
+  --el-bg-color: transparent !important;
+  --el-bg-color-overlay: transparent !important;
+  background-color: transparent !important;
+}
+
+.custom-el-override .el-input__wrapper,
+.custom-el-override .el-select__wrapper {
   background-color: transparent !important;
   box-shadow: none !important;
   border: none !important;
 }
 
-.custom-el-override .el-input__inner {
+.custom-el-override .el-input__inner,
+.custom-el-override .el-select__placeholder {
   color: inherit !important;
 }
 
-.dark .custom-el-override .el-input__inner {
+.dark .custom-el-override .el-input__inner,
+.dark .custom-el-override .el-select__placeholder {
   color: white !important;
 }
 
-.custom-el-override .el-input__inner::placeholder {
+.custom-el-override .el-input__inner::placeholder,
+.custom-el-override .el-select__placeholder.is-transparent {
   color: rgba(128, 128, 128, 0.6) !important;
 }
 
-.dark .custom-el-override .el-input__inner::placeholder {
+.dark .custom-el-override .el-input__inner::placeholder,
+.dark .custom-el-override .el-select__placeholder.is-transparent {
   color: rgba(255, 255, 255, 0.4) !important;
 }
 
 .custom-el-override .el-input__prefix,
-.custom-el-override .el-input__suffix {
+.custom-el-override .el-input__suffix,
+.custom-el-override .el-select__caret {
   color: inherit !important;
 }
 
