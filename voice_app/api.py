@@ -512,6 +512,14 @@ def _extract_tasks_async(payload, user, session_id_header):
 
     cache_key = f"extract_result_{meeting_name}"
 
+    if not results and meeting_name:
+        try:
+            raw_results = frappe.db.get_value("Voice Meeting", meeting_name, "raw_results")
+            if raw_results:
+                results = json.loads(raw_results)
+        except Exception:
+            pass
+
     if not results:
         frappe.cache().set_value(cache_key, {"status": "error", "message": "Không có nội dung để tạo task"}, expires_in_sec=86400)
         return
