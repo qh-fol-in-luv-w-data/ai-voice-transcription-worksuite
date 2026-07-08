@@ -135,4 +135,9 @@ body {
   background-color: #a8c7fa !important;
   color: #000 !important;
 }
+
+/* Override Tailwind Forms plugin's hardcoded white background */
+[type='text'], [type='email'], [type='url'], [type='password'], [type='number'], [type='date'], [type='datetime-local'], [type='month'], [type='search'], [type='tel'], [type='time'], [type='week'], [multiple], textarea, select {
+  background-color: transparent !important;
+}
 </style>
