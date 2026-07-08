@@ -150,7 +150,7 @@ const onAttendeeSelect = (val) => {
         </div>
 
         <div class="p-5">
-        <el-table :data="tasks" style="width: 100%" size="large" class="custom-task-table">
+        <el-table :data="tasks" style="width: 100%" size="large" stripe class="custom-task-table">
           <el-table-column type="index" label="#" width="50" align="center" />
           
           <el-table-column :label="t('col_name')" min-width="250">
@@ -298,6 +298,10 @@ html.dark :deep(.el-table th.el-table__cell) {
 /* Body Rows */
 html.dark :deep(.el-table tr) {
   background-color: transparent !important;
+}
+
+html.dark :deep(.el-table .el-table__row--striped td.el-table__cell) {
+  background-color: rgba(255, 255, 255, 0.02) !important;
 }
 
 /* Body Cells */
