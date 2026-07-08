@@ -42,8 +42,8 @@ const downloadFile = (url, defaultName) => {
 
 const employeeOptions = computed(() => {
   return props.dbEmployees.map(emp => ({
-    value: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : ''),
-    label: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '')
+    value: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - '),
+    label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
   }))
 })
 
