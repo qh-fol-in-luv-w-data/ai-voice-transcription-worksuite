@@ -579,7 +579,7 @@ def _extract_tasks_async(payload, user, session_id_header):
             file_doc = save_file(docx_filename, f.read(), None, None, is_private=0)
             docx_url = file_doc.file_url
 
-        items, hr_projects_map, errors, employees, task_usage = extract_tasks_only(docx_filename, model_type=model_type)
+        items, hr_projects_map, errors, employees, task_usage = extract_tasks_only(docx_filename, model_type="gpt-4o-mini")
 
         if os.path.exists(docx_filename): os.remove(docx_filename)
 
