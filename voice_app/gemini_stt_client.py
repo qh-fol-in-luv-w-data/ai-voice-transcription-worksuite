@@ -32,7 +32,13 @@ def _get_api_key():
     except Exception: pass
     return get_gemini_api_key()
 
-async def _upload_file(session: aiohttp.ClientSession, wav_path, api_key):
+async def _upload_file(session: aiohttp.ClientSession, wav_path, api_key, upload_semaphore=None):
+    if upload_semaphore:
+        async with upload_semaphore:
+            return await _do_upload_file(session, wav_path, api_key)
+    return await _do_upload_file(session, wav_path, api_key)
+
+async def _do_upload_file(session: aiohttp.ClientSession, wav_path, api_key):
     file_size = os.path.getsize(wav_path)
     headers = {
         "X-Goog-Upload-Protocol": "resumable",
@@ -50,8 +56,8 @@ async def _upload_file(session: aiohttp.ClientSession, wav_path, api_key):
             timeout=60,
         ) as init:
             if init.status == 429 and attempt < _RETRY_MAX - 1:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt)
-                print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay}s...")
+                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
+                print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
                 await asyncio.sleep(delay)
                 continue
             init.raise_for_status()
@@ -61,32 +67,39 @@ async def _upload_file(session: aiohttp.ClientSession, wav_path, api_key):
     with open(wav_path, "rb") as f:
         data = f.read()
         
-    async with session.post(
-        upload_url,
-        headers={
-            "Content-Length": str(file_size),
-            "X-Goog-Upload-Offset": "0",
-            "X-Goog-Upload-Command": "upload, finalize",
-        },
-        data=data,
-        timeout=600,
-    ) as upload_resp:
-        upload_resp.raise_for_status()
-        resp_json = await upload_resp.json()
-        file_info = resp_json["file"]
-        file_uri  = file_info["uri"]
-        file_name = file_info["name"]
+    for attempt in range(_RETRY_MAX):
+        async with session.post(
+            upload_url,
+            headers={
+                "Content-Length": str(file_size),
+                "X-Goog-Upload-Offset": "0",
+                "X-Goog-Upload-Command": "upload, finalize",
+            },
+            data=data,
+            timeout=600,
+        ) as upload_resp:
+            if upload_resp.status == 429 and attempt < _RETRY_MAX - 1:
+                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
+                print(f"[Gemini STT] 429 upload data, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
+                await asyncio.sleep(delay)
+                continue
+            upload_resp.raise_for_status()
+            resp_json = await upload_resp.json()
+            file_info = resp_json["file"]
+            file_uri  = file_info["uri"]
+            file_name = file_info["name"]
+            break
         
     print(f"[Gemini STT] Uploaded → {file_uri}, chờ ACTIVE...")
 
-    for _ in range(30):
+    for attempt in range(30):
         async with session.get(
             f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
             timeout=30,
         ) as status_resp:
             if status_resp.status in [403, 429, 500, 502, 503, 504]:
                 print(f"[Gemini STT] File status polling returned {status_resp.status}, retrying...")
-                await asyncio.sleep(5)
+                await asyncio.sleep(5 + random.uniform(0, 2))
                 continue
             status_resp.raise_for_status()
             resp_json = await status_resp.json()
@@ -443,7 +456,7 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
                         completed_chunks.add(chunk_idx)
                     except: pass
         
-        async def _process_single_chunk(session, idx, chunk_wav, offset, is_subchunk=False):
+        async def _process_single_chunk(session, idx, chunk_wav, offset, upload_semaphore=None, is_subchunk=False):
             try:
                 if not is_subchunk and idx in completed_chunks:
                     print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks)} vì đã hoàn thành trước đó.")
@@ -454,7 +467,7 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
                     print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
                 
                 chunk_duration = get_duration(chunk_wav)
-                file_uri, file_name = await _upload_file(session, chunk_wav, api_key)
+                file_uri, file_name = await _upload_file(session, chunk_wav, api_key, upload_semaphore)
                 chunk_error = None
                 try:
                     gemini_segments, chunk_usage, chunk_error = await _call_gemini_stream(
@@ -527,7 +540,7 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
                         resume_audio.export(resume_wav, format="wav")
                         
                         _, r_segs, r_words, r_txt, r_use, r_err = await _process_single_chunk(
-                            session, f"{idx}_resume", resume_wav, offset + last_valid_timestamp, is_subchunk=True
+                            session, f"{idx}_resume", resume_wav, offset + last_valid_timestamp, upload_semaphore, is_subchunk=True
                         )
                         
                         try: os.remove(resume_wav)
@@ -558,10 +571,11 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
 
         # Hạn chế số kết nối đồng thời với connector (tăng luồng song song lên 15)
         connector = aiohttp.TCPConnector(limit=15)
+        upload_semaphore = asyncio.Semaphore(2)  # Limit concurrent Gemini File API uploads to 2 to prevent 429
         
         async with aiohttp.ClientSession(connector=connector, read_bufsize=20971520) as session:
             tasks = [
-                _process_single_chunk(session, idx, chunk_wav, offset)
+                _process_single_chunk(session, idx, chunk_wav, offset, upload_semaphore)
                 for idx, (chunk_wav, offset) in enumerate(chunks)
             ]
             
