@@ -6,12 +6,12 @@ const { currentUser, currentFullName } = useSession()
 </script>
 
 <template>
-<header class="bg-surface-container dark:bg-surface-container flex justify-between items-center h-16 px-gutter w-full border-b border-outline-variant shrink-0 z-10 sticky top-0">
+<header class="bg-background/90 dark:bg-background/90 backdrop-blur-md flex justify-between items-center h-16 px-gutter w-full border-b border-outline-variant shrink-0 z-10 sticky top-0">
 <div class="flex items-center gap-md">
 <button class="md:hidden text-on-surface-variant p-sm hover:bg-surface-variant rounded-full transition-colors">
 <span class="material-symbols-outlined">menu</span>
 </button>
-<div class="font-headline-md text-headline-md font-bold text-primary dark:text-primary">
+<div class="font-headline-md text-headline-md font-bold text-on-surface hidden md:block">
                     2AS Worksuite
                 </div>
 </div>

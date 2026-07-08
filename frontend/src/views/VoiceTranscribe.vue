@@ -243,7 +243,7 @@ const startExtractTasks = async () => {
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÔN NGỮ</label>
 <div class="relative">
-<select v-model="language" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
+<select v-model="language" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
 <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
 </select>
 <span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
@@ -252,7 +252,7 @@ const startExtractTasks = async () => {
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">SỐ NGƯỜI THAM DỰ</label>
 <div class="relative">
-<select v-model="numAttendees" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
+<select v-model="numAttendees" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
 <option>Tự động</option>
 <option>1</option>
 <option>2</option>
@@ -267,7 +267,7 @@ const startExtractTasks = async () => {
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider flex justify-between">
 <span class="">TỪ VỰNG ĐẶC BIỆT (TÙY CHỌN)</span>
 </label>
-<textarea v-model="vocabulary" class="w-full bg-surface border border-outline-variant rounded-md px-md py-sm text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow resize-y" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." rows="2"></textarea>
+<textarea v-model="vocabulary" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-sm text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow resize-y" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." rows="2"></textarea>
 </div>
 </section>
 <!-- Section 2: Thông tin cuộc họp -->
@@ -280,17 +280,17 @@ const startExtractTasks = async () => {
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÀY GIỜ BẮT ĐẦU</label>
 <div class="relative">
 <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">schedule</span>
-<input v-model="meetingDate" class="w-full bg-surface border border-outline-variant rounded-md pl-10 pr-md py-2.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" type="text" />
+<input v-model="meetingDate" class="w-full !bg-surface border border-outline-variant rounded-md pl-10 pr-md py-2.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" type="text" />
 </div>
 </div>
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">ĐỊA ĐIỂM</label>
-<input v-model="meetingLocation" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" placeholder="Nhập địa điểm..." type="text">
+<input v-model="meetingLocation" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" placeholder="Nhập địa điểm..." type="text">
 </div>
 <div class="flex flex-col gap-xs md:col-span-2">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGƯỜI CHỦ TRÌ</label>
 <div class="relative">
-<select v-model="hostId" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow text-on-surface-variant">
+<select v-model="hostId" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow text-on-surface-variant">
 <option disabled value="">Chọn người chủ trì...</option>
 <option v-for="emp in dbEmployees" :key="emp.user_id" :value="emp.user_id">{{ emp.employee_name }}</option>
 </select>
