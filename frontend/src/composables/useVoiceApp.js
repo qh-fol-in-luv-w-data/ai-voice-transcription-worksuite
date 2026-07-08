@@ -196,6 +196,19 @@ export const loadHistory = async () => {
 export const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
   activeTab.value = 'view_meeting'
+  
+  if (meeting.tasks_json) {
+    try {
+      tasks.value = typeof meeting.tasks_json === 'string' 
+        ? JSON.parse(meeting.tasks_json) 
+        : meeting.tasks_json
+    } catch (e) {
+      console.error("Failed to parse tasks_json", e)
+      tasks.value = []
+    }
+  } else {
+    tasks.value = []
+  }
 }
 
 export const currentLocalDate = () => {
