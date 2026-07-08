@@ -284,11 +284,11 @@ const startExtractTasks = async () => {
 </script>
 
 <template>
-<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md h-[calc(100vh-20px)] flex flex-col">
+<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md flex-1 min-h-0 h-full flex flex-col">
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch flex-1 overflow-hidden">
     
     <!-- LEFT COLUMN: Audio Analysis -->
-    <div class="bg-white border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
+    <div class="bg-surface border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
       <h2 class="text-xl font-bold text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
       <!-- Dropzone & Progress Overlay -->
@@ -301,13 +301,13 @@ const startExtractTasks = async () => {
         
         <p class="font-body-md text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
         
-        <div v-if="audioFile" class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
+        <div v-if="audioFile" class="flex items-center gap-2 bg-surface px-3 py-1.5 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
            <span class="font-body-sm text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
            <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-on-surface-variant cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
         </div>
 
         <!-- Progress Bar Overlay -->
-        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
+        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
           <div class="w-full space-y-2">
             <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
               <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
@@ -322,7 +322,7 @@ const startExtractTasks = async () => {
 
       <!-- Custom Audio Player -->
       <div v-if="audioUrl" class="mt-4 border-t border-outline-variant/30 pt-4">
-        <div class="flex items-center gap-3 bg-white rounded-xl p-3 border border-outline-variant/20 shadow-inner">
+        <div class="flex items-center gap-3 bg-surface rounded-xl p-3 border border-outline-variant/20 shadow-inner">
            <audio ref="audioPlayerRef" :src="audioUrl" @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @ended="isPlaying = false" class="hidden"></audio>
            <button @click="togglePlay" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shrink-0 hover:scale-105 transition-transform">
               <span class="material-symbols-outlined">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
@@ -341,13 +341,13 @@ const startExtractTasks = async () => {
     </div>
 
     <!-- RIGHT COLUMN: Meeting Details -->
-    <div class="bg-white border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
+    <div class="bg-surface border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
       <h2 class="text-xl font-bold text-on-surface mb-4 font-headline-md">Meeting Details</h2>
       
       <!-- Language -->
       <div class="space-y-1 mb-4">
          <label class="text-[11px] font-bold text-on-surface-variant uppercase">Language</label>
-         <select v-model="language" class="w-full bg-white border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
+         <select v-model="language" class="w-full bg-surface border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
             <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
          </select>
       </div>
@@ -355,19 +355,19 @@ const startExtractTasks = async () => {
       <!-- Participants -->
       <div class="space-y-1 mb-4">
          <label class="text-[11px] font-bold text-on-surface-variant uppercase">Participants</label>
-         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-white border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
+         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-surface border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
       </div>
 
       <!-- Keywords -->
       <div class="space-y-1 mb-4">
          <label class="text-[11px] font-bold text-on-surface-variant uppercase">Keywords</label>
-         <textarea v-model="vocabulary" class="w-full bg-white border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
+         <textarea v-model="vocabulary" class="w-full bg-surface border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
       </div>
 
       <!-- Date -->
       <div class="space-y-1 mb-4">
          <label class="text-[11px] font-bold text-on-surface-variant uppercase">Date</label>
-         <div class="w-full bg-white border border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
+         <div class="w-full bg-surface border border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
             <el-date-picker
                v-model="meetingDate"
                type="datetime"
@@ -454,7 +454,7 @@ const startExtractTasks = async () => {
 </div>
 
 <!-- TRANSCRIPT CARD -->
-<div v-if="transcriptResults.length > 0" class="bg-white dark:bg-[#0a0f1c]/90 border border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[300px]">
+<div v-if="transcriptResults.length > 0" class="bg-surface dark:bg-[#0a0f1c]/90 border border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[300px]">
   <div class="border-b border-outline-variant pb-md mb-md flex flex-col md:flex-row md:items-center justify-between gap-md shrink-0">
     <div>
       <h3 class="font-headline-md text-headline-md text-on-surface">{{ t('transcript_result') }}</h3>
