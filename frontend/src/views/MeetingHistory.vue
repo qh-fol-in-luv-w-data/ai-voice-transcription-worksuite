@@ -181,7 +181,7 @@ const openTaskModal = () => {
       <div class="flex flex-wrap gap-3 mt-sm">
         <button @click="openTaskModal" class="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 rounded-lg text-primary hover:bg-primary/20 transition-colors font-body-sm text-body-sm font-bold shadow-sm" :disabled="isExtracting">
           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
-          {{ isExtracting ? 'Đang trích xuất...' : 'Trích xuất Task' }}
+          {{ isExtracting ? 'Đang trích xuất...' : (tasks.length > 0 ? 'Xem Task đã trích xuất' : 'Trích xuất Task') }}
         </button>
 
         <button v-if="meeting.minute_docx" @click="downloadFile(meeting.minute_docx, meeting.title + '.docx')" class="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-surface-container border border-gray-200 dark:border-outline-variant rounded-lg text-secondary hover:bg-gray-100 dark:hover:bg-surface-container-highest transition-colors font-body-sm text-body-sm">
