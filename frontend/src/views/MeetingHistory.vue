@@ -79,7 +79,7 @@ const enrollMapped = async () => {
   }
   isEnrollingMapped.value = true
   try {
-    const res = await enrollMappedSpeakers(props.meeting.title, validMappings)
+    const res = await enrollMappedSpeakers(props.meeting.name, validMappings)
     const enrolled = res?.enrolled || []
     const errors = res?.errors || []
     const skipped = res?.skipped || []
@@ -93,7 +93,7 @@ const enrollMapped = async () => {
       if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
     }
     
-    await updateMeetingResults(props.meeting.title, parseSegments.value)
+    await updateMeetingResults(props.meeting.name, parseSegments.value)
     speakerMapping.value = {}
   } catch(e) {
     alert('❌ Lỗi: ' + e.message)
@@ -112,11 +112,11 @@ const startExtractTasks = async () => {
   extractStatus.value = props.t('status_extract_wait')
   
   try {
-    const res = await extractTasks(parseSegments.value, modelType.value, props.meeting.title)
+    const res = await extractTasks(parseSegments.value, modelType.value, props.meeting.name)
     if (res.status === 'processing') {
       const pollTimer = setInterval(async () => {
         try {
-          const pollRes = await checkExtractStatus(props.meeting.title)
+          const pollRes = await checkExtractStatus(props.meeting.name)
           if (pollRes.status === 'success') {
             clearInterval(pollTimer)
             extractStatus.value = props.t('status_extract_ok')
