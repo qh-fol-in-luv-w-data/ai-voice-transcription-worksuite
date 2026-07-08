@@ -439,7 +439,9 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
         print(f"[Gemini STT] File {duration:.1f}s, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
 
-        chunks = split_audio_by_silence(wav_path, chunk_length_sec=1200.0, max_chunk_sec=1500.0)
+        chunk_target = 600.0
+        chunk_max = 750.0
+        chunks = split_audio_by_silence(wav_path, chunk_length_sec=chunk_target, max_chunk_sec=chunk_max)
         if progress_callback:
             progress_callback(20, f"Đang xử lý song song {len(chunks)} đoạn âm thanh...")
         
@@ -571,7 +573,7 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
 
         # Hạn chế số kết nối đồng thời với connector (tăng luồng song song lên 15)
         connector = aiohttp.TCPConnector(limit=15)
-        upload_semaphore = asyncio.Semaphore(2)  # Limit concurrent Gemini File API uploads to 2 to prevent 429
+        upload_semaphore = asyncio.Semaphore(3)  # Limit concurrent Gemini File API uploads to 3
         
         async with aiohttp.ClientSession(connector=connector, read_bufsize=20971520) as session:
             tasks = [
