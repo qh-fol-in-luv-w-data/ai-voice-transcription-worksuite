@@ -588,7 +588,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         total_tok_all   = 0
         chunk_errors    = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             future_to_idx = {
                 executor.submit(_process_single_chunk, idx, chunk_wav, offset): idx
                 for idx, (chunk_wav, offset) in enumerate(chunks)
