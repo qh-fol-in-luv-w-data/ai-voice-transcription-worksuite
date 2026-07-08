@@ -726,15 +726,18 @@ def get_employees():
                 continue
                 
             full_name = (u.get("full_name") or "").strip()
+            job_title = (u.get("job_title") or "").strip()
             
             departments = u.get("departments") or []
             dept = str(departments[0]).strip() if departments else ""
+            
+            designation = job_title if job_title else dept
             
             employees.append({
                 "name": email,
                 "employee_name": full_name,
                 "user_id": email,
-                "designation": dept
+                "designation": designation
             })
 
     except requests.RequestException as e:
