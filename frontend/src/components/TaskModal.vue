@@ -260,6 +260,63 @@ const onAttendeeSelect = (val) => {
   padding-top: 10px;
   padding-bottom: 10px;
 }
+
+:deep(.el-dialog) {
+  border-radius: 16px !important;
+  overflow: hidden;
+}
+
+html.dark :deep(.el-dialog) {
+  background-color: #1e1e2d !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html.dark :deep(.el-dialog__title) {
+  color: white !important;
+}
+
+html.dark :deep(.el-table),
+html.dark :deep(.el-table__expanded-cell) {
+  background-color: transparent !important;
+  color: #fff !important;
+}
+
+html.dark :deep(.el-table th), html.dark :deep(.el-table tr) {
+  background-color: transparent !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark :deep(.el-table td), html.dark :deep(.el-table th.is-leaf) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark :deep(.el-table--border) {
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark :deep(.el-input__wrapper), html.dark :deep(.el-textarea__inner) {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+  color: white !important;
+}
+
+html.dark :deep(.el-input__inner) {
+  color: white !important;
+}
+
+html.dark :deep(.el-select-dropdown) {
+  background-color: #1e1e2d !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark :deep(.el-select-dropdown__item) {
+  color: #e2e8f0 !important;
+}
+
+html.dark :deep(.el-select-dropdown__item.hover), html.dark :deep(.el-select-dropdown__item:hover) {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
 .space-y-6 > * + * {
   margin-top: 1.5rem;
 }
