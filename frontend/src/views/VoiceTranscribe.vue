@@ -13,6 +13,12 @@ import { currentMeetingName, originalTranscriptResults, loadHistory } from '../c
 const t = (key) => dict[uiLang.value][key] || key
 const transcribeProgress = ref(0)
 
+const numAttendees = ref('Tự động')
+const vocabulary = ref('')
+const meetingDate = ref(new Date().toLocaleString('vi-VN', { hour12: false }))
+const meetingLocation = ref('')
+const hostId = ref('')
+
 // ── STRANGER MAPPING ─────────────────────────────────────────────────────────
 const speakerMapping = ref({})
 const isEnrollingMapped = ref(false)
@@ -226,141 +232,183 @@ const startExtractTasks = async () => {
 </script>
 
 <template>
-  <div class="w-full flex flex-col gap-8 pb-10 mt-2 fade-in">
-    <!-- UPLOAD CARD -->
-    <div class="shadcn-card glow-effect border-border/50">
-      <div class="card-header border-b border-border bg-muted/5">
-        <h3 class="card-title text-xl flex items-center gap-2 font-semibold">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-foreground"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
-          {{ t('audio_processing') }}
-        </h3>
-        <p class="card-description">{{ t('audio_desc') }}</p>
-      </div>
-      <div class="card-content flex flex-col gap-6 p-8">
-        <div class="flex items-center gap-4 p-8 border-2 border-dashed border-border rounded-xl bg-muted/5 hover:bg-muted/20 transition-colors relative overflow-hidden group">
-            <div class="absolute inset-0 bg-gradient-to-r from-foreground/0 via-foreground/5 to-foreground/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
-            <input type="file" accept="audio/*" @change="handleFileChange" class="hidden" id="audio-upload" />
-            <label for="audio-upload" class="shadcn-btn cursor-pointer shrink-0 shadow-sm border border-border hover:bg-foreground hover:text-background transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-              {{ t('upload_empty') }}
-            </label>
-            <div class="flex flex-col min-w-0">
-               <span class="text-sm font-semibold text-foreground truncate">
-                 {{ audioFile ? audioFile.name : (t('no_file_selected') === 'no_file_selected' ? 'Chưa có file nào' : t('no_file_selected')) }}
-               </span>
-               <span class="text-xs text-muted-foreground">{{ t('upload_support') }}</span>
-            </div>
-        </div>
+<div class="max-w-[1000px] mx-auto space-y-lg pb-xl pt-lg">
+<!-- Section 1: Xử lý Âm thanh -->
+<section class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm">
+<div class="mb-lg">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-xs">Xử lý Âm thanh</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Tải lên file ghi âm để dịch và nhận diện người nói.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-lg mb-lg">
+<div class="flex flex-col gap-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÔN NGỮ</label>
+<div class="relative">
+<select v-model="language" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
+<option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
+</select>
+<span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">SỐ NGƯỜI THAM DỰ</label>
+<div class="relative">
+<select v-model="numAttendees" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
+<option>Tự động</option>
+<option>1</option>
+<option>2</option>
+<option>3</option>
+<option>4+</option>
+</select>
+<span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">unfold_more</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider flex justify-between">
+<span class="">TỪ VỰNG ĐẶC BIỆT (TÙY CHỌN)</span>
+</label>
+<textarea v-model="vocabulary" class="w-full bg-surface border border-outline-variant rounded-md px-md py-sm text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow resize-y" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." rows="2"></textarea>
+</div>
+</section>
+<!-- Section 2: Thông tin cuộc họp -->
+<section class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm">
+<div class="mb-lg">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-xs">Thông tin cuộc họp (Dùng cho Biên bản)</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-lg">
+<div class="flex flex-col gap-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÀY GIỜ BẮT ĐẦU</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">schedule</span>
+<input v-model="meetingDate" class="w-full bg-surface border border-outline-variant rounded-md pl-10 pr-md py-2.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" type="text" />
+</div>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">ĐỊA ĐIỂM</label>
+<input v-model="meetingLocation" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" placeholder="Nhập địa điểm..." type="text">
+</div>
+<div class="flex flex-col gap-xs md:col-span-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGƯỜI CHỦ TRÌ</label>
+<div class="relative">
+<select v-model="hostId" class="w-full bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow text-on-surface-variant">
+<option disabled value="">Chọn người chủ trì...</option>
+<option v-for="emp in dbEmployees" :key="emp.user_id" :value="emp.user_id">{{ emp.employee_name }}</option>
+</select>
+<span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 3: Upload & Progress -->
+<section class="space-y-lg">
+<!-- Dropzone -->
+<div class="relative border-2 border-dashed border-outline-variant bg-surface-container/50 hover:bg-surface-container hover:border-primary rounded-xl p-xl flex flex-col items-center justify-center cursor-pointer transition-all min-h-[200px] group">
+<input type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+<div class="w-16 h-16 rounded-full bg-surface-variant flex items-center justify-center mb-md group-hover:bg-primary/20 transition-colors">
+<span class="material-symbols-outlined text-4xl text-on-surface-variant group-hover:text-primary transition-colors">cloud_upload</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface font-medium mb-xs">Drag &amp; drop a file here, or click to select</p>
+<p v-if="audioFile" class="font-body-sm text-body-sm text-primary">{{ audioFile.name }}</p>
+<p v-else class="font-body-sm text-body-sm text-on-surface-variant/50">Chưa chọn file</p>
+</div>
 
-        <div class="flex items-center gap-4 flex-wrap">
-           <div class="flex-1 min-w-[200px]">
-              <label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{{ t('target_lang') }}</label>
-              <select v-model="language" class="shadcn-input w-full h-12 bg-muted/5 font-medium border-border/50 focus:border-foreground">
-                 <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
-              </select>
-           </div>
-           
-           <div class="flex-1 min-w-[200px]">
-              <label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Model</label>
-              <select v-model="modelType" class="shadcn-input w-full h-12 bg-muted/5 font-medium border-border/50 focus:border-foreground">
-                 <option value="gpt-4o-mini">GPT-4o-mini</option>
-                 <option value="gpt-4o">GPT-4o</option>
-              </select>
-           </div>
-           
-           <div class="flex-none self-end">
-              <button @click="startTranscribe" :disabled="isTranscribing" class="shadcn-btn h-12 px-8 font-bold text-background bg-foreground shadow-lg hover:bg-foreground/90 transition-all">
-                 <svg v-if="!isTranscribing" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                 <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                 {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
-              </button>
-           </div>
-        </div>
+<div class="flex justify-end gap-md items-center">
+<div class="flex items-center gap-xs">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Model:</label>
+<select v-model="modelType" class="bg-surface border border-outline-variant rounded-md px-md py-1.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary">
+  <option value="gpt-4o-mini">GPT-4o-mini</option>
+  <option value="gpt-4o">GPT-4o</option>
+</select>
+</div>
+<button @click="startTranscribe" :disabled="isTranscribing" class="bg-primary hover:bg-primary/90 text-on-primary font-bold py-2.5 px-6 rounded-md shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+  <span class="material-symbols-outlined">{{ isTranscribing ? 'autorenew' : 'play_arrow' }}</span>
+  {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
+</button>
+</div>
 
-        <div v-if="transcribeStatus" 
-             class="p-4 rounded-lg text-sm border font-medium flex flex-col gap-2 shadow-inner"
-             :class="transcribeStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (transcribeStatus.includes('⏳') || isTranscribing ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')">
-           <span>{{ transcribeStatus }}</span>
-           <div v-if="isTranscribing" class="flex items-center gap-3 mt-1">
-             <div class="flex-1 h-2 bg-foreground/10 rounded-full overflow-hidden">
-               <div class="h-full bg-primary transition-all duration-500 ease-out" :style="{ width: transcribeProgress + '%' }"></div>
-             </div>
-             <span class="text-xs font-bold text-primary w-8 text-right">{{ transcribeProgress }}%</span>
-           </div>
-        </div>
-      </div>
+<!-- Progress Bar -->
+<div v-if="isTranscribing || transcribeStatus" class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden shadow-sm relative">
+  <div class="absolute inset-0 bg-primary/10" :class="{ 'animate-pulse': isTranscribing }"></div>
+  <div class="absolute top-0 left-0 bottom-0 bg-primary/80 transition-all duration-1000" :style="{ width: transcribeProgress + '%' }"></div>
+  <div class="relative z-10 flex items-center justify-between px-md py-2">
+    <div class="flex items-center gap-sm">
+      <span class="material-symbols-outlined text-primary text-[18px]" :class="{ 'animate-spin': isTranscribing }">autorenew</span>
+      <span class="font-body-sm text-body-sm font-medium text-primary">Đang phân tích... {{ transcribeProgress }}%</span>
     </div>
-
-    <!-- STRANGER MAPPING CARD -->
-    <div v-if="unknownSpeakers.length > 0" class="shadcn-card" style="border-color: hsl(var(--primary)/0.5); border-width: 2px;">
-      <div class="card-header border-b border-border bg-muted/5">
-        <h3 class="card-title text-base font-semibold flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m19 11-2 2-2-2"/><path d="m15 15 2-2 2 2"/></svg>
-          Gán tên người tham dự
-        </h3>
-        <p class="card-description">AI phát hiện giọng nói chưa xác định. Chọn tên nhân viên thực tế để gán vào biên bản và đăng ký vào hệ thống.</p>
-      </div>
-      <div class="card-content p-4 flex flex-col gap-3">
-        <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-background border border-border p-3 rounded-lg">
-          <span class="font-bold text-sm min-w-[140px]">{{ spk }}</span>
-          <el-select
-            v-model="speakerMapping[spk]"
-            filterable
-            clearable
-            allow-create
-            default-first-option
-            placeholder="Chọn nhân viên hoặc nhập tên..."
-            style="flex: 1"
-          >
-            <el-option
-              v-for="opt in employeeOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </div>
-        <div class="flex justify-end mt-1">
-          <el-button type="primary" :loading="isEnrollingMapped" @click="enrollMapped">
-            Cập nhật danh tính & Đăng ký giọng
-          </el-button>
-        </div>
-      </div>
+    <div class="flex items-center gap-sm text-on-surface-variant opacity-80">
+      <span class="text-xs font-body-sm">{{ transcribeStatus }}</span>
     </div>
-
-    <!-- TRANSCRIPT CARD -->
-    <div v-if="transcriptResults.length > 0" class="shadcn-card border-border/50">
-      <div class="card-header border-b border-border bg-muted/5 flex justify-between items-center">
-        <div>
-          <h3 class="card-title font-semibold">{{ t('transcript_result') }}</h3>
-          <p class="card-description">{{ t('transcript_desc') }}</p>
-        </div>
-        <div class="flex gap-2">
-           <button @click="startCleanTranscript" :disabled="isCleaning" class="shadcn-btn shadcn-btn-outline" :class="isCleaned ? 'border-foreground text-foreground' : ''">
-             <svg v-if="isCleaning" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-             <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-             {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "↩ Hoàn tác" : "✨ Chuẩn hoá hội thoại") }}
-           </button>
-           
-           <button @click="openTaskModal" class="shadcn-btn bg-foreground text-background shadow-md shadow-foreground/20 hover:bg-foreground/90 transition-colors" :disabled="isExtracting">
-             <svg v-if="isExtracting" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-             <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-             {{ tasks.length > 0 ? "View Tasks" : t('extract_task') }}
-           </button>
-        </div>
-      </div>
-      <div class="card-content p-0">
-         <div class="log-view p-6 space-y-6 max-h-[600px] overflow-auto relative">
-            <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry group">
-               <div class="log-meta">
-                  <span class="log-speaker group-hover:text-primary transition-colors">{{ seg[2] }}</span>
-                  <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
-               </div>
-               <p class="log-text">{{ seg[3] }}</p>
-            </div>
-         </div>
-      </div>
-    </div>
-    
   </div>
+</div>
+
+</section>
+
+<!-- STRANGER MAPPING CARD -->
+<div v-if="unknownSpeakers.length > 0" class="bg-surface-container border border-primary rounded-xl p-lg shadow-sm">
+  <div class="mb-lg">
+    <h3 class="font-headline-md text-headline-md text-on-surface mb-xs flex items-center gap-2">
+      <span class="material-symbols-outlined">person_add</span>
+      Gán tên người tham dự
+    </h3>
+    <p class="font-body-md text-body-md text-on-surface-variant">AI phát hiện giọng nói chưa xác định. Chọn tên nhân viên thực tế để gán vào biên bản và đăng ký vào hệ thống.</p>
+  </div>
+  <div class="flex flex-col gap-3">
+    <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-background border border-outline-variant p-3 rounded-lg">
+      <span class="font-bold text-sm min-w-[140px]">{{ spk }}</span>
+      <el-select
+        v-model="speakerMapping[spk]"
+        filterable
+        clearable
+        allow-create
+        default-first-option
+        placeholder="Chọn nhân viên hoặc nhập tên..."
+        style="flex: 1"
+      >
+        <el-option
+          v-for="opt in employeeOptions"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        />
+      </el-select>
+    </div>
+    <div class="flex justify-end mt-2">
+      <button :disabled="isEnrollingMapped" @click="enrollMapped" class="bg-primary hover:bg-primary/90 text-on-primary font-medium py-2 px-4 rounded-md shadow-sm transition-all disabled:opacity-50">
+        Cập nhật danh tính & Đăng ký giọng
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TRANSCRIPT CARD -->
+<div v-if="transcriptResults.length > 0" class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm">
+  <div class="border-b border-outline-variant pb-md mb-md flex justify-between items-center">
+    <div>
+      <h3 class="font-headline-md text-headline-md text-on-surface">{{ t('transcript_result') }}</h3>
+      <p class="font-body-md text-body-md text-on-surface-variant mt-1">{{ t('transcript_desc') }}</p>
+    </div>
+    <div class="flex gap-3">
+       <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-2 border border-outline-variant hover:bg-surface-variant transition-colors" :class="isCleaned ? 'border-primary text-primary' : 'text-on-surface'">
+         <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'undo' : 'auto_fix_high') }}</span>
+         {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Hoàn tác" : "Chuẩn hoá hội thoại") }}
+       </button>
+       
+       <button @click="openTaskModal" class="px-4 py-2 bg-inverse-primary text-background rounded-md font-medium flex items-center gap-2 shadow-sm hover:opacity-90 transition-opacity" :disabled="isExtracting">
+         <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
+         {{ tasks.length > 0 ? "View Tasks" : t('extract_task') }}
+       </button>
+    </div>
+  </div>
+  <div class="log-view p-4 space-y-6 max-h-[600px] overflow-auto relative bg-background rounded-lg border border-outline-variant">
+    <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry group">
+       <div class="log-meta">
+          <span class="log-speaker group-hover:text-primary transition-colors">{{ seg[2] }}</span>
+          <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+       </div>
+       <p class="log-text">{{ seg[3] }}</p>
+    </div>
+  </div>
+</div>
+
+</div>
 </template>
