@@ -217,8 +217,20 @@ const startTranscribe = async () => {
           const pollRes = await checkMeetingStatus(currentMeetingName.value)
           if (pollRes.status === 'processing') {
             if (pollRes.progress_info) {
-               transcribeProgress.value = pollRes.progress_info.progress || 0
-               transcribeStatus.value = pollRes.progress_info.message || "Đang xử lý..."
+               if (pollRes.progress_info.stt !== undefined) {
+                 const sttProg = pollRes.progress_info.stt.progress || 0;
+                 const spkProg = pollRes.progress_info.speaker ? pollRes.progress_info.speaker.progress : 0;
+                 transcribeProgress.value = Math.round((sttProg * 0.5) + (spkProg * 0.5));
+                 
+                 if (sttProg < 100) {
+                    transcribeStatus.value = pollRes.progress_info.stt.msg || "Đang xử lý STT...";
+                 } else {
+                    transcribeStatus.value = pollRes.progress_info.speaker ? pollRes.progress_info.speaker.msg : "Đang xử lý Speaker...";
+                 }
+               } else {
+                 transcribeProgress.value = pollRes.progress_info.progress || 0
+                 transcribeStatus.value = pollRes.progress_info.message || "Đang xử lý..."
+               }
             }
           } else if (pollRes.status === 'success') {
             clearInterval(pollTimer)
