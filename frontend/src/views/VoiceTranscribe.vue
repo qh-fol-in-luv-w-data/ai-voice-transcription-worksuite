@@ -463,13 +463,18 @@ const startExtractTasks = async () => {
                   placeholder="Chọn người chủ trì..."
                   class="w-full custom-el-override"
                   style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;"
+                  fit-input-width
                >
                   <el-option
                      v-for="emp in dbEmployees"
                      :key="emp.user_id"
                      :label="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')"
                      :value="emp.user_id"
-                  />
+                  >
+                     <div class="truncate w-full block" :title="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')">
+                        {{ [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ') }}
+                     </div>
+                  </el-option>
                </el-select>
             </div>
          </div>
@@ -503,13 +508,16 @@ const startExtractTasks = async () => {
         placeholder="Chọn nhân viên hoặc nhập tên..."
         style="flex: 1; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent;"
         class="w-full custom-el-override"
+        fit-input-width
       >
         <el-option
           v-for="opt in employeeOptions"
           :key="opt.value"
           :label="opt.label"
           :value="opt.value"
-        />
+        >
+          <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
+        </el-option>
       </el-select>
     </div>
     <div class="flex justify-end mt-sm">
