@@ -1737,61 +1737,60 @@ onMounted(async () => {
 
       <template v-if="activeTab === 'voice_task'">
          <div class="w-full flex flex-col gap-8 pb-10 mt-2">
-            <!-- VOICE TASK SETTINGS CARD -->
-            <el-card shadow="never" class="glow-effect">
-                <template #header>
-                   <div class="flex justify-between items-center">
-                     <div>
-                       <h3 class="text-lg font-medium m-0">{{ t('voice_task_title') }}</h3>
-                       <p class="text-sm text-muted-foreground m-0 mt-1">{{ t('voice_task_desc') }}</p>
-                     </div>
-                   </div>
-                </template>
+            <!-- Content Container Card -->
+            <div class="bg-surface-container-low border border-outline-variant rounded-lg p-lg shadow-sm flex flex-col min-h-[600px]">
+              <!-- Header -->
+              <div class="mb-xl">
+                <h1 class="font-headline-lg text-headline-lg text-on-surface mb-xs">{{ t('voice_task_title') }}</h1>
+                <p class="text-on-surface-variant text-body-md">{{ t('voice_task_desc') }}</p>
+              </div>
+              
+              <!-- Suggestion Box -->
+              <div class="bg-primary/5 border border-primary/20 rounded-md p-md mb-xl">
+                <div class="font-medium text-primary mb-xs text-body-md">Gợi ý câu lệnh mẫu:</div>
+                <div class="text-on-surface-variant text-body-sm italic">
+                  "{{ t('voice_task_placeholder') }}"
+                </div>
+              </div>
+              
+              <!-- Interaction Area -->
+              <div class="flex-1 flex flex-col justify-center items-center gap-lg border border-outline-variant border-dashed rounded-lg p-xl bg-surface-container-lowest/50 relative group transition-colors hover:bg-surface-container-lowest/80">
+                <!-- Record Button -->
+                <button @click="toggleVoiceTaskRecording" :class="['flex items-center justify-center gap-sm px-xl py-md border border-outline-variant rounded-full transition-all duration-300 shadow-sm w-full max-w-sm relative overflow-hidden', voiceTaskIsRecording ? 'bg-error/20 text-error border-error animate-pulse' : 'bg-surface text-on-surface hover:text-primary hover:border-primary hover:shadow-[0_0_15px_rgba(192,193,255,0.15)]']">
+                  <div class="absolute inset-0 bg-primary/0 hover:bg-primary/5 transition-colors duration-300"></div>
+                  <span class="material-symbols-outlined transition-colors z-10" :class="voiceTaskIsRecording ? 'text-error' : 'text-outline group-hover:text-primary'">{{ voiceTaskIsRecording ? 'stop_circle' : 'mic' }}</span>
+                  <span class="font-medium z-10">{{ voiceTaskIsRecording ? t('btn_stop') : 'Bắt đầu thu âm' }}</span>
+                </button>
                 
-                <div class="flex flex-col gap-6">
-                    <div class="bg-primary/5 p-4 rounded-md border border-primary/20">
-                       <h4 class="text-sm font-bold text-primary mb-2">Gợi ý câu lệnh mẫu:</h4>
-                       <p class="text-sm text-muted-foreground italic leading-relaxed font-sans">
-                          "{{ t('voice_task_placeholder') }}"
-                       </p>
-                    </div>
-                
-                    <el-button @click="toggleVoiceTaskRecording" :type="voiceTaskIsRecording ? 'danger' : 'default'" :plain="!voiceTaskIsRecording" size="large" class="w-full font-bold h-12 text-lg transition-all">
-                       <template #icon>
-                         <el-icon v-if="!voiceTaskIsRecording"><Microphone /></el-icon>
-                         <el-icon v-else><VideoPause /></el-icon>
-                       </template>
-                       {{ voiceTaskIsRecording ? t('btn_stop') : t('btn_record') }}
-                    </el-button>
-                    
-                    <el-divider>Hoặc</el-divider>
-                    
-                    <el-upload
-                      drag
-                      action="#"
-                      :auto-upload="false"
-                      :show-file-list="false"
-                      accept="audio/*"
-                      @change="file => handleVoiceTaskFileChange({ target: { files: [file.raw] } })"
-                      class="upload-zone w-full"
-                    >
-                      <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-                      <div class="el-upload__text">
-                        Kéo thả file vào đây hoặc bấm để chọn
-                        <div class="mt-2 text-primary font-medium">{{ (voiceTaskAudioFile && !voiceTaskRecordedUrl) ? voiceTaskAudioFile.name : 'Hỗ trợ: .mp3, .wav' }}</div>
-                      </div>
-                    </el-upload>
+                <!-- Divider -->
+                <div class="w-full max-w-md flex items-center gap-md">
+                  <div class="h-px bg-outline-variant flex-1"></div>
+                  <span class="text-on-surface-variant text-body-sm font-medium bg-surface-container-highest px-md py-xs rounded-full border border-outline-variant/50 shadow-sm">Hoặc</span>
+                  <div class="h-px bg-outline-variant flex-1"></div>
                 </div>
                 
-                <template #footer>
-                    <el-button @click="submitVoiceTask" type="primary" size="large" :loading="isVoiceTaskProcessing" :disabled="!voiceTaskAudioFile" class="w-full h-12 text-lg">
-                       {{ isVoiceTaskProcessing ? t('voice_task_parsing') : 'Bắt đầu xử lý lệnh giọng nói' }}
-                    </el-button>
-                    <div v-if="voiceTaskStatus" class="text-center text-sm font-medium mt-2" :class="voiceTaskStatus.includes('✅') ? 'text-primary' : 'text-danger'">
-                       {{ voiceTaskStatus }}
-                    </div>
-                </template>
-            </el-card>
+                <!-- Drag & Drop Zone -->
+                <div class="flex flex-col items-center text-center w-full max-w-md p-lg rounded-lg border-2 border-transparent border-dashed hover:border-primary/30 transition-colors cursor-pointer relative group-hover:border-outline-variant">
+                  <input accept=".mp3,.wav,audio/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" type="file" @change="handleVoiceTaskFileChange" />
+                  <div class="w-16 h-16 bg-surface-container-highest rounded-full flex items-center justify-center mb-md group-hover:bg-primary-container group-hover:text-on-primary-container transition-colors shadow-sm">
+                    <span class="material-symbols-outlined text-3xl text-on-surface-variant group-hover:text-on-primary-container transition-colors">cloud_upload</span>
+                  </div>
+                  <h3 class="text-on-surface font-medium text-body-md mb-xs">Kéo thả file vào đây hoặc bấm để chọn</h3>
+                  <p class="text-primary/80 text-body-sm">{{ (voiceTaskAudioFile && !voiceTaskRecordedUrl) ? voiceTaskAudioFile.name : 'Hỗ trợ: .mp3, .wav' }}</p>
+                </div>
+              </div>
+              
+              <!-- Primary Action -->
+              <div class="mt-xl">
+                <button @click="submitVoiceTask" :disabled="!voiceTaskAudioFile || isVoiceTaskProcessing" class="w-full bg-surface-variant text-on-surface hover:bg-primary hover:text-on-primary font-medium py-md rounded-md transition-all duration-300 shadow-sm hover:shadow-md border border-outline-variant hover:border-primary flex items-center justify-center gap-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                  <span v-if="isVoiceTaskProcessing" class="material-symbols-outlined animate-spin text-[18px]">autorenew</span>
+                  {{ isVoiceTaskProcessing ? t('voice_task_parsing') : 'Bắt đầu xử lý lệnh giọng nói' }}
+                </button>
+                <div v-if="voiceTaskStatus" class="text-center text-sm font-medium mt-2" :class="voiceTaskStatus.includes('✅') ? 'text-primary' : 'text-error'">
+                  {{ voiceTaskStatus }}
+                </div>
+              </div>
+            </div>
 
 
 
