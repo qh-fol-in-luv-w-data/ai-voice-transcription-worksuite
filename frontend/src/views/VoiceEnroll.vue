@@ -83,7 +83,7 @@ const localSubmitEnrollment = async () => {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px] px-4 md:px-8 mx-auto flex flex-col gap-md py-4 fade-in h-[calc(100vh-80px)]">
+  <div class="w-full max-w-[1200px] px-4 md:px-8 mx-auto flex flex-col gap-md py-4 fade-in flex-1 min-h-0 h-full">
     <header class="mb-2 shrink-0">
       <h2 class="font-headline-lg text-headline-lg text-on-surface mb-1">{{ t('enroll_title') }}</h2>
       <p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">{{ t('enroll_desc') }}</p>
@@ -103,7 +103,7 @@ const localSubmitEnrollment = async () => {
       <!-- Action Area -->
       <div class="flex flex-col gap-md flex-1">
         <h3 class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Cung cấp mẫu giọng nói</h3>
-        <div class="bg-surface-container/30 p-lg rounded-xl flex flex-col items-center justify-center border-dashed border-2 border-outline-variant hover:border-primary transition-colors relative group flex-1 min-h-[200px]">
+        <div class="bg-surface dark:bg-[#0a0f1c]/90 border border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 lg:p-8 flex flex-col items-center justify-center shadow-2xl relative overflow-hidden min-h-[400px]">
           <div class="w-full max-w-md flex flex-col items-center gap-md relative z-10">
             
             <!-- Record Button -->

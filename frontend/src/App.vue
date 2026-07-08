@@ -14,8 +14,15 @@ import VoiceEnroll from './views/VoiceEnroll.vue'
 import VoiceTask from './views/VoiceTask.vue'
 import MeetingHistory from './views/MeetingHistory.vue'
 
-import { activeTab, uiLang, isDark } from './composables/useVoiceApp'
-import { getElevenLabsInfo } from './api' // Wait, I will just use standard imports if needed
+import { activeTab, uiLang, isDark, currentMeeting, dict } from './composables/useVoiceApp'
+import { getElevenLabsInfo } from './api'
+
+const t = (key) => {
+  if (dict[uiLang.value] && dict[uiLang.value][key]) {
+    return dict[uiLang.value][key]
+  }
+  return key
+}
 
 // Session
 const { authState } = useSession()
@@ -54,7 +61,7 @@ watch(isDark, (val) => {
 <template>
   <CTSplashScreen v-if="authState === 'loading'" />
   <CTAccessDenied v-else-if="authState === 'denied'" />
-  <div v-else class="h-screen w-full flex overflow-hidden bg-background dark:bg-background text-on-background">
+  <div v-else class="h-screen w-full flex overflow-hidden bg-background text-on-background">
     <!-- Sidebar -->
     <AppSidebar class="z-20 shrink-0" />
     
@@ -67,7 +74,7 @@ watch(isDark, (val) => {
         <VoiceTranscribe v-if="activeTab === 'transcribe'" />
         <VoiceEnroll v-if="activeTab === 'enroll'" />
         <VoiceTask v-if="activeTab === 'voice_task'" />
-        <MeetingHistory v-if="activeTab === 'view_meeting'" />
+        <MeetingHistory v-if="activeTab === 'view_meeting'" :meeting="currentMeeting" :t="t" />
       </main>
     </div>
   </div>
@@ -75,6 +82,39 @@ watch(isDark, (val) => {
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* Global Light Theme Overrides for hardcoded Frappe colors */
+html:not(.dark) .bg-background,
+html:not(.dark) .bg-surface {
+  background-color: #ffffff !important;
+}
+html:not(.dark) .bg-surface-container,
+html:not(.dark) .bg-surface-container-low,
+html:not(.dark) .bg-surface-container-lowest,
+html:not(.dark) .bg-surface-container-high,
+html:not(.dark) .bg-surface-container-highest {
+  background-color: #f8fafc !important;
+}
+html:not(.dark) .text-on-background,
+html:not(.dark) .text-on-surface {
+  color: #0f172a !important;
+}
+html:not(.dark) .text-on-surface-variant {
+  color: #475569 !important;
+}
+html:not(.dark) .border-outline-variant {
+  border-color: #e2e8f0 !important;
+}
+html:not(.dark) .border-outline-variant\/30 {
+  border-color: rgba(226, 232, 240, 0.8) !important;
+}
+html:not(.dark) .border-outline-variant\/40 {
+  border-color: rgba(226, 232, 240, 0.9) !important;
+}
+html:not(.dark) .border-outline-variant\/50 {
+  border-color: rgba(226, 232, 240, 1) !important;
+}
+
 body {
   overflow-x: hidden;
   max-width: 100vw;
