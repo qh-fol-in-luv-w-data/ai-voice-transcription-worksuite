@@ -415,9 +415,15 @@ const startExtractTasks = async () => {
       <!-- Language -->
       <div class="space-y-1 mb-4">
          <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Language</label>
-         <select v-model="language" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors">
-            <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
-         </select>
+         <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
+             <el-select
+                v-model="language"
+                class="w-full custom-el-override"
+                style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;"
+             >
+                <el-option v-for="l in languages" :key="l.val" :label="l.label" :value="l.val" />
+             </el-select>
+         </div>
       </div>
 
       <!-- Participants -->
