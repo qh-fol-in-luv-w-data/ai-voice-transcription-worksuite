@@ -150,7 +150,7 @@ const onAttendeeSelect = (val) => {
         </div>
 
         <div class="p-5">
-        <el-table :data="tasks" style="width: 100%" border stripe size="large" class="custom-el-table">
+        <el-table :data="tasks" style="width: 100%" size="large" class="custom-task-table">
           <el-table-column type="index" label="#" width="50" align="center" />
           
           <el-table-column :label="t('col_name')" min-width="250">
@@ -258,59 +258,111 @@ const onAttendeeSelect = (val) => {
 }
 
 :deep(.el-dialog) {
-  border-radius: 16px !important;
+  border-radius: 20px !important;
   overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
 }
 
 html.dark :deep(.el-dialog) {
-  background-color: #1e1e2d !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: #0f1423 !important; /* Match inner body color or slightly lighter */
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 html.dark :deep(.el-dialog__title) {
   color: white !important;
+  font-weight: 600;
+  font-size: 1.125rem;
 }
 
+/* Custom Table Styles - Modern & Soft */
+html.dark :deep(.custom-task-table),
 html.dark :deep(.el-table),
 html.dark :deep(.el-table__expanded-cell) {
   background-color: transparent !important;
-  color: #fff !important;
+  --el-table-border-color: rgba(255, 255, 255, 0.05);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.02);
 }
 
-html.dark :deep(.el-table th), html.dark :deep(.el-table tr) {
+/* Header Cells */
+html.dark :deep(.el-table th.el-table__cell) {
   background-color: transparent !important;
-  color: #e2e8f0 !important;
-}
-
-html.dark :deep(.el-table td), html.dark :deep(.el-table th.is-leaf) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-right: none !important;
+  color: #94a3b8 !important; /* Tailwind slate-400 */
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  padding: 12px 0;
 }
 
-html.dark :deep(.el-table--border) {
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+/* Body Rows */
+html.dark :deep(.el-table tr) {
+  background-color: transparent !important;
 }
 
-html.dark :deep(.el-input__wrapper), html.dark :deep(.el-textarea__inner) {
-  background-color: rgba(255, 255, 255, 0.05) !important;
+/* Body Cells */
+html.dark :deep(.el-table td.el-table__cell) {
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1) !important;
+  border-right: none !important;
+  padding: 16px 0;
+}
+
+html.dark :deep(.el-table--border::after), 
+html.dark :deep(.el-table--group::after), 
+html.dark :deep(.el-table::before) {
+  display: none;
+}
+
+/* Inputs, Selects, and Textareas */
+html.dark :deep(.el-input__wrapper), 
+html.dark :deep(.el-textarea__inner) {
+  background-color: rgba(255, 255, 255, 0.03) !important;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
-  color: white !important;
+  border-radius: 8px !important;
+  color: #f1f5f9 !important; /* slate-100 */
+  transition: all 0.2s ease;
+  padding: 8px 12px;
+}
+
+html.dark :deep(.el-input__wrapper:hover), 
+html.dark :deep(.el-textarea__inner:hover) {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+}
+
+html.dark :deep(.el-input__wrapper.is-focus), 
+html.dark :deep(.el-textarea__inner:focus) {
+  box-shadow: 0 0 0 1px #4f46e5 inset !important; /* Indigo 600 */
+  background-color: rgba(79, 70, 229, 0.05) !important;
 }
 
 html.dark :deep(.el-input__inner) {
-  color: white !important;
+  color: #f1f5f9 !important;
 }
 
+/* Select Dropdown Menu */
 html.dark :deep(.el-select-dropdown) {
   background-color: #1e1e2d !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
 }
 
 html.dark :deep(.el-select-dropdown__item) {
-  color: #e2e8f0 !important;
+  color: #cbd5e1 !important; /* slate-300 */
+  border-radius: 6px;
+  margin: 2px 4px;
 }
 
-html.dark :deep(.el-select-dropdown__item.hover), html.dark :deep(.el-select-dropdown__item:hover) {
-  background-color: rgba(255, 255, 255, 0.1) !important;
+html.dark :deep(.el-select-dropdown__item.hover), 
+html.dark :deep(.el-select-dropdown__item:hover) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: white !important;
+}
+
+/* Date Picker adjustments */
+html.dark :deep(.el-date-editor) {
+  --el-date-editor-width: 100%;
 }
 
 .space-y-6 > * + * {
