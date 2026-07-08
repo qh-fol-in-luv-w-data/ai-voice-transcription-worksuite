@@ -47,6 +47,10 @@ const downloadFile = (url, defaultName) => {
 const speakerMapping = ref({})
 const isEnrollingMapped = ref(false)
 
+const hasSelectedMapping = computed(() => {
+  return Object.values(speakerMapping.value).some(val => !!val)
+})
+
 const unknownSpeakers = computed(() => {
   const speakers = new Set()
   for (const seg of parseSegments.value) {
@@ -200,7 +204,7 @@ const openTaskModal = () => {
           </el-select>
         </div>
         <div class="flex justify-end mt-sm">
-          <button :disabled="isEnrollingMapped" @click="enrollMapped" class="bg-error hover:bg-error/90 text-white font-medium py-2.5 px-6 rounded-md shadow-sm transition-all disabled:opacity-50 flex items-center gap-sm">
+          <button :disabled="!hasSelectedMapping || isEnrollingMapped" @click="enrollMapped" class="font-medium py-2.5 px-6 rounded-md transition-all flex items-center gap-sm" :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-error text-white hover:bg-error/90 shadow-md active:scale-[0.98]' : 'bg-error/30 text-white/50 cursor-not-allowed'">
             <span class="material-symbols-outlined text-[20px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
             {{ isEnrollingMapped ? 'Đang xử lý...' : 'Cập nhật danh tính & Đăng ký giọng' }}
           </button>
