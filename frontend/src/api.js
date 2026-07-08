@@ -54,6 +54,14 @@ export async function getMeetingHistory() {
   return res.data.message
 }
 
+export async function renameMeeting(meetingName, newTitle) {
+  const res = await api.post('/api/method/voice_app.meeting_api.rename_meeting', {
+    meeting_name: meetingName,
+    new_title: newTitle
+  })
+  return res.data
+}
+
 export async function getEmployees() {
   const res = await api.get('/api/method/voice_app.api.get_employees')
   return res.data.message
