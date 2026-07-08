@@ -169,21 +169,20 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 update_progress(percent, msg, 0, "Chờ dịch văn bản...")
 
             if stt_mode == "google":
-                
-            # Lấy existing_segments nếu đang resume
-            existing_segments = None
-            try:
-                meeting_doc = frappe.get_doc("Voice Meeting", meeting_name)
-                if meeting_doc.status == "Partial Error" and meeting_doc.raw_results:
-                    import json
-                    existing_segments = json.loads(meeting_doc.raw_results)
-            except: pass
+                # Lấy existing_segments nếu đang resume
+                existing_segments = None
+                try:
+                    meeting_doc = frappe.get_doc("Voice Meeting", meeting_name)
+                    if meeting_doc.status == "Partial Error" and meeting_doc.raw_results:
+                        import json
+                        existing_segments = json.loads(meeting_doc.raw_results)
+                except: pass
 
-            segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(
-                wav, language, num_speakers=auto_num_speakers, 
-                custom_vocabulary=custom_vocabulary, progress_callback=stt_cb, 
-                existing_segments=existing_segments
-            )
+                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(
+                    wav, language, num_speakers=auto_num_speakers, 
+                    custom_vocabulary=custom_vocabulary, progress_callback=stt_cb, 
+                    existing_segments=existing_segments
+                )
             else:
                 segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
             if err:
