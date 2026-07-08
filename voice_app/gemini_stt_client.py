@@ -553,10 +553,10 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
         total_tok_all = 0
         chunk_errors = []
 
-        # Hạn chế số kết nối đồng thời với connector (6 luồng tương tự max_workers=6)
-        connector = aiohttp.TCPConnector(limit=6)
+        # Hạn chế số kết nối đồng thời với connector (tăng luồng song song lên 15)
+        connector = aiohttp.TCPConnector(limit=15)
         
-        async with aiohttp.ClientSession(connector=connector) as session:
+        async with aiohttp.ClientSession(connector=connector, read_bufsize=20971520) as session:
             tasks = [
                 _process_single_chunk(session, idx, chunk_wav, offset)
                 for idx, (chunk_wav, offset) in enumerate(chunks)
