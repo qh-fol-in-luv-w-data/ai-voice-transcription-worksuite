@@ -22,6 +22,9 @@ const hostId = ref('')
 // ── STRANGER MAPPING ─────────────────────────────────────────────────────────
 const speakerMapping = ref({})
 const isEnrollingMapped = ref(false)
+const hasSelectedMapping = computed(() => {
+  return Object.values(speakerMapping.value).some(val => !!val)
+})
 
 // ── CUSTOM AUDIO PLAYER ──────────────────────────────────────────────────────
 const audioPlayerRef = ref(null)
@@ -334,7 +337,7 @@ const startExtractTasks = async () => {
         </div>
       </div>
       
-      <button @click="startTranscribe" :disabled="isTranscribing" class="mt-4 w-full bg-primary text-white font-bold py-2.5 px-6 rounded-xl shadow-md transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 flex justify-center items-center gap-2">
+      <button @click="startTranscribe" :disabled="!audioFile || isTranscribing" class="mt-4 w-full font-bold py-2.5 px-6 rounded-xl transition-all flex justify-center items-center gap-2" :class="audioFile && !isTranscribing ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:opacity-90 active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
         <span class="material-symbols-outlined text-[20px]" :class="{ 'animate-spin': isTranscribing }">{{ isTranscribing ? 'autorenew' : 'graphic_eq' }}</span>
         {{ isTranscribing ? 'Analyzing...' : 'Start Transcribe' }}
       </button>
@@ -445,7 +448,7 @@ const startExtractTasks = async () => {
       </el-select>
     </div>
     <div class="flex justify-end mt-sm">
-      <button :disabled="isEnrollingMapped" @click="enrollMapped" class="bg-error hover:bg-error/90 text-on-error font-medium py-2.5 px-6 rounded-md shadow-sm transition-all disabled:opacity-50 flex items-center gap-sm">
+      <button :disabled="!hasSelectedMapping || isEnrollingMapped" @click="enrollMapped" class="font-medium py-2.5 px-6 rounded-md transition-all flex items-center gap-sm" :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-error text-white hover:bg-error/90 shadow-md active:scale-[0.98]' : 'bg-error/30 text-white/50 cursor-not-allowed'">
         <span class="material-symbols-outlined text-[20px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
         {{ isEnrollingMapped ? 'Đang xử lý...' : 'Cập nhật danh tính & Đăng ký giọng' }}
       </button>
