@@ -130,81 +130,128 @@ def concat_speaker_segments(wav_path: str, segs: list,
         return None
     return out
 
-def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 900.0, max_chunk_sec: float = 1200.0) -> list:
+def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_chunk_sec: float = 1500.0) -> list:
     """
-    Chia file âm thanh thành các chunk dựa trên khoảng lặng.
-    Mục tiêu là mỗi chunk dài khoảng `chunk_length_sec` (mặc định 15 phút),
-    tối đa `max_chunk_sec` (20 phút).
-    Trả về danh sách các tuple: [(chunk_wav_path, start_time_offset), ...]
+    Sử dụng webrtcvad để lọc bỏ toàn bộ khoảng lặng > 1 giây.
+    Ép các đoạn có tiếng người vào các file chunk đặc ruột.
+    Trả về danh sách: [(chunk_wav_path, start_time_offset, mappings), ...]
+    Trong đó mappings = [{"orig_start": ..., "orig_end": ..., "dense_start": ..., "dense_end": ...}, ...]
     """
-    import re
+    import webrtcvad
+    import wave
+    import tempfile
+    import os
+
     duration = get_duration(wav_path)
-    if duration <= max_chunk_sec:
-        # Nếu file ngắn hơn max_chunk, không cần chia
-        return [(wav_path, 0.0)]
-        
-    cmd = [
-        "ffmpeg", "-i", wav_path,
-        "-af", "silencedetect=noise=-30dB:d=0.5",
-        "-f", "null", "-"
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
     
-    silences = []
-    for line in r.stderr.splitlines():
-        if "silence_start" in line:
-            m = re.search(r"silence_start:\s+([\d\.]+)", line)
-            if m: silences.append({"start": float(m.group(1))})
-        elif "silence_end" in line:
-            m = re.search(r"silence_end:\s+([\d\.]+)", line)
-            if m and silences and "end" not in silences[-1]:
-                silences[-1]["end"] = float(m.group(1))
-                
-    # Tính điểm giữa của các khoảng lặng
-    split_points = []
-    for s in silences:
-        if "end" in s:
-            split_points.append((s["start"] + s["end"]) / 2.0)
-            
-    chunks = []
-    current_start = 0.0
+    # 1. Khởi tạo VAD
+    vad = webrtcvad.Vad(3) # Mức 3: mạnh nhất để lọc tạp âm
+    frame_duration_ms = 30
     
-    while current_start < duration:
-        target_end = current_start + chunk_length_sec
-        max_end = current_start + max_chunk_sec
+    with wave.open(wav_path, 'rb') as wf:
+        sample_rate = wf.getframerate()
+        sample_width = wf.getsampwidth()
+        raw_data = wf.readframes(wf.getnframes())
         
-        if max_end >= duration:
-            # Đoạn cuối
-            split_point = duration
+    frame_size = int(sample_rate * (frame_duration_ms / 1000.0) * sample_width)
+    frames = [raw_data[i:i+frame_size] for i in range(0, len(raw_data), frame_size)]
+    
+    # 2. Quét VAD
+    is_speech_flags = []
+    for f in frames:
+        if len(f) == frame_size:
+            is_speech_flags.append(vad.is_speech(f, sample_rate))
         else:
-            # Tìm khoảng lặng gần target_end nhất, nhưng không vượt quá max_end
-            valid_splits = [p for p in split_points if p > current_start + 60 and p <= max_end]
-            if valid_splits:
-                # Chọn split gần target_end nhất
-                split_point = min(valid_splits, key=lambda x: abs(x - target_end))
+            is_speech_flags.append(False)
+            
+    # 3. Làm mượt (smooth): Giữ 900ms trước và sau mỗi đoạn nói để không bị gọt âm cuối
+    ring_buffer_size = 30 
+    smoothed_flags = [False] * len(is_speech_flags)
+    
+    for i, flag in enumerate(is_speech_flags):
+        if flag:
+            start = max(0, i - ring_buffer_size)
+            end = min(len(smoothed_flags), i + ring_buffer_size + 1)
+            for j in range(start, end):
+                smoothed_flags[j] = True
+
+    # 4. Gộp các frame liên tiếp thành các đoạn nói (segments)
+    segments = []
+    in_speech = False
+    start_frame = 0
+    for i, flag in enumerate(smoothed_flags):
+        if flag and not in_speech:
+            in_speech = True
+            start_frame = i
+        elif not flag and in_speech:
+            in_speech = False
+            segments.append((start_frame, i))
+            
+    if in_speech:
+        segments.append((start_frame, len(smoothed_flags)))
+        
+    # 5. Ghép các đoạn nói gần nhau (cách nhau < 2s = 66 frames) để tránh vụn vặt và giữ nhịp thở
+    merged_segments = []
+    for seg in segments:
+        if not merged_segments:
+            merged_segments.append(seg)
+        else:
+            prev_start, prev_end = merged_segments[-1]
+            if seg[0] - prev_end < 66:
+                merged_segments[-1] = (prev_start, seg[1])
             else:
-                # Hard split nếu không tìm thấy khoảng lặng
-                split_point = target_end
+                merged_segments.append(seg)
                 
-        # Cắt file
+    # Nếu file toàn im lặng thì fallback
+    if not merged_segments:
+        return [(wav_path, 0.0, [])]
+
+    # 6. Gom vào các chunk đặc ruột
+    chunks = []
+    current_chunk_frames = []
+    current_chunk_mappings = []
+    current_dense_start = 0.0
+    current_chunk_orig_start = merged_segments[0][0] * 30 / 1000.0
+    
+    def finalize_chunk():
+        nonlocal current_chunk_frames, current_chunk_mappings, current_dense_start, current_chunk_orig_start
+        if not current_chunk_frames: return
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             chunk_out = f.name
+        with wave.open(chunk_out, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(sample_width)
+            wf.setframerate(sample_rate)
+            wf.writeframes(b''.join(current_chunk_frames))
+        chunks.append((chunk_out, current_chunk_orig_start, current_chunk_mappings))
+        # Reset cho chunk mới
+        current_chunk_frames = []
+        current_chunk_mappings = []
+        current_dense_start = 0.0
+
+    for start, end in merged_segments:
+        seg_duration = (end - start) * 30 / 1000.0
+        
+        # Nếu đoạn này làm chunk vượt quá max_chunk_sec thì cắt sang chunk mới
+        if current_dense_start + seg_duration > chunk_length_sec and current_dense_start > 0:
+            finalize_chunk()
+            current_chunk_orig_start = start * 30 / 1000.0
             
-        cut_cmd = [
-            "ffmpeg", "-y", "-ss", f"{current_start:.3f}",
-            "-i", wav_path,
-            "-t", f"{split_point - current_start:.3f}",
-            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-            chunk_out
-        ]
-        subprocess.run(cut_cmd, capture_output=True)
+        orig_start = start * 30 / 1000.0
+        orig_end = end * 30 / 1000.0
+        dense_end = current_dense_start + (orig_end - orig_start)
         
-        if os.path.exists(chunk_out) and os.path.getsize(chunk_out) > 0:
-            chunks.append((chunk_out, current_start))
-            current_start = split_point
-        else:
-            try: os.remove(chunk_out)
-            except: pass
-            break  # ffmpeg couldn't cut anymore, break the loop
+        current_chunk_mappings.append({
+            "orig_start": orig_start,
+            "orig_end": orig_end,
+            "dense_start": current_dense_start,
+            "dense_end": dense_end
+        })
         
+        for i in range(start, end):
+            current_chunk_frames.append(frames[i])
+            
+        current_dense_start = dense_end
+
+    finalize_chunk()
     return chunks

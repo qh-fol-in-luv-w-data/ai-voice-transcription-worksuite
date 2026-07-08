@@ -55,19 +55,27 @@ def _upload_file_data(wav_path, api_key):
     }
 
     for attempt in range(_RETRY_MAX):
-        init = session.post(
-            f"{UPLOAD_URL}?key={api_key}",
-            headers=headers,
-            json={"file": {"display_name": os.path.basename(wav_path)}},
-            timeout=60,
-        )
-        if init.status_code == 429 and attempt < _RETRY_MAX - 1:
-            delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
-            print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
-            time.sleep(delay)
-            continue
-        init.raise_for_status()
-        break
+        try:
+            init = session.post(
+                f"{UPLOAD_URL}?key={api_key}",
+                headers=headers,
+                json={"file": {"display_name": os.path.basename(wav_path)}},
+                timeout=120,
+            )
+            if init.status_code == 429 and attempt < _RETRY_MAX - 1:
+                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            init.raise_for_status()
+            break
+        except (_requests.exceptions.RequestException, IOError) as e:
+            if attempt < _RETRY_MAX - 1:
+                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                print(f"[Gemini STT] Lỗi kết nối (init upload) ({type(e).__name__}), thử lại sau {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            raise
 
     upload_url = init.headers["X-Goog-Upload-URL"]
 
@@ -75,23 +83,31 @@ def _upload_file_data(wav_path, api_key):
         data = f.read()
 
     for attempt in range(_RETRY_MAX):
-        upload_resp = session.post(
-            upload_url,
-            headers={
-                "Content-Length": str(file_size),
-                "X-Goog-Upload-Offset": "0",
-                "X-Goog-Upload-Command": "upload, finalize",
-            },
-            data=data,
-            timeout=600,
-        )
-        if upload_resp.status_code == 429 and attempt < _RETRY_MAX - 1:
-            delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
-            print(f"[Gemini STT] 429 upload data, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
-            time.sleep(delay)
-            continue
-        upload_resp.raise_for_status()
-        break
+        try:
+            upload_resp = session.post(
+                upload_url,
+                headers={
+                    "Content-Length": str(file_size),
+                    "X-Goog-Upload-Offset": "0",
+                    "X-Goog-Upload-Command": "upload, finalize",
+                },
+                data=data,
+                timeout=600,
+            )
+            if upload_resp.status_code == 429 and attempt < _RETRY_MAX - 1:
+                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                print(f"[Gemini STT] 429 upload data, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            upload_resp.raise_for_status()
+            break
+        except (_requests.exceptions.RequestException, IOError) as e:
+            if attempt < _RETRY_MAX - 1:
+                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                print(f"[Gemini STT] Lỗi kết nối (upload data) ({type(e).__name__}), thử lại sau {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            raise
 
     file_info = upload_resp.json()["file"]
     file_uri  = file_info["uri"]
@@ -463,8 +479,14 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         import threading
         _upload_lock = threading.Lock()
 
-        def _process_single_chunk(idx, chunk_wav, offset, is_subchunk=False):
+        def _process_single_chunk(idx, current_wav, chunk_tuple, is_subchunk=False, dense_subchunk_offset=0.0):
             try:
+                if len(chunk_tuple) == 3:
+                    original_chunk_wav, offset, mappings = chunk_tuple
+                else:
+                    original_chunk_wav, offset = chunk_tuple
+                    mappings = []
+
                 if not is_subchunk and idx in completed_chunks:
                     print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks)} vì đã hoàn thành.")
                     return idx, None, None, None, None, None
@@ -474,12 +496,12 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 else:
                     print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
 
-                chunk_duration = get_duration(chunk_wav)
+                chunk_duration = get_duration(current_wav)
 
                 # Upload qua lock để tránh 429 Too Many Requests từ File API
                 with _upload_lock:
                     import time; time.sleep(1.5)  # Delay nhẹ để chống 429
-                    file_uri, file_name = _upload_file(chunk_wav, api_key)
+                    file_uri, file_name = _upload_file(current_wav, api_key)
 
                 chunk_error = None
                 try:
@@ -492,8 +514,11 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 finally:
                     if not (chunk_error == "HALLUCINATION_DETECTED" and not is_subchunk):
                         _delete_file(file_name, api_key)
-                        if chunk_wav != wav_path:
-                            try: os.remove(chunk_wav)
+                        if current_wav != wav_path and current_wav != original_chunk_wav:
+                            try: os.remove(current_wav)
+                            except: pass
+                        if not is_subchunk and original_chunk_wav != wav_path:
+                            try: os.remove(original_chunk_wav)
                             except: pass
 
                 if not gemini_segments:
@@ -525,8 +550,19 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
 
                 raw_words = _segments_to_raw_words(clean_segments, file_duration=chunk_duration)
                 
-                # SỬA LỖI: Không dùng _words_to_segments vì nó sẽ gộp TẤT CẢ các câu của cùng 1 người thành 1 đoạn khổng lồ!
-                # Giữ nguyên các đoạn đã băm nhỏ từ Gemini (clean_segments)
+                # Hàm map thời gian đặc ruột về thời gian gốc
+                def map_time(t_val):
+                    t = _parse_time(t_val)
+                    if is_subchunk:
+                        t += dense_subchunk_offset
+                    if mappings:
+                        for m in mappings:
+                            if m["dense_start"] <= t <= m["dense_end"]:
+                                return m["orig_start"] + (t - m["dense_start"])
+                        if t < mappings[0]["dense_start"]: return mappings[0]["orig_start"]
+                        return mappings[-1]["orig_end"]
+                    return t + offset
+
                 import copy
                 segments = copy.deepcopy(clean_segments)
                 for seg in segments:
@@ -534,14 +570,14 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     if "speaker_id" not in seg:
                         seg["speaker_id"] = seg.get("speaker", "Speaker 1").replace(" ", "_").lower()
                     # Offset timestamps & đánh dấu chunk index
-                    seg["start"]      = round(_parse_time(seg.get("start", 0)) + offset, 2)
-                    seg["end"]        = round(_parse_time(seg.get("end", 0))   + offset, 2)
+                    seg["start"]      = round(map_time(seg.get("start", 0)), 2)
+                    seg["end"]        = round(map_time(seg.get("end", 0)), 2)
                     seg["speaker_id"] = f"c{idx}_{seg['speaker_id']}"
                     seg["speaker"]    = f"c{idx}_{seg.get('speaker', 'Speaker 1')}"
 
                 for w in raw_words:
-                    w["start"]      = round(w["start"] + offset, 2)
-                    w["end"]        = round(w["end"]   + offset, 2)
+                    w["start"]      = round(map_time(w["start"]), 2)
+                    w["end"]        = round(map_time(w["end"]), 2)
                     w["speaker_id"] = f"c{idx}_{w['speaker_id']}"
 
                 chunk_text = " ".join(s.get("text", "") for s in clean_segments)
@@ -552,13 +588,13 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     if chunk_duration - last_valid_ts > 15:
                         print(f"[Gemini STT] ⚠️ Chunk {idx+1} ngáo ở giây {last_valid_ts:.1f}/{chunk_duration:.1f}s. Kích hoạt Smart Resume...")
                         import pydub
-                        audio = pydub.AudioSegment.from_wav(chunk_wav)
+                        audio = pydub.AudioSegment.from_wav(current_wav)
                         resume_audio = audio[int(last_valid_ts * 1000):]
-                        resume_wav = chunk_wav.replace(".wav", f"_{idx}_resume.wav")
+                        resume_wav = current_wav.replace(".wav", f"_{idx}_resume.wav")
                         resume_audio.export(resume_wav, format="wav")
 
                         _, r_segs, r_words, r_txt, r_use, r_err = _process_single_chunk(
-                            f"{idx}_resume", resume_wav, offset + last_valid_ts, is_subchunk=True
+                            f"{idx}_resume", resume_wav, chunk_tuple, is_subchunk=True, dense_subchunk_offset=last_valid_ts
                         )
 
                         try: os.remove(resume_wav)
@@ -590,8 +626,8 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             future_to_idx = {
-                executor.submit(_process_single_chunk, idx, chunk_wav, offset): idx
-                for idx, (chunk_wav, offset) in enumerate(chunks)
+                executor.submit(_process_single_chunk, idx, chunk_tuple[0], chunk_tuple): idx
+                for idx, chunk_tuple in enumerate(chunks)
             }
 
             for future in concurrent.futures.as_completed(future_to_idx):
