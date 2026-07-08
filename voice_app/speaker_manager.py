@@ -1,10 +1,10 @@
+import json
 import os
 # Fix "could not create a primitive" error in PyTorch on CPU environments (Linux/Docker)
 os.environ["USE_NNPACK"] = "0"
 os.environ["DNNL_PRIMITIVE_CACHE_CAPACITY"] = "0"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
-import json
 import numpy as np
 if not hasattr(np, 'NaN'):
     np.NaN = np.nan
@@ -167,7 +167,6 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     """
     import subprocess
     import sys
-    import json
     from voice_app.constants import get_hf_token
 
     script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
