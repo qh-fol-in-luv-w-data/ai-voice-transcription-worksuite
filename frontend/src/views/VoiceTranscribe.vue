@@ -23,6 +23,54 @@ const hostId = ref('')
 const speakerMapping = ref({})
 const isEnrollingMapped = ref(false)
 
+// ── CUSTOM AUDIO PLAYER ──────────────────────────────────────────────────────
+const audioPlayerRef = ref(null)
+const isPlaying = ref(false)
+const currentTime = ref(0)
+const duration = ref(0)
+const volume = ref(1)
+
+const togglePlay = () => {
+  if (!audioPlayerRef.value) return
+  if (isPlaying.value) {
+    audioPlayerRef.value.pause()
+  } else {
+    audioPlayerRef.value.play()
+  }
+  isPlaying.value = !isPlaying.value
+}
+
+const formatTime = (time) => {
+  if (isNaN(time)) return '0:00'
+  const m = Math.floor(time / 60)
+  const s = Math.floor(time % 60)
+  return `${m}:${s < 10 ? '0' : ''}${s}`
+}
+
+const onTimeUpdate = () => {
+  if (audioPlayerRef.value) {
+    currentTime.value = audioPlayerRef.value.currentTime
+  }
+}
+
+const onLoadedMetadata = () => {
+  if (audioPlayerRef.value) {
+    duration.value = audioPlayerRef.value.duration
+  }
+}
+
+const seek = () => {
+  if (audioPlayerRef.value) {
+    audioPlayerRef.value.currentTime = currentTime.value
+  }
+}
+
+const updateVolume = () => {
+  if (audioPlayerRef.value) {
+    audioPlayerRef.value.volume = volume.value
+  }
+}
+
 const unknownSpeakers = computed(() => {
   const speakers = new Set()
   for (const seg of transcriptResults.value) {
@@ -243,9 +291,10 @@ const startExtractTasks = async () => {
     <div class="bg-surface-container/60 backdrop-blur-2xl border border-outline-variant/30 rounded-3xl p-6 shadow-2xl flex flex-col h-full">
       <h2 class="text-2xl font-bold text-on-surface mb-6 font-headline-md tracking-tight">Audio Analysis</h2>
       
-      <!-- Dropzone -->
-      <div class="relative border-2 border-dashed border-outline-variant/50 hover:bg-primary/5 hover:border-primary/50 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all group flex-1 min-h-[250px]" :class="{ 'border-primary/50 bg-primary/5': audioFile }">
-        <input type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+      <!-- Dropzone & Progress Overlay -->
+      <div class="relative border-2 border-dashed border-outline-variant/50 rounded-2xl p-8 flex flex-col items-center justify-center transition-all group flex-1 min-h-[250px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
+        <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+        
         <div class="relative mb-6">
           <div class="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150 opacity-0 group-hover:opacity-100 transition-opacity"></div>
           <span class="material-symbols-outlined text-[80px] text-primary drop-shadow-[0_0_15px_rgba(192,193,255,0.3)] transition-transform group-hover:scale-110">cloud_upload</span>
@@ -256,35 +305,51 @@ const startExtractTasks = async () => {
         
         <p class="font-body-md text-on-surface font-medium mb-4 text-center">Drag &amp; drop a file here, or click to select.</p>
         
-        <div v-if="audioFile" class="flex items-center gap-2 bg-surface-container-highest/50 px-4 py-2 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden">
-           <span class="font-body-sm text-on-surface truncate">{{ audioFile.name }}</span>
-           <span class="material-symbols-outlined text-[16px] text-on-surface-variant cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
+        <div v-if="audioFile" class="flex items-center gap-2 bg-surface-container-highest/80 px-4 py-2 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm backdrop-blur-sm">
+           <span class="font-body-sm text-on-surface truncate font-bold">{{ audioFile.name }}</span>
+           <span v-if="!isTranscribing" class="material-symbols-outlined text-[16px] text-on-surface-variant cursor-pointer hover:text-error transition-colors" @click.stop.prevent="audioFile = null">close</span>
         </div>
-      </div>
 
-      <!-- Progress Bar -->
-      <div v-if="isTranscribing || transcribeStatus" class="mt-6 space-y-3">
-        <div class="h-4 bg-surface-container-highest rounded-full overflow-hidden relative shadow-inner border border-outline-variant/20">
-          <div class="absolute inset-y-0 left-0 bg-gradient-to-r from-secondary to-primary transition-all duration-1000 rounded-full flex items-center justify-end pr-2" :style="{ width: transcribeProgress + '%' }">
-             <div class="w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_5px_white]"></div>
+        <!-- Progress Bar Overlay (Blocks Dropzone) -->
+        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-[#0a0f1c]/90 backdrop-blur-md z-30 flex flex-col justify-end p-8">
+          <div class="w-full space-y-3">
+            <div class="h-4 bg-surface-container-highest/50 rounded-full overflow-hidden relative shadow-inner border border-outline-variant/20">
+              <div class="absolute inset-y-0 left-0 bg-gradient-to-r from-secondary to-primary transition-all duration-1000 rounded-full flex items-center justify-end pr-2" :style="{ width: transcribeProgress + '%' }">
+                 <div class="w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_5px_white]"></div>
+              </div>
+            </div>
+            <div class="flex justify-between items-center text-sm font-medium">
+              <span class="text-white">{{ transcribeProgress }}%</span>
+              <span class="text-on-surface-variant flex items-center gap-2 text-xs">
+                <span class="material-symbols-outlined text-[14px] animate-spin text-primary">autorenew</span>
+                {{ transcribeStatus || 'Đang chuẩn bị file âm thanh...' }}
+              </span>
+            </div>
           </div>
         </div>
-        <div class="flex justify-between items-center text-sm font-medium">
-          <span class="text-primary">{{ transcribeProgress }}%</span>
-          <span class="text-on-surface-variant flex items-center gap-2">
-            <span class="material-symbols-outlined text-[16px] animate-spin">autorenew</span>
-            {{ transcribeStatus || 'Preparing audio file for analysis...' }}
-          </span>
-        </div>
       </div>
 
-      <!-- Audio Player -->
+      <!-- Custom Audio Player -->
       <div v-if="audioUrl" class="mt-8 border-t border-outline-variant/30 pt-6">
-        <div class="flex items-center gap-4 bg-surface-container-highest/30 rounded-2xl p-4 border border-outline-variant/20">
-           <button class="w-12 h-12 rounded-full bg-gradient-to-br from-secondary to-primary flex items-center justify-center text-on-primary shadow-[0_0_15px_rgba(192,193,255,0.4)] hover:scale-105 transition-transform shrink-0">
-              <span class="material-symbols-outlined">play_arrow</span>
+        <div class="flex items-center gap-4 bg-surface-container-highest/30 rounded-2xl p-4 border border-outline-variant/20 shadow-inner">
+           <audio ref="audioPlayerRef" :src="audioUrl" @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @ended="isPlaying = false" class="hidden"></audio>
+           
+           <button @click="togglePlay" class="w-12 h-12 rounded-full bg-gradient-to-br from-secondary to-primary flex items-center justify-center text-on-primary shadow-[0_0_15px_rgba(192,193,255,0.4)] hover:scale-105 transition-transform shrink-0">
+              <span class="material-symbols-outlined text-[24px]">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
            </button>
-           <audio controls class="w-full h-10 custom-audio-player opacity-70 hover:opacity-100 transition-opacity" :src="audioUrl"></audio>
+           
+           <div class="flex-1 flex flex-col gap-1.5">
+              <div class="flex justify-between text-[11px] font-bold text-on-surface-variant/80 tracking-wider">
+                 <span>{{ formatTime(currentTime) }}</span>
+                 <span>{{ formatTime(duration) }}</span>
+              </div>
+              <input type="range" min="0" :max="duration || 100" v-model="currentTime" @input="seek" class="w-full h-1.5 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary outline-none focus:outline-none shadow-inner" />
+           </div>
+
+           <div class="flex items-center gap-2 w-24 shrink-0 border-l border-outline-variant/30 pl-4">
+              <span class="material-symbols-outlined text-on-surface-variant text-[18px]">volume_up</span>
+              <input type="range" min="0" max="1" step="0.01" v-model="volume" @input="updateVolume" class="w-full h-1.5 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary outline-none focus:outline-none" />
+           </div>
         </div>
       </div>
       
@@ -471,3 +536,48 @@ const startExtractTasks = async () => {
 
 </div>
 </template>
+
+<style>
+/* 
+  Custom styles for overriding Element Plus light theme 
+  and matching the deep dark aesthetic of the app
+*/
+.dark .custom-el-date-premium .el-input__wrapper,
+.dark .custom-el-select-premium .el-input__wrapper {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.1) !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  padding: 0.5rem 1rem !important;
+}
+
+.dark .custom-el-date-premium .el-input__inner,
+.dark .custom-el-select-premium .el-input__inner {
+  color: #fff !important;
+}
+
+.dark .custom-el-date-premium .el-input__inner::placeholder,
+.dark .custom-el-select-premium .el-input__inner::placeholder {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.dark .custom-el-date-premium .el-input__prefix,
+.dark .custom-el-date-premium .el-input__suffix,
+.dark .custom-el-select-premium .el-input__suffix {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Specific audio range slider styles to ensure they look uniform */
+input[type="range"].accent-primary::-webkit-slider-thumb {
+  background: var(--color-primary, #a8c7fa);
+  border-radius: 50%;
+  cursor: pointer;
+}
+input[type="range"].accent-primary::-moz-range-thumb {
+  background: var(--color-primary, #a8c7fa);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+</style>
+
