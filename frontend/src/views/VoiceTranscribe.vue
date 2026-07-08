@@ -243,8 +243,8 @@ const startExtractTasks = async () => {
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÔN NGỮ</label>
 <div class="relative">
-<select v-model="language" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
-<option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
+<select v-model="language" class="w-full bg-transparent border border-outline-variant rounded-md pl-3 pr-10 py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
+<option v-for="l in languages" :key="l.val" :value="l.val" class="bg-surface">{{ l.label }}</option>
 </select>
 <span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
 </div>
@@ -252,12 +252,12 @@ const startExtractTasks = async () => {
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">SỐ NGƯỜI THAM DỰ</label>
 <div class="relative">
-<select v-model="numAttendees" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
-<option>Tự động</option>
-<option>1</option>
-<option>2</option>
-<option>3</option>
-<option>4+</option>
+<select v-model="numAttendees" class="w-full bg-transparent border border-outline-variant rounded-md pl-3 pr-10 py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow">
+<option class="bg-surface">Tự động</option>
+<option class="bg-surface">1</option>
+<option class="bg-surface">2</option>
+<option class="bg-surface">3</option>
+<option class="bg-surface">4+</option>
 </select>
 <span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">unfold_more</span>
 </div>
@@ -267,7 +267,7 @@ const startExtractTasks = async () => {
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider flex justify-between">
 <span class="">TỪ VỰNG ĐẶC BIỆT (TÙY CHỌN)</span>
 </label>
-<textarea v-model="vocabulary" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-sm text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow resize-y" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." rows="2"></textarea>
+<textarea v-model="vocabulary" class="w-full bg-transparent border border-outline-variant rounded-md px-md py-sm text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow resize-y" placeholder="Nhập các từ khóa, tên dự án, thuật ngữ... phân cách bằng dấu phẩy để hệ thống nhận diện chính xác hơn." rows="2"></textarea>
 </div>
 </section>
 <!-- Section 2: Thông tin cuộc họp -->
@@ -280,19 +280,19 @@ const startExtractTasks = async () => {
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGÀY GIỜ BẮT ĐẦU</label>
 <div class="relative">
 <span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">schedule</span>
-<input v-model="meetingDate" class="w-full !bg-surface border border-outline-variant rounded-md pl-10 pr-md py-2.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" type="text" />
+<input v-model="meetingDate" class="w-full bg-transparent border border-outline-variant rounded-md pl-10 pr-md py-2.5 text-body-md font-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" type="text" />
 </div>
 </div>
 <div class="flex flex-col gap-xs">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">ĐỊA ĐIỂM</label>
-<input v-model="meetingLocation" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" placeholder="Nhập địa điểm..." type="text">
+<input v-model="meetingLocation" class="w-full bg-transparent border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow" placeholder="Nhập địa điểm..." type="text">
 </div>
 <div class="flex flex-col gap-xs md:col-span-2">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">NGƯỜI CHỦ TRÌ</label>
 <div class="relative">
-<select v-model="hostId" class="w-full !bg-surface border border-outline-variant rounded-md px-md py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow text-on-surface-variant">
-<option disabled value="">Chọn người chủ trì...</option>
-<option v-for="emp in dbEmployees" :key="emp.user_id" :value="emp.user_id">{{ emp.employee_name }}</option>
+<select v-model="hostId" class="w-full bg-transparent border border-outline-variant rounded-md pl-3 pr-10 py-2.5 text-body-md font-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-shadow text-on-surface">
+<option disabled value="" class="bg-surface">Chọn người chủ trì...</option>
+<option v-for="emp in dbEmployees" :key="emp.user_id" :value="emp.user_id" class="bg-surface">{{ emp.employee_name }}</option>
 </select>
 <span class="material-symbols-outlined absolute right-md top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
 </div>
@@ -344,17 +344,20 @@ const startExtractTasks = async () => {
 </section>
 
 <!-- STRANGER MAPPING CARD -->
-<div v-if="unknownSpeakers.length > 0" class="bg-surface-container border border-primary rounded-xl p-lg shadow-sm">
-  <div class="mb-lg">
-    <h3 class="font-headline-md text-headline-md text-on-surface mb-xs flex items-center gap-2">
+<div v-if="unknownSpeakers.length > 0" class="bg-error-container/10 border border-error/20 rounded-xl p-lg shadow-sm">
+  <div class="mb-lg border-b border-error/10 pb-md">
+    <h3 class="font-headline-md text-headline-md text-error mb-xs flex items-center gap-sm">
       <span class="material-symbols-outlined">person_add</span>
       Gán tên người tham dự
     </h3>
     <p class="font-body-md text-body-md text-on-surface-variant">AI phát hiện giọng nói chưa xác định. Chọn tên nhân viên thực tế để gán vào biên bản và đăng ký vào hệ thống.</p>
   </div>
-  <div class="flex flex-col gap-3">
-    <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-background border border-outline-variant p-3 rounded-lg">
-      <span class="font-bold text-sm min-w-[140px]">{{ spk }}</span>
+  <div class="flex flex-col gap-md">
+    <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-md bg-surface border border-outline-variant/50 p-md rounded-lg shadow-sm hover:border-primary/50 transition-colors">
+      <div class="flex items-center gap-sm min-w-[180px]">
+        <div class="w-8 h-8 rounded-full bg-error/10 flex items-center justify-center text-error font-bold text-xs shrink-0">?</div>
+        <span class="font-body-md text-body-md font-bold text-on-surface">{{ spk }}</span>
+      </div>
       <el-select
         v-model="speakerMapping[spk]"
         filterable
@@ -363,6 +366,7 @@ const startExtractTasks = async () => {
         default-first-option
         placeholder="Chọn nhân viên hoặc nhập tên..."
         style="flex: 1"
+        class="custom-el-select-premium"
       >
         <el-option
           v-for="opt in employeeOptions"
@@ -372,40 +376,48 @@ const startExtractTasks = async () => {
         />
       </el-select>
     </div>
-    <div class="flex justify-end mt-2">
-      <button :disabled="isEnrollingMapped" @click="enrollMapped" class="bg-primary hover:bg-primary/90 text-on-primary font-medium py-2 px-4 rounded-md shadow-sm transition-all disabled:opacity-50">
-        Cập nhật danh tính & Đăng ký giọng
+    <div class="flex justify-end mt-sm">
+      <button :disabled="isEnrollingMapped" @click="enrollMapped" class="bg-error hover:bg-error/90 text-on-error font-medium py-2.5 px-6 rounded-md shadow-sm transition-all disabled:opacity-50 flex items-center gap-sm">
+        <span class="material-symbols-outlined text-[20px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
+        {{ isEnrollingMapped ? 'Đang xử lý...' : 'Cập nhật danh tính & Đăng ký giọng' }}
       </button>
     </div>
   </div>
 </div>
 
 <!-- TRANSCRIPT CARD -->
-<div v-if="transcriptResults.length > 0" class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm">
-  <div class="border-b border-outline-variant pb-md mb-md flex justify-between items-center">
+<div v-if="transcriptResults.length > 0" class="bg-surface-container border border-outline-variant rounded-xl p-lg md:p-xl shadow-sm flex flex-col h-[700px]">
+  <div class="border-b border-outline-variant pb-md mb-md flex flex-col md:flex-row md:items-center justify-between gap-md shrink-0">
     <div>
       <h3 class="font-headline-md text-headline-md text-on-surface">{{ t('transcript_result') }}</h3>
-      <p class="font-body-md text-body-md text-on-surface-variant mt-1">{{ t('transcript_desc') }}</p>
+      <p class="font-body-md text-body-md text-on-surface-variant mt-xs">{{ t('transcript_desc') }}</p>
     </div>
-    <div class="flex gap-3">
-       <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-2 border border-outline-variant hover:bg-surface-variant transition-colors" :class="isCleaned ? 'border-primary text-primary' : 'text-on-surface'">
+    <div class="flex flex-wrap gap-sm">
+       <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-outline-variant hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-on-surface'">
          <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'undo' : 'auto_fix_high') }}</span>
          {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Hoàn tác" : "Chuẩn hoá hội thoại") }}
        </button>
        
-       <button @click="openTaskModal" class="px-4 py-2 bg-inverse-primary text-background rounded-md font-medium flex items-center gap-2 shadow-sm hover:opacity-90 transition-opacity" :disabled="isExtracting">
+       <button @click="openTaskModal" class="px-4 py-2 bg-primary text-on-primary hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
          <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
-         {{ tasks.length > 0 ? "View Tasks" : t('extract_task') }}
+         {{ tasks.length > 0 ? "Xem Task đã tạo" : t('extract_task') }}
        </button>
     </div>
   </div>
-  <div class="log-view p-4 space-y-6 max-h-[600px] overflow-auto relative bg-background rounded-lg border border-outline-variant">
-    <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry group">
-       <div class="log-meta">
-          <span class="log-speaker group-hover:text-primary transition-colors">{{ seg[2] }}</span>
-          <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
+  
+  <!-- Transcript Messages Area -->
+  <div class="flex-1 overflow-y-auto space-y-md pr-sm rounded-lg relative scrollbar-premium">
+    <div v-for="(seg, idx) in transcriptResults" :key="idx" class="flex flex-col gap-xs group hover:bg-surface-container-highest/30 p-md rounded-lg transition-colors border border-transparent hover:border-outline-variant/30">
+       <div class="flex items-center gap-sm">
+          <div class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/20 text-primary font-label-caps text-[10px] tracking-wider font-bold shrink-0">
+             {{ seg[2] ? seg[2].charAt(0).toUpperCase() : '?' }}
+          </div>
+          <span class="font-label-caps text-label-caps font-bold transition-colors" :class="seg[2].includes('Người lạ') ? 'text-error' : 'text-primary'">{{ seg[2] }}</span>
+          <span class="font-label-caps text-[11px] text-on-surface-variant/60 bg-surface px-1.5 py-0.5 rounded border border-outline-variant/30">{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s</span>
        </div>
-       <p class="log-text">{{ seg[3] }}</p>
+       <div class="pl-8">
+          <p class="font-body-md text-body-md text-on-surface leading-relaxed">{{ seg[3] }}</p>
+       </div>
     </div>
   </div>
 </div>
