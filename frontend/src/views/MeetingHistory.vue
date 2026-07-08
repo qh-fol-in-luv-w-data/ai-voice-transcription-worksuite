@@ -4,7 +4,7 @@ import {
   dbEmployees, tasks, isExtracting, extractStatus, isTaskModalOpen, 
   hrProjectsMap, docxUrl, excelUrl, loadHistory, modelType 
 } from '../composables/useVoiceApp'
-import { enrollMappedSpeakers, updateMeetingResults, extractTasks } from '../api'
+import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus } from '../api'
 
 const props = defineProps({
   meeting: Object,
@@ -113,21 +113,46 @@ const startExtractTasks = async () => {
   
   try {
     const res = await extractTasks(parseSegments.value, modelType.value, props.meeting.title)
-    if (res.status === 'success') {
+    if (res.status === 'processing') {
+      const pollTimer = setInterval(async () => {
+        try {
+          const pollRes = await checkExtractStatus(props.meeting.title)
+          if (pollRes.status === 'success') {
+            clearInterval(pollTimer)
+            extractStatus.value = props.t('status_extract_ok')
+            tasks.value = pollRes.items || []
+            hrProjectsMap.value = pollRes.hr_projects_map || {}
+            dbEmployees.value = pollRes.employees || []
+            docxUrl.value = pollRes.docx_url
+            excelUrl.value = pollRes.excel_url
+            loadHistory()
+            isExtracting.value = false
+            isTaskModalOpen.value = true
+          } else if (pollRes.status === 'error') {
+            clearInterval(pollTimer)
+            extractStatus.value = '❌ Error: ' + pollRes.message
+            isExtracting.value = false
+          }
+        } catch(err) {
+          console.error("Polling extract error", err)
+        }
+      }, 3000)
+    } else if (res.status === 'success') {
       extractStatus.value = props.t('status_extract_ok')
-      tasks.value = res.items
+      tasks.value = res.items || []
       hrProjectsMap.value = res.hr_projects_map || {}
       dbEmployees.value = res.employees || []
       docxUrl.value = res.docx_url
       excelUrl.value = res.excel_url
       loadHistory()
+      isExtracting.value = false
       isTaskModalOpen.value = true
     } else {
       extractStatus.value = '❌ Error: ' + res.message
+      isExtracting.value = false
     }
   } catch (e) {
     extractStatus.value = props.t('error_connect')
-  } finally {
     isExtracting.value = false
   }
 }
