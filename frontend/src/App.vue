@@ -13,9 +13,33 @@ import VoiceTranscribe from './views/VoiceTranscribe.vue'
 import VoiceEnroll from './views/VoiceEnroll.vue'
 import VoiceTask from './views/VoiceTask.vue'
 import MeetingHistory from './views/MeetingHistory.vue'
+import TaskModal from './components/TaskModal.vue'
 
-import { activeTab, uiLang, isDark, currentMeeting, dict } from './composables/useVoiceApp'
-import { getElevenLabsInfo } from './api'
+import { 
+  activeTab, uiLang, isDark, currentMeeting, dict,
+  isTaskModalOpen, tasks, dbEmployees, hrProjectsMap,
+  docxUrl, excelUrl, selectedAttendees, voiceDbSpeakers, isReanalyzing 
+} from './composables/useVoiceApp'
+import { getElevenLabsInfo, syncTasksToERP } from './api'
+import { ElMessage } from 'element-plus'
+
+const handleSyncERP = async () => {
+  if (tasks.value.length === 0) {
+    ElMessage.warning("Không có nhiệm vụ nào để đồng bộ!")
+    return
+  }
+  try {
+    const res = await syncTasksToERP(tasks.value)
+    if (res.status === 'success') {
+      ElMessage.success(`✅ Đã đồng bộ thành công!`)
+      isTaskModalOpen.value = false
+    } else {
+      ElMessage.error("❌ Lỗi đồng bộ: " + res.message)
+    }
+  } catch(e) {
+    ElMessage.error("❌ Lỗi kết nối khi đồng bộ")
+  }
+}
 
 const t = (key) => {
   if (dict[uiLang.value] && dict[uiLang.value][key]) {
@@ -76,6 +100,27 @@ watch(isDark, (val) => {
         <VoiceTask v-if="activeTab === 'voice_task'" />
         <MeetingHistory v-if="activeTab === 'view_meeting'" :meeting="currentMeeting" :t="t" />
       </main>
+      
+      <!-- Global Task Modal -->
+      <TaskModal 
+        :is-open="isTaskModalOpen"
+        :tasks="tasks"
+        :db-employees="dbEmployees"
+        :hr-projects-map="hrProjectsMap"
+        :docx-url="docxUrl"
+        :excel-url="excelUrl"
+        :current-local-date="() => new Date().toLocaleString('vi-VN', { hour12: false })"
+        :t="t"
+        :selected-attendees="selectedAttendees"
+        :voice-db-speakers="voiceDbSpeakers"
+        :is-reanalyzing="isReanalyzing"
+        @close="isTaskModalOpen = false"
+        @remove-task="(idx) => tasks.splice(idx, 1)"
+        @add-task="tasks.push({ title: '', assignee_display: '', project: '', start_date: new Date().toLocaleString('vi-VN', { hour12: false }), end_date: '', description: '' })"
+        @sync-erp="handleSyncERP"
+        @toggle-attendee="(val) => { const i = selectedAttendees.indexOf(val); if(i > -1) selectedAttendees.splice(i,1); else selectedAttendees.push(val); }"
+        @remove-attendee="(name) => { const i = selectedAttendees.indexOf(name); if(i > -1) selectedAttendees.splice(i,1); }"
+      />
     </div>
   </div>
 </template>

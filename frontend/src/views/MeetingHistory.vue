@@ -183,9 +183,7 @@ const openTaskModal = () => {
           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
           {{ isExtracting ? 'Đang trích xuất...' : 'Trích xuất Task' }}
         </button>
-        <button v-if="meeting.audio_file" @click="downloadFile(meeting.audio_file, meeting.title + '.wav')" class="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-surface-container border border-gray-200 dark:border-outline-variant rounded-lg text-gray-900 dark:text-tertiary hover:bg-gray-100 dark:hover:bg-surface-container-highest transition-colors font-body-sm text-body-sm">
-          <span class="material-symbols-outlined text-[18px]">volume_up</span> Tải Audio
-        </button>
+
         <button v-if="meeting.minute_docx" @click="downloadFile(meeting.minute_docx, meeting.title + '.docx')" class="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-surface-container border border-gray-200 dark:border-outline-variant rounded-lg text-secondary hover:bg-gray-100 dark:hover:bg-surface-container-highest transition-colors font-body-sm text-body-sm">
           <span class="material-symbols-outlined text-[18px]">description</span> Tải Biên bản (Word)
         </button>
