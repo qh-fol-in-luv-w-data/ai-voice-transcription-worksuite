@@ -7,7 +7,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -316,20 +316,46 @@ const startExtractTasks = async () => {
   
   try {
     const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value)
-    if (res.status === 'success') {
+    if (res.status === 'processing') {
+      const pollTimer = setInterval(async () => {
+        try {
+          const pollRes = await checkExtractStatus(currentMeetingName.value)
+          if (pollRes.status === 'success') {
+            clearInterval(pollTimer)
+            extractStatus.value = t('status_extract_ok')
+            tasks.value = pollRes.items || []
+            hrProjectsMap.value = pollRes.hr_projects_map || {}
+            dbEmployees.value = pollRes.employees || []
+            docxUrl.value = pollRes.docx_url
+            excelUrl.value = pollRes.excel_url
+            loadHistory()
+            isExtracting.value = false
+            isTaskModalOpen.value = true
+          } else if (pollRes.status === 'error') {
+            clearInterval(pollTimer)
+            extractStatus.value = '❌ Error: ' + pollRes.message
+            isExtracting.value = false
+          }
+        } catch(err) {
+          console.error("Polling extract error", err)
+        }
+      }, 3000)
+    } else if (res.status === 'success') {
       extractStatus.value = t('status_extract_ok')
-      tasks.value = res.items
+      tasks.value = res.items || []
       hrProjectsMap.value = res.hr_projects_map || {}
       dbEmployees.value = res.employees || []
       docxUrl.value = res.docx_url
       excelUrl.value = res.excel_url
       loadHistory()
+      isExtracting.value = false
+      isTaskModalOpen.value = true
     } else {
       extractStatus.value = '❌ Error: ' + res.message
+      isExtracting.value = false
     }
   } catch (e) {
     extractStatus.value = t('error_connect')
-  } finally {
     isExtracting.value = false
   }
 }
