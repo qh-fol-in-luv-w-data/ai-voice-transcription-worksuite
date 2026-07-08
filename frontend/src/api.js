@@ -113,7 +113,7 @@ export async function updateTranscriptText(meetingName, results) {
     meeting_name: meetingName,
     results: results
   })
-  return res.data
+  return res.data.message
 }
 
 export async function enrollMappedSpeakers(meetingName, mappings) {
