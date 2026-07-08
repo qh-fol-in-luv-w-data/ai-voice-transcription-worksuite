@@ -79,7 +79,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
         doc = docx.Document(template_path)
 
         # ── Cập nhật ngày ban hành trong header ───────────────────────────────
-        current_date = datetime.now().strftime("%d/%m/%Y")
+        current_date = "17/11/2025"
         for section in doc.sections:
             if section.header:
                 for t in section.header.tables:
@@ -196,8 +196,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
     else:
         # ── Fallback nếu không tìm thấy template ─────────────────────────────
         doc = docx.Document()
-        current_date = datetime.now().strftime("%d/%m/%Y")
-
+        current_date = "17/11/2025"
         doc.add_heading(title, 0)
         doc.add_paragraph(f"Ngày họp: {current_date}")
         doc.add_paragraph(f"Tổng số lượt phát biểu: {len(results)}")

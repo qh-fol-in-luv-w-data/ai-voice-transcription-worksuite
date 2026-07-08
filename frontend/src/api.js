@@ -113,7 +113,7 @@ export async function updateTranscriptText(meetingName, results) {
     meeting_name: meetingName,
     results: results
   })
-  return res.data
+  return res.data.message
 }
 
 export async function enrollMappedSpeakers(meetingName, mappings) {
@@ -142,6 +142,35 @@ export async function voiceToTask(file, existingTask = null) {
 export async function checkMeetingStatus(meetingName) {
   const res = await api.get('/api/method/voice_app.api.check_meeting_status', {
     params: { meeting_name: meetingName }
+  })
+  return res.data.message
+}
+
+export async function checkExtractStatus(meetingName) {
+  const res = await api.get('/api/method/voice_app.api.check_extract_status', {
+    params: { meeting_name: meetingName }
+  })
+  return res.data.message
+}
+
+export async function checkCleanStatus(meetingName) {
+  const res = await api.get('/api/method/voice_app.api.check_clean_status', {
+    params: { meeting_name: meetingName }
+  })
+  return res.data.message
+}
+
+
+export async function resumeTranscription(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.resume_transcription', {
+    meeting_name: meetingName
+  })
+  return res.data.message
+}
+
+export async function undoMapping(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.undo_mapping', {
+    meeting_name: meetingName
   })
   return res.data.message
 }

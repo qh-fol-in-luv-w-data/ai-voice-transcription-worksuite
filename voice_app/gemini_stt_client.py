@@ -3,7 +3,8 @@ import time
 import json
 import re
 import random
-import requests as _requests
+import asyncio
+import aiohttp
 from .audio_utils import get_duration
 from .constants import get_gemini_api_key, get_gemini_model
 
@@ -12,8 +13,8 @@ GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{mode
 FILE_STATUS_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
 STREAM_URL      = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
 
-_RETRY_MAX        = 6   # số lần thử tối đa khi gặp 429
-_RETRY_BASE_DELAY = 15  # giây, tăng gấp đôi mỗi lần: 15 → 30 → 60 → 120 → 240
+_RETRY_MAX        = 6
+_RETRY_BASE_DELAY = 15
 
 def _get_gemini_model():
     try:
@@ -31,8 +32,7 @@ def _get_api_key():
     except Exception: pass
     return get_gemini_api_key()
 
-def _upload_file(wav_path, api_key):
-    """Upload audio lên Gemini File API, chờ ACTIVE rồi trả về (file_uri, file_name)."""
+async def _upload_file(session: aiohttp.ClientSession, wav_path, api_key):
     file_size = os.path.getsize(wav_path)
     headers = {
         "X-Goog-Upload-Protocol": "resumable",
@@ -42,27 +42,26 @@ def _upload_file(wav_path, api_key):
         "Content-Type": "application/json",
     }
 
-    # Retry on 429 khi khởi tạo upload session
     for attempt in range(_RETRY_MAX):
-        init = _requests.post(
+        async with session.post(
             f"{UPLOAD_URL}?key={api_key}",
             headers=headers,
             json={"file": {"display_name": os.path.basename(wav_path)}},
             timeout=60,
-        )
-        if init.status_code == 429 and attempt < _RETRY_MAX - 1:
-            delay = _RETRY_BASE_DELAY * (2 ** attempt)
-            print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay}s...")
-            time.sleep(delay)
-            continue
-        init.raise_for_status()
-        break
-
-    upload_url = init.headers["X-Goog-Upload-URL"]
+        ) as init:
+            if init.status == 429 and attempt < _RETRY_MAX - 1:
+                delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay}s...")
+                await asyncio.sleep(delay)
+                continue
+            init.raise_for_status()
+            upload_url = init.headers["X-Goog-Upload-URL"]
+            break
 
     with open(wav_path, "rb") as f:
         data = f.read()
-    upload_resp = _requests.post(
+        
+    async with session.post(
         upload_url,
         headers={
             "Content-Length": str(file_size),
@@ -71,61 +70,52 @@ def _upload_file(wav_path, api_key):
         },
         data=data,
         timeout=600,
-    )
-    upload_resp.raise_for_status()
-    file_info = upload_resp.json()["file"]
-    file_uri  = file_info["uri"]
-    file_name = file_info["name"]
+    ) as upload_resp:
+        upload_resp.raise_for_status()
+        resp_json = await upload_resp.json()
+        file_info = resp_json["file"]
+        file_uri  = file_info["uri"]
+        file_name = file_info["name"]
+        
     print(f"[Gemini STT] Uploaded → {file_uri}, chờ ACTIVE...")
 
     for _ in range(30):
-        status_resp = _requests.get(
+        async with session.get(
             f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
             timeout=30,
-        )
-        if status_resp.status_code in [403, 429, 500, 502, 503, 504]:
-            print(f"[Gemini STT] File status polling returned {status_resp.status_code}, retrying...")
-            time.sleep(5)
-            continue
-        status_resp.raise_for_status()
-        state = status_resp.json().get("state", "")
-        if state == "ACTIVE":
-            print(f"[Gemini STT] File ACTIVE: {file_uri}")
-            return file_uri, file_name
-        if state == "FAILED":
-            raise Exception(f"Gemini file processing FAILED: {file_name}")
-        time.sleep(5)
+        ) as status_resp:
+            if status_resp.status in [403, 429, 500, 502, 503, 504]:
+                print(f"[Gemini STT] File status polling returned {status_resp.status}, retrying...")
+                await asyncio.sleep(5)
+                continue
+            status_resp.raise_for_status()
+            resp_json = await status_resp.json()
+            state = resp_json.get("state", "")
+            
+            if state == "ACTIVE":
+                print(f"[Gemini STT] File ACTIVE: {file_uri}")
+                return file_uri, file_name
+            if state == "FAILED":
+                raise Exception(f"Gemini file processing FAILED: {file_name}")
+            
+        await asyncio.sleep(5)
 
     raise Exception("Gemini file processing timeout sau 200s")
 
-def _get_gemini_model():
-    return get_gemini_model()
-
-def _get_api_key():
-    return get_gemini_api_key()
-
-
-def _delete_file(file_name, api_key):
-    """Xóa file khỏi Gemini File API sau khi dùng xong."""
+async def _delete_file(session: aiohttp.ClientSession, file_name, api_key):
     try:
-        resp = _requests.delete(
+        async with session.delete(
             f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
             timeout=30,
-        )
-        if resp.status_code in (200, 204):
-            print(f"[Gemini STT] Deleted: {file_name}")
-        else:
-            print(f"[Gemini STT] Delete failed {resp.status_code}: {file_name}")
+        ) as resp:
+            if resp.status in (200, 204):
+                print(f"[Gemini STT] Deleted: {file_name}")
+            else:
+                print(f"[Gemini STT] Delete failed {resp.status}: {file_name}")
     except Exception as e:
         print(f"[Gemini STT] Delete error: {e}")
 
-
-def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=12000):
-    """
-    Gọi Gemini Streaming API (streamGenerateContent) — giống hệt Gemini Web.
-    Không bị cắt ngang do MAX_TOKENS vì nhận token liên tục cho đến hết.
-    Trả về (danh sách segments đã parse, usage, error).
-    """
+async def _call_gemini_stream(session: aiohttp.ClientSession, file_uri, api_key, prompt, model_name=None, max_tokens=12000):
     if not model_name:
         model_name = _get_gemini_model()
 
@@ -144,13 +134,6 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
         },
     }
 
-
-    _retryable = (
-        _requests.exceptions.ConnectionError,
-        _requests.exceptions.ChunkedEncodingError,
-        _requests.exceptions.Timeout,
-    )
-
     full_text     = ""
     total_in      = 0
     total_out     = 0
@@ -160,81 +143,79 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
     for attempt in range(_RETRY_MAX):
         print(f"[Gemini STT] Streaming attempt {attempt + 1}/{_RETRY_MAX} (model={model_name})...")
         try:
-            resp = _requests.post(
+            async with session.post(
                 url,
                 json=payload,
                 timeout=1800,
-                stream=True,
-            )
-            if resp.status_code in [403, 429, 500, 502, 503, 504]:
-                if attempt < _RETRY_MAX - 1:
-                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
-                    print(f"[Gemini STT] {resp.status_code} stream, thử lại sau {delay}s...")
-                    time.sleep(delay)
-                    continue
+            ) as resp:
+                if resp.status in [403, 429, 500, 502, 503, 504]:
+                    if attempt < _RETRY_MAX - 1:
+                        delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                        print(f"[Gemini STT] {resp.status} stream, thử lại sau {delay}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    resp.raise_for_status()
                 resp.raise_for_status()
-            resp.raise_for_status()
 
-            full_text       = ""
-            total_in        = 0
-            total_out       = 0
-            total_tokens    = 0
-            thoughts_tokens = 0
-            cached_tokens   = 0
-            finish_reason   = None
+                full_text       = ""
+                total_in        = 0
+                total_out       = 0
+                total_tokens    = 0
+                thoughts_tokens = 0
+                cached_tokens   = 0
+                finish_reason   = None
 
-            for raw_line in resp.iter_lines():
-                if not raw_line:
-                    continue
-                line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:].strip()
-                if data_str == "[DONE]":
-                    break
-                try:
-                    parsed_data = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
-                
-                # Gemini có thể trả về 1 dict, hoặc 1 mảng các dict
-                chunks_to_process = parsed_data if isinstance(parsed_data, list) else [parsed_data]
-
-                for chunk in chunks_to_process:
-                    if not isinstance(chunk, dict):
+                async for raw_line in resp.content:
+                    if not raw_line:
                         continue
-
-                    usage = chunk.get("usageMetadata", {})
-                    if usage:
-                        total_in      = usage.get("promptTokenCount", total_in)
-                        total_out     = usage.get("candidatesTokenCount", total_out)
-                        total_tokens  = usage.get("totalTokenCount", total_tokens)
-                        cached_tokens = usage.get("cachedContentTokenCount", cached_tokens)
-
-                    candidates = chunk.get("candidates", [])
-                    if not candidates:
+                    line = raw_line.decode("utf-8").strip() if isinstance(raw_line, bytes) else raw_line.strip()
+                    if not line:
                         continue
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        parsed_data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    
+                    chunks_to_process = parsed_data if isinstance(parsed_data, list) else [parsed_data]
 
-                    cand = candidates[0]
-                    finish_reason = cand.get("finishReason", finish_reason)
+                    for chunk in chunks_to_process:
+                        if not isinstance(chunk, dict):
+                            continue
 
-                    parts = cand.get("content", {}).get("parts", [])
-                    for part in parts:
-                        if not part.get("thought", False) and "text" in part:
-                            full_text += part["text"]
+                        usage = chunk.get("usageMetadata", {})
+                        if usage:
+                            total_in      = usage.get("promptTokenCount", total_in)
+                            total_out     = usage.get("candidatesTokenCount", total_out)
+                            total_tokens  = usage.get("totalTokenCount", total_tokens)
+                            cached_tokens = usage.get("cachedContentTokenCount", cached_tokens)
 
-            break  # stream đọc xong thành công
+                        candidates = chunk.get("candidates", [])
+                        if not candidates:
+                            continue
 
-        except _retryable as e:
+                        cand = candidates[0]
+                        finish_reason = cand.get("finishReason", finish_reason)
+
+                        parts = cand.get("content", {}).get("parts", [])
+                        for part in parts:
+                            if not part.get("thought", False) and "text" in part:
+                                full_text += part["text"]
+
+                break  # stream đọc xong thành công
+
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             if attempt < _RETRY_MAX - 1:
                 delay = _RETRY_BASE_DELAY * (2 ** attempt)
                 print(f"[Gemini STT] Connection error ({type(e).__name__}), thử lại sau {delay}s...")
-                time.sleep(delay)
+                await asyncio.sleep(delay)
             else:
                 raise
 
-    # totalTokenCount là số tổng authoritative từ Gemini và có thể bao gồm
-    # thinking/tool tokens ngoài candidatesTokenCount.
     billable_out = max(total_tokens - total_in, total_out + thoughts_tokens)
     total_tokens = max(total_tokens, total_in + billable_out)
     usage_result = {
@@ -247,7 +228,6 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
         "model": f"google/{model_name}",
     }
 
-    # Gemini 3.5 Flash pricing: input=$1.50/M, output=$9.00/M
     PRICE_IN  = 1.50 / 1_000_000
     PRICE_OUT = 9.00 / 1_000_000
     cost = total_in * PRICE_IN + billable_out * PRICE_OUT
@@ -267,7 +247,6 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
         return [], usage_result, f"Gemini không trả về text (finish={finish_reason})"
 
     return _parse_gemini_response(full_text), usage_result, None
-
 
 def _build_prompt(num_speakers, language, custom_vocabulary=""):
     lang_note    = "tiếng Việt" if language in ("vi", "vi-VN") else language
@@ -412,11 +391,21 @@ def _words_to_segments(raw_words):
     if cur: segments.append(cur)
     return segments
 
-def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = "", progress_callback=None):
-    """
-    Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
-    Trả về: (segments, raw_words, full_text, error, 0, 0)
-    """
+
+def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = "", progress_callback=None, existing_segments=None):
+    try:
+        # Sử dụng event loop mới để tránh lỗi "Event loop is already running" nếu có
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(_async_call_gemini_stt(wav_path, language, num_speakers, custom_vocabulary, progress_callback, existing_segments))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return [], [], "", f"Lỗi Gemini STT: {e}", 0, 0
+    finally:
+        loop.close()
+
+async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = "", progress_callback=None, existing_segments=None):
     model_name = _get_gemini_model()
     empty_usage = {
         "prompt_tokens": 0,
@@ -426,17 +415,9 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
     }
     api_key = _get_api_key()
     if not api_key:
-        return (
-            [], [], "",
-            "Chưa cấu hình Gemini API Key trong Voice App Settings",
-            0, 0,
-        )
+        return [], [], "", "Chưa cấu hình Gemini API Key trong Voice App Settings", 0, 0
     if not model_name:
-        return (
-            [], [], "",
-            "Chưa cấu hình Gemini Model trong Voice App Settings",
-            0, 0,
-        )
+        return [], [], "", "Chưa cấu hình Gemini Model trong Voice App Settings", 0, 0
 
     try:
         from .audio_utils import split_audio_by_silence
@@ -444,25 +425,37 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         print(f"[Gemini STT] File {duration:.1f}s, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
 
-        # Nâng cấp chunk lên 20 phút (1200s - 1500s) theo yêu cầu
         chunks = split_audio_by_silence(wav_path, chunk_length_sec=1200.0, max_chunk_sec=1500.0)
         
         all_segments = []
         all_raw_words = []
         all_full_text = ""
         
-        def _process_single_chunk(idx, chunk_wav, offset, is_subchunk=False):
+        completed_chunks = set()
+        if existing_segments:
+            for s in existing_segments:
+                if 'speaker_id' in s and s['speaker_id'].startswith('c') and '_' in s['speaker_id']:
+                    try:
+                        chunk_idx = int(s['speaker_id'].split('_')[0][1:])
+                        completed_chunks.add(chunk_idx)
+                    except: pass
+        
+        async def _process_single_chunk(session, idx, chunk_wav, offset, is_subchunk=False):
             try:
+                if not is_subchunk and idx in completed_chunks:
+                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks)} vì đã hoàn thành trước đó.")
+                    return idx, None, None, None, None, None
                 if is_subchunk:
                     print(f"[Gemini STT]   -> Sub-chunk {idx} - offset: {offset:.1f}s")
                 else:
                     print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
                 
                 chunk_duration = get_duration(chunk_wav)
-                file_uri, file_name = _upload_file(chunk_wav, api_key)
+                file_uri, file_name = await _upload_file(session, chunk_wav, api_key)
+                chunk_error = None
                 try:
-                    gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(
-                        file_uri, api_key, prompt, model_name,
+                    gemini_segments, chunk_usage, chunk_error = await _call_gemini_stream(
+                        session, file_uri, api_key, prompt, model_name,
                         max_tokens=65536
                     )
 
@@ -471,7 +464,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                         return idx, None, None, None, chunk_usage, chunk_error
                 finally:
                     if not (chunk_error == "HALLUCINATION_DETECTED" and not is_subchunk):
-                        _delete_file(file_name, api_key)
+                        await _delete_file(session, file_name, api_key)
                         if chunk_wav != wav_path:
                             try: os.remove(chunk_wav)
                             except: pass
@@ -479,7 +472,6 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 if not gemini_segments:
                     return idx, None, None, None, chunk_usage, "Gemini trả về rỗng (có thể do safety filter hoặc file nhiễu)."
 
-                # BỘ LỌC RÁC ẢO GIÁC LẶP TỪ (DE-DUPLICATOR)
                 clean_segments = []
                 loop_count = 0
                 for seg in gemini_segments:
@@ -487,7 +479,6 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     text = seg.get("text", "").strip()
                     if not text: continue
                     
-                    # CẮT BỎ nếu AI bịa ra timestamp vượt quá độ dài vật lý của file audio
                     try:
                         seg_start = _parse_time(seg.get("start", 0))
                     except:
@@ -498,7 +489,6 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     if clean_segments and text == clean_segments[-1].get("text", "").strip():
                         loop_count += 1
                         if loop_count >= 3:
-                            # Phát hiện vòng lặp (lặp lại > 3 lần) -> vứt bỏ toàn bộ phần đuôi!
                             break
                     else:
                         loop_count = 0
@@ -510,8 +500,6 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 raw_words = _segments_to_raw_words(clean_segments, file_duration=chunk_duration)
                 segments = _words_to_segments(raw_words)
                 
-                # Offset timestamps & rename speakers by chunk index
-                # Đối với subchunk, idx là string kiểu "1.1", nên id sẽ là "c1.1_Speaker" - vẫn hợp lệ
                 for seg in segments:
                     seg["start"] = round(seg["start"] + offset, 2)
                     seg["end"] = round(seg["end"] + offset, 2)
@@ -525,9 +513,6 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     
                 chunk_text = " ".join(s.get("text", "") for s in clean_segments)
                 
-                # -- SMART RESUME --
-                # Nếu chunk bị ngáo, ta kiểm tra xem nó ngáo ở phút thứ mấy.
-                # Nếu đoạn ngáo nằm ở giữa file (còn dư > 15s audio), ta cắt phần dư đó chạy tiếp!
                 if chunk_error == "HALLUCINATION_DETECTED" and not is_subchunk:
                     last_valid_timestamp = _parse_time(clean_segments[-1].get("end", 0))
                     if chunk_duration - last_valid_timestamp > 15:
@@ -538,8 +523,8 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                         resume_wav = chunk_wav.replace(".wav", f"_{idx}_resume.wav")
                         resume_audio.export(resume_wav, format="wav")
                         
-                        _, r_segs, r_words, r_txt, r_use, r_err = _process_single_chunk(
-                            f"{idx}_resume", resume_wav, offset + last_valid_timestamp, is_subchunk=True
+                        _, r_segs, r_words, r_txt, r_use, r_err = await _process_single_chunk(
+                            session, f"{idx}_resume", resume_wav, offset + last_valid_timestamp, is_subchunk=True
                         )
                         
                         try: os.remove(resume_wav)
@@ -559,7 +544,6 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 traceback.print_exc()
                 return idx, None, None, None, None, str(e)
 
-        import concurrent.futures
         completed_count = 0
         total_chunks = len(chunks)
         results = [None] * total_chunks
@@ -568,33 +552,34 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         total_out_all = 0
         total_tok_all = 0
         chunk_errors = []
-        # Giảm số luồng chạy song song để tránh bị Google block (lỗi 429), người dùng yêu cầu 6
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            future_to_idx = {
-                executor.submit(_process_single_chunk, idx, chunk_wav, offset): idx 
+
+        # Hạn chế số kết nối đồng thời với connector (6 luồng tương tự max_workers=6)
+        connector = aiohttp.TCPConnector(limit=6)
+        
+        async with aiohttp.ClientSession(connector=connector) as session:
+            tasks = [
+                _process_single_chunk(session, idx, chunk_wav, offset)
                 for idx, (chunk_wav, offset) in enumerate(chunks)
-            }
+            ]
             
-            for future in concurrent.futures.as_completed(future_to_idx):
-                idx = future_to_idx[future]
+            for future in asyncio.as_completed(tasks):
                 try:
-                    res_idx, segments, raw_words, chunk_text, chunk_usage, err_msg = future.result()
+                    res_idx, segments, raw_words, chunk_text, chunk_usage, err_msg = await future
                     if err_msg:
-                        chunk_errors.append(f"Chunk {idx+1}: {err_msg}")
+                        chunk_errors.append(f"Chunk {res_idx+1}: {err_msg}")
                     results[res_idx] = (segments, raw_words, chunk_text)
                     if chunk_usage:
                         total_in_all  += chunk_usage.get("prompt_tokens", 0)
                         total_out_all += chunk_usage.get("completion_tokens", 0)
                         total_tok_all += chunk_usage.get("tokens_used", 0)
                 except Exception as e:
-                    results[idx] = (None, None, None)
-                    chunk_errors.append(f"Chunk {idx+1}: {str(e)}")
-                    print(f"[Gemini STT] Exception in chunk {idx+1}: {e}")
+                    chunk_errors.append(f"Lỗi không xác định: {str(e)}")
+                    print(f"[Gemini STT] Exception in async processing: {e}")
                 
                 completed_count += 1
                 if progress_callback:
                     progress_percent = int((completed_count / total_chunks) * 100)
-                    progress_callback(progress_percent, f"Đang dịch đa luồng: xong {completed_count}/{total_chunks} phần...")
+                    progress_callback(progress_percent, f"Đang dịch (asyncio): xong {completed_count}/{total_chunks} phần...")
 
         for res in results:
             if not res: continue
@@ -604,9 +589,24 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 all_raw_words.extend(raw_words)
                 all_full_text += " " + chunk_text
 
+        if existing_segments:
+            # Lọc ra những segment thuộc các chunk đã hoàn thành
+            for s in existing_segments:
+                if 'speaker_id' in s and s['speaker_id'].startswith('c') and '_' in s['speaker_id']:
+                    try:
+                        chunk_idx = int(s['speaker_id'].split('_')[0][1:])
+                        if chunk_idx in completed_chunks:
+                            all_segments.append(s)
+                            if 'text' in s:
+                                all_full_text += " " + s['text']
+                    except: pass
+        
+        # Sort all_segments by start time
+        all_segments.sort(key=lambda x: x.get('start', 0))
+
         if chunk_errors:
             error_details = " | ".join(chunk_errors)
-            return [], [], "", f"Lỗi xử lý file (Gemini): {error_details}", 0, 0
+            return all_segments, all_raw_words, all_full_text.strip(), f"Lỗi xử lý file (Gemini): {error_details}", total_in_all, total_out_all
 
         if not all_segments:
             return [], [], "", "Gemini không nhận ra giọng nói trong file (file trống, nhiễu hoặc sai format).", 0, 0
@@ -616,7 +616,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         PRICE_OUT = 9.00 / 1_000_000
         total_cost = total_in_all * PRICE_IN + total_out_all * PRICE_OUT
         print(
-            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks)} chunks\n"
+            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks)} chunks\\n"
             f"💰 [Gemini STT] TỔNG CHI PHÍ FILE: "
             f"in={total_in_all:,} + out={total_out_all:,} = {total_tok_all:,} tokens | "
             f"cost=~${total_cost:.4f} USD ({len(chunks)} chunks)"

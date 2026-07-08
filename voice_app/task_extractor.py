@@ -151,12 +151,14 @@ def node_extract_tasks(state: AgentState) -> dict:
 
     client = OpenAI(api_key=api_key)
 
-    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất tất cả các thông báo và công việc cần xử lý.
+    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất TẤT CẢ các thông báo và công việc cần xử lý.
 
 Nhiệm vụ của bạn:
-- Chỉ trả về các mục công việc và thông báo.
-- Bắt buộc phải trích xuất ĐẦY ĐỦ tất cả các Task (nhiệm vụ/công việc) và Noti (thông báo) được nhắc đến trong biên bản, tuyệt đối không được bỏ sót bất kỳ mục nào.
-- Mỗi mục là một đầu việc hoặc thông báo riêng, có người thực hiện hoặc người tiếp nhận rõ ràng hoặc là thông báo chung.
+- Chỉ trả về các mục công việc (task) và thông báo (noti).
+- ĐẶC BIỆT LƯU Ý: Bắt buộc phải trích xuất ĐẦY ĐỦ, CHI TIẾT từng Task (nhiệm vụ/công việc) và Noti (thông báo) được nhắc đến trong biên bản. TUYỆT ĐỐI KHÔNG ĐƯỢC BỎ SÓT BẤT KỲ MỤC NÀO, dù là nhỏ nhất. Nếu có 10 ý, phải liệt kê đủ 10 ý.
+- Mỗi mục là một đầu việc hoặc thông báo riêng biệt, không được gộp chung các công việc khác nhau vào làm một.
+- Có người thực hiện, người tiếp nhận rõ ràng hoặc là thông báo chung.
+
 
 Điền thông tin:
 - "nguoi_thuc_hien": họ tên ĐẦY ĐỦ chính xác NHƯ TRONG BIÊN BẢN (không rút gọn, không suy diễn, không đảo thứ tự)
@@ -602,8 +604,9 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
         assignee_email   = emp.get("user_id") if emp else None
         assignee_hr_code = emp.get("name") if emp else None
         assignee_name    = emp.get("employee_name") if emp else item.get("nguoi_thuc_hien", "")
+        assignee_desig   = emp.get("designation") if emp else ""
         
-        display_assignee = f"{assignee_name} - {assignee_email}" if assignee_email else assignee_name
+        display_assignee = " - ".join(filter(bool, [assignee_name, assignee_email, assignee_desig]))
 
         item_enriched = {
             "title": item["noi_dung"],
