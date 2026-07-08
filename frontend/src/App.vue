@@ -883,7 +883,32 @@ const startExtractTasks = async () => {
       meetingLocation.value,
       meetingChairperson.value
     )
-    if (res.status === 'success') {
+    
+    if (res.status === 'processing') {
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await checkExtractStatus(currentMeetingName.value)
+          if (statusRes && statusRes.status !== 'processing') {
+            clearInterval(pollInterval)
+            if (statusRes.status === 'success') {
+              extractStatus.value = t('status_extract_ok')
+              tasks.value = statusRes.items || []
+              hrProjectsMap.value = statusRes.hr_projects_map || {}
+              dbEmployees.value = statusRes.employees || []
+              docxUrl.value = statusRes.docx_url
+              excelUrl.value = statusRes.excel_url
+              loadHistory()
+            } else {
+              extractStatus.value = '❌ Error: ' + statusRes.message
+            }
+            isExtracting.value = false
+          }
+        } catch (pollErr) {
+          console.error("Polling error:", pollErr)
+        }
+      }, 3000)
+    } else if (res.status === 'success') {
+      // Fallback
       extractStatus.value = t('status_extract_ok')
       tasks.value = res.items
       hrProjectsMap.value = res.hr_projects_map || {}
@@ -891,12 +916,13 @@ const startExtractTasks = async () => {
       docxUrl.value = res.docx_url
       excelUrl.value = res.excel_url
       loadHistory()
+      isExtracting.value = false
     } else {
       extractStatus.value = '❌ Error: ' + res.message
+      isExtracting.value = false
     }
   } catch (e) {
     extractStatus.value = t('error_connect')
-  } finally {
     isExtracting.value = false
   }
 }
@@ -922,6 +948,38 @@ const saveTranscriptChanges = async () => {
   }
 }
 
+
+const resumeMeeting = async () => {
+  isTranscribing.value = true
+  transcribeStatus.value = "Đang nạp lại file và chạy tiếp..."
+  try {
+    const res = await resumeTranscription(currentMeetingName.value)
+    if (res.status === 'processing') {
+      pollMeetingStatus(res.meeting_name)
+    } else {
+      ElMessage.error(res.message)
+      isTranscribing.value = false
+    }
+  } catch(e) {
+    ElMessage.error("Lỗi kết nối")
+    isTranscribing.value = false
+  }
+}
+
+const performUndoMapping = async () => {
+  try {
+    const res = await undoMapping(currentMeetingName.value)
+    if (res.status === 'success') {
+      transcriptResults.value = res.results
+      ElMessage.success("Đã hoàn tác gán tên thành công!")
+      loadHistory()
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch(e) {
+    ElMessage.error("Lỗi kết nối")
+  }
+}
 const startCleanTranscript = async () => {
   if (isCleaned.value) {
     // Hoàn tác lọc — khôi phục kết quả gốc
@@ -942,18 +1000,42 @@ const startCleanTranscript = async () => {
   isCleaning.value = true
   try {
     const res = await cleanTranscript(transcriptResults.value, modelType.value, currentMeetingName.value, customVocabulary.value)
-    if (res.status === 'success') {
+    
+    if (res.status === 'processing') {
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await checkCleanStatus(currentMeetingName.value)
+          if (statusRes && statusRes.status !== 'processing') {
+            clearInterval(pollInterval)
+            if (statusRes.status === 'success') {
+              if (originalTranscriptResults.value.length === 0) {
+                originalTranscriptResults.value = [...transcriptResults.value]
+              }
+              transcriptResults.value = statusRes.cleaned_results
+              isCleaned.value = true
+            } else {
+              ElMessage.error('Lỗi lọc: ' + statusRes.message)
+            }
+            isCleaning.value = false
+          }
+        } catch (pollErr) {
+          console.error("Polling error:", pollErr)
+        }
+      }, 3000)
+    } else if (res.status === 'success') {
+      // Fallback
       if (originalTranscriptResults.value.length === 0) {
         originalTranscriptResults.value = [...transcriptResults.value]
       }
       transcriptResults.value = res.cleaned_results
       isCleaned.value = true
+      isCleaning.value = false
     } else {
       ElMessage.error('Lỗi lọc: ' + res.message)
+      isCleaning.value = false
     }
   } catch (e) {
     ElMessage.error(t('error_connect'))
-  } finally {
     isCleaning.value = false
   }
 }
@@ -1873,6 +1955,10 @@ onMounted(async () => {
                 <template #header>
                   <h3 class="text-lg font-medium m-0">{{ currentMeeting?.title }}</h3>
                   <p class="text-sm text-muted-foreground m-0 mt-1">{{ currentMeeting?.date }} &middot; Trạng thái: {{ currentMeeting?.status }}</p>
+                     <div class="mt-2 flex gap-2">
+                       <el-button v-if="currentMeeting?.status === 'Partial Error'" @click="resumeMeeting" type="warning" plain>Tiếp tục dịch</el-button>
+                       <el-button v-if="currentMeeting?.original_transcript && currentMeeting.transcript !== currentMeeting.original_transcript" @click="performUndoMapping" type="danger" plain>Hoàn tác gán tên/lọc</el-button>
+                     </div>
                 </template>
                 
                 <div class="flex flex-col gap-6">
