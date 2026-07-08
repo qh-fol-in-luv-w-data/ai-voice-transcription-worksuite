@@ -288,8 +288,8 @@ const startExtractTasks = async () => {
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch flex-1 overflow-hidden">
     
     <!-- LEFT COLUMN: Audio Analysis -->
-    <div class="bg-surface border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
-      <h2 class="text-xl font-bold text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
+    <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
       <!-- Dropzone & Progress Overlay -->
       <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group flex-1 min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
@@ -299,15 +299,15 @@ const startExtractTasks = async () => {
           <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
         </div>
         
-        <p class="font-body-md text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
+        <p class="font-body-md text-gray-900 dark:text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
         
-        <div v-if="audioFile" class="flex items-center gap-2 bg-surface px-3 py-1.5 rounded-full border border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
-           <span class="font-body-sm text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
-           <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-on-surface-variant cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
+        <div v-if="audioFile" class="flex items-center gap-2 bg-white dark:bg-surface px-3 py-1.5 rounded-full border border-gray-300 dark:border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
+           <span class="font-body-sm text-gray-900 dark:text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
+           <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-gray-500 dark:text-on-surface-variant cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
         </div>
 
         <!-- Progress Bar Overlay -->
-        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
+        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 dark:bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
           <div class="w-full space-y-2">
             <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
               <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
@@ -321,8 +321,8 @@ const startExtractTasks = async () => {
       </div>
 
       <!-- Custom Audio Player -->
-      <div v-if="audioUrl" class="mt-4 border-t border-outline-variant/30 pt-4">
-        <div class="flex items-center gap-3 bg-surface rounded-xl p-3 border border-outline-variant/20 shadow-inner">
+      <div v-if="audioUrl" class="mt-4 border-t border-gray-200 dark:border-outline-variant/30 pt-4">
+        <div class="flex items-center gap-3 bg-gray-50 dark:bg-surface rounded-xl p-3 border border-gray-200 dark:border-outline-variant/20 shadow-inner">
            <audio ref="audioPlayerRef" :src="audioUrl" @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @ended="isPlaying = false" class="hidden"></audio>
            <button @click="togglePlay" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shrink-0 hover:scale-105 transition-transform">
               <span class="material-symbols-outlined">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
@@ -341,60 +341,60 @@ const startExtractTasks = async () => {
     </div>
 
     <!-- RIGHT COLUMN: Meeting Details -->
-    <div class="bg-surface border border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
-      <h2 class="text-xl font-bold text-on-surface mb-4 font-headline-md">Meeting Details</h2>
+    <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md">Meeting Details</h2>
       
       <!-- Language -->
       <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Language</label>
-         <select v-model="language" class="w-full bg-surface border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Language</label>
+         <select v-model="language" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors">
             <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
          </select>
       </div>
 
       <!-- Participants -->
       <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Participants</label>
-         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-surface border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors">
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Participants</label>
+         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors">
       </div>
 
       <!-- Keywords -->
       <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Keywords</label>
-         <textarea v-model="vocabulary" class="w-full bg-surface border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords</label>
+         <textarea v-model="vocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
       </div>
 
       <!-- Date -->
       <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-on-surface-variant uppercase">Date</label>
-         <div class="w-full bg-surface border border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Date</label>
+         <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
             <el-date-picker
                v-model="meetingDate"
                type="datetime"
                format="DD/MM/YYYY HH:mm"
                placeholder="08/07/2026 17:51"
                class="w-full custom-el-override"
-               style="width: 100%; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;"
+               style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;"
             />
          </div>
       </div>
          
          <!-- Location -->
          <div class="flex-1">
-            <label class="text-[12px] font-bold text-on-surface-variant/70 mb-1 block">Location</label>
-            <input v-model="meetingLocation" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-2 text-body-md text-on-surface dark:text-white placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+            <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
+            <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-2 text-body-md text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
          </div>
          
          <!-- Host -->
          <div class="flex-1">
-            <label class="text-[12px] font-bold text-on-surface-variant/70 mb-1 block">Host</label>
-            <div class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-1 py-1 transition-colors overflow-hidden">
+            <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Host</label>
+            <div class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 dark:border-white/5 rounded-xl px-1 py-1 transition-colors overflow-hidden">
                <el-select
                   v-model="hostId"
                   filterable
                   placeholder="Chọn người chủ trì..."
                   class="w-full custom-el-override"
-                  style="width: 100%; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;"
+                  style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;"
                >
                   <el-option
                      v-for="emp in dbEmployees"
@@ -433,7 +433,7 @@ const startExtractTasks = async () => {
         allow-create
         default-first-option
         placeholder="Chọn nhân viên hoặc nhập tên..."
-        style="flex: 1"
+        style="flex: 1; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent;"
         class="w-full custom-el-override"
       >
         <el-option
@@ -454,19 +454,19 @@ const startExtractTasks = async () => {
 </div>
 
 <!-- TRANSCRIPT CARD -->
-<div v-if="transcriptResults.length > 0" class="bg-surface dark:bg-[#0a0f1c]/90 border border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[300px]">
-  <div class="border-b border-outline-variant pb-md mb-md flex flex-col md:flex-row md:items-center justify-between gap-md shrink-0">
+<div v-if="transcriptResults.length > 0" class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[300px]">
+  <div class="border-b border-gray-200 dark:border-outline-variant pb-md mb-md flex flex-col md:flex-row md:items-center justify-between gap-md shrink-0">
     <div>
-      <h3 class="font-headline-md text-headline-md text-on-surface">{{ t('transcript_result') }}</h3>
-      <p class="font-body-md text-body-md text-on-surface-variant mt-xs">{{ t('transcript_desc') }}</p>
+      <h3 class="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">{{ t('transcript_result') }}</h3>
+      <p class="font-body-sm text-body-sm text-gray-500 dark:text-on-surface-variant">{{ transcriptResults.length }} đoạn hội thoại</p>
     </div>
     <div class="flex flex-wrap gap-sm">
-       <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-outline-variant hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-on-surface'">
+       <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-gray-900 dark:text-on-surface'">
          <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'undo' : 'auto_fix_high') }}</span>
          {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Hoàn tác" : "Chuẩn hoá hội thoại") }}
        </button>
        
-       <button @click="openTaskModal" class="px-4 py-2 bg-primary text-on-primary hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
+       <button @click="openTaskModal" class="px-4 py-2 bg-primary text-white hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
          <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
          {{ tasks.length > 0 ? "Xem Task đã tạo" : t('extract_task') }}
        </button>
@@ -475,16 +475,16 @@ const startExtractTasks = async () => {
   
   <!-- Transcript Messages Area -->
   <div class="flex-1 overflow-y-auto space-y-md pr-sm rounded-lg relative scrollbar-premium">
-    <div v-for="(seg, idx) in transcriptResults" :key="idx" class="flex flex-col gap-xs group hover:bg-surface-container-highest/30 p-md rounded-lg transition-colors border border-transparent hover:border-outline-variant/30">
+    <div v-for="(seg, idx) in transcriptResults" :key="idx" class="flex flex-col gap-xs group hover:bg-gray-50 dark:hover:bg-surface-container-highest/30 p-md rounded-lg transition-colors border border-transparent hover:border-gray-200 dark:hover:border-outline-variant/30">
        <div class="flex items-center gap-sm">
           <div class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/20 text-primary font-label-caps text-[10px] tracking-wider font-bold shrink-0">
              {{ seg[2] ? seg[2].charAt(0).toUpperCase() : '?' }}
           </div>
-          <span class="font-label-caps text-label-caps font-bold transition-colors" :class="seg[2].includes('Người lạ') ? 'text-error' : 'text-primary'">{{ seg[2] }}</span>
-          <span class="font-label-caps text-[11px] text-on-surface-variant/60 bg-surface px-1.5 py-0.5 rounded border border-outline-variant/30">{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s</span>
+          <span class="font-label-caps text-label-caps font-bold transition-colors" :class="seg[2].includes('Người lạ') ? 'text-red-600' : 'text-primary'">{{ seg[2] }}</span>
+          <span class="font-label-caps text-[11px] text-gray-500 dark:text-on-surface-variant/60 bg-gray-100 dark:bg-surface px-1.5 py-0.5 rounded border border-gray-200 dark:border-outline-variant/30">{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s</span>
        </div>
        <div class="pl-8">
-          <p class="font-body-md text-body-md text-on-surface leading-relaxed">{{ seg[3] }}</p>
+          <p class="font-body-md text-body-md text-gray-900 dark:text-on-surface leading-relaxed">{{ seg[3] }}</p>
        </div>
     </div>
   </div>

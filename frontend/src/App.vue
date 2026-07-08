@@ -83,37 +83,6 @@ watch(isDark, (val) => {
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* Global Light Theme Overrides for hardcoded Frappe colors */
-html:not(.dark) .bg-background,
-html:not(.dark) .bg-surface {
-  background-color: #ffffff !important;
-}
-html:not(.dark) .bg-surface-container,
-html:not(.dark) .bg-surface-container-low,
-html:not(.dark) .bg-surface-container-lowest,
-html:not(.dark) .bg-surface-container-high,
-html:not(.dark) .bg-surface-container-highest {
-  background-color: #f8fafc !important;
-}
-html:not(.dark) .text-on-background,
-html:not(.dark) .text-on-surface {
-  color: #0f172a !important;
-}
-html:not(.dark) .text-on-surface-variant {
-  color: #475569 !important;
-}
-html:not(.dark) .border-outline-variant {
-  border-color: #e2e8f0 !important;
-}
-html:not(.dark) .border-outline-variant\/30 {
-  border-color: rgba(226, 232, 240, 0.8) !important;
-}
-html:not(.dark) .border-outline-variant\/40 {
-  border-color: rgba(226, 232, 240, 0.9) !important;
-}
-html:not(.dark) .border-outline-variant\/50 {
-  border-color: rgba(226, 232, 240, 1) !important;
-}
 
 body {
   overflow-x: hidden;

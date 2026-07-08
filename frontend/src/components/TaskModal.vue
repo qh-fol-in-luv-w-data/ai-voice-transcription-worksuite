@@ -67,8 +67,8 @@ const onAttendeeSelect = (val) => {
     <div class="flex-col space-y-6">
       
       <!-- ATTENDEES -->
-      <el-card shadow="never">
-        <template #header>
+      <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant rounded-2xl shadow-sm">
+        <div class="p-4 border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low rounded-t-2xl">
           <div class="flex justify-between items-center w-full">
             <div>
               <h3 class="text-lg font-medium m-0 flex items-center gap-2">
@@ -89,9 +89,10 @@ const onAttendeeSelect = (val) => {
               {{ isReanalyzing ? t('reanalyzing') : t('btn_reanalyze') }}
             </el-button>
           </div>
-        </template>
+          </div>
+        </div>
         
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="p-5 flex flex-wrap items-center gap-3">
           <el-tag
             v-for="name in selectedAttendees"
             :key="name"
@@ -121,11 +122,12 @@ const onAttendeeSelect = (val) => {
             />
           </el-select>
         </div>
-      </el-card>
+        </div>
+      </div>
 
       <!-- TASK LIST -->
-      <el-card shadow="never">
-        <template #header>
+      <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant rounded-2xl shadow-sm">
+        <div class="p-4 border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low rounded-t-2xl">
           <div class="flex justify-between items-center">
             <div>
               <h3 class="text-lg font-medium m-0">{{ t('task_list') }}</h3>
@@ -146,9 +148,11 @@ const onAttendeeSelect = (val) => {
               </el-button>
             </div>
           </div>
-        </template>
+          </div>
+        </div>
 
-        <el-table :data="tasks" style="width: 100%" border stripe size="large">
+        <div class="p-5">
+        <el-table :data="tasks" style="width: 100%" border stripe size="large" class="custom-el-table">
           <el-table-column type="index" label="#" width="50" align="center" />
           
           <el-table-column :label="t('col_name')" min-width="250">
@@ -235,17 +239,17 @@ const onAttendeeSelect = (val) => {
           </el-table-column>
         </el-table>
 
-      </el-card>
-
-    </div>
+        </el-table>
+        </div>
+      </div>
 
     <template #footer>
-      <div class="dialog-footer">
-        <el-button @click="emit('close')">Đóng</el-button>
-        <el-button type="primary" @click="emit('sync-erp')">
-          <el-icon class="mr-1"><UploadFilled /></el-icon>
+      <div class="dialog-footer pt-4 mt-2 border-t border-gray-200 dark:border-outline-variant flex justify-end gap-3">
+        <button @click="emit('close')" class="px-5 py-2 rounded-lg font-medium border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-gray-700 dark:text-on-surface">Đóng</button>
+        <button @click="emit('sync-erp')" class="px-5 py-2 rounded-lg font-medium bg-primary text-white hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm">
+          <el-icon><UploadFilled /></el-icon>
           {{ t('btn_sync') }}
-        </el-button>
+        </button>
       </div>
     </template>
   </el-dialog>
