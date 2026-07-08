@@ -32,9 +32,31 @@ const isPlaying = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 const volume = ref(1)
+const playbackRate = ref(1)
+
+let audioCtx = null;
+let gainNode = null;
+let mediaSource = null;
 
 const togglePlay = () => {
   if (!audioPlayerRef.value) return
+  
+  if (!audioCtx) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContext();
+    mediaSource = audioCtx.createMediaElementSource(audioPlayerRef.value);
+    gainNode = audioCtx.createGain();
+    
+    gainNode.gain.value = volume.value;
+    
+    mediaSource.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+  }
+
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+
   if (isPlaying.value) {
     audioPlayerRef.value.pause()
   } else {
@@ -69,8 +91,24 @@ const seek = () => {
 }
 
 const updateVolume = () => {
+  if (gainNode) {
+    gainNode.gain.value = volume.value
+  } else if (audioPlayerRef.value) {
+    audioPlayerRef.value.volume = Math.min(volume.value, 1)
+  }
+}
+
+const setPlaybackRate = (rate) => {
+  playbackRate.value = rate
   if (audioPlayerRef.value) {
-    audioPlayerRef.value.volume = volume.value
+    audioPlayerRef.value.playbackRate = rate
+  }
+}
+
+const skip = (seconds) => {
+  if (audioPlayerRef.value) {
+    audioPlayerRef.value.currentTime += seconds
+    currentTime.value = audioPlayerRef.value.currentTime
   }
 }
 
@@ -325,15 +363,42 @@ const startExtractTasks = async () => {
 
       <!-- Custom Audio Player -->
       <div v-if="audioUrl" class="mt-4 border-t border-gray-200 dark:border-outline-variant/30 pt-4">
-        <div class="flex items-center gap-3 bg-gray-50 dark:bg-surface rounded-xl p-3 border border-gray-200 dark:border-outline-variant/20 shadow-inner">
+        <div class="flex flex-col gap-2 bg-gray-50 dark:bg-surface rounded-xl p-3 border border-gray-200 dark:border-outline-variant/20 shadow-inner">
            <audio ref="audioPlayerRef" :src="audioUrl" @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @ended="isPlaying = false" class="hidden"></audio>
-           <button @click="togglePlay" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shrink-0 hover:scale-105 transition-transform">
-              <span class="material-symbols-outlined">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
-           </button>
-           <div class="flex-1 flex flex-col gap-1">
-              <input type="range" min="0" :max="duration || 100" v-model="currentTime" @input="seek" class="w-full h-1 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary" />
+           
+           <div class="flex items-center gap-3">
+             <button @click="togglePlay" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shrink-0 hover:scale-105 transition-transform shadow-sm">
+                <span class="material-symbols-outlined">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
+             </button>
+             <div class="flex-1 flex flex-col gap-1 min-w-0">
+                <input type="range" min="0" :max="duration || 100" v-model="currentTime" @input="seek" class="w-full h-1 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary" />
+             </div>
+             <span class="text-[10px] font-bold text-gray-500 dark:text-on-surface-variant w-auto sm:w-16 text-right whitespace-nowrap">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
+             
+             <div class="flex items-center gap-1 border-l border-gray-300 dark:border-outline-variant/50 pl-2 ml-1">
+               <span class="material-symbols-outlined text-[14px] text-gray-500 dark:text-on-surface-variant">{{ volume == 0 ? 'volume_off' : (volume > 1.5 ? 'volume_up' : 'volume_down') }}</span>
+               <input type="range" min="0" max="3" step="0.1" v-model.number="volume" @input="updateVolume" class="w-12 sm:w-16 h-1 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary" title="Âm lượng (có thể khuếch đại 300%)" />
+             </div>
            </div>
-           <span class="text-[10px] font-bold text-on-surface-variant">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
+
+           <!-- Additional Controls (Speed & Skip) -->
+           <div class="flex items-center justify-center gap-6 mt-1 pt-2 border-t border-gray-200 dark:border-outline-variant/30">
+             <button @click="skip(-30)" class="text-xs font-bold text-gray-500 dark:text-on-surface-variant hover:text-primary dark:hover:text-primary flex items-center gap-1 transition-colors group">
+                <span class="material-symbols-outlined text-[18px] group-hover:-rotate-45 transition-transform">replay_30</span> 
+                <span class="hidden sm:inline">-30s</span>
+             </button>
+             
+             <div class="flex items-center gap-1 bg-gray-200 dark:bg-surface-container-highest rounded-lg p-1">
+               <button v-for="s in [0.5, 1, 1.5, 2]" :key="s" @click="setPlaybackRate(s)" class="px-2.5 py-0.5 rounded text-[11px] font-bold transition-all" :class="playbackRate === s ? 'bg-primary text-white shadow-sm' : 'text-gray-600 dark:text-on-surface-variant hover:bg-gray-300 dark:hover:bg-outline-variant/30'">
+                  {{ s }}x
+               </button>
+             </div>
+             
+             <button @click="skip(30)" class="text-xs font-bold text-gray-500 dark:text-on-surface-variant hover:text-primary dark:hover:text-primary flex items-center gap-1 transition-colors group">
+                <span class="hidden sm:inline">+30s</span> 
+                <span class="material-symbols-outlined text-[18px] group-hover:rotate-45 transition-transform">forward_30</span>
+             </button>
+           </div>
         </div>
       </div>
       
