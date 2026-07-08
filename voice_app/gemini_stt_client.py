@@ -441,7 +441,7 @@ async def _async_call_gemini_stt(wav_path: str, language: str = "vi", num_speake
 
         chunks = split_audio_by_silence(wav_path, chunk_length_sec=1200.0, max_chunk_sec=1500.0)
         if progress_callback:
-            progress_callback(20, f"Đang gửi {len(chunks)} đoạn lên Google AI (xử lý song song)...")
+            progress_callback(20, f"Đang xử lý song song {len(chunks)} đoạn âm thanh...")
         
         all_segments = []
         all_raw_words = []
