@@ -268,6 +268,7 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
 - Câu hỏi ngắn, đáp lời ngắn, xen ngang đều phải có entry riêng — KHÔNG bỏ qua dù ngắn.
 - NẾU CÓ 2 NGƯỜI NÓI ĐÈ LÊN NHAU (cùng lúc) hoặc xen ngang: TUYỆT ĐỐI KHÔNG gộp lời của họ vào chung 1 câu. Phải tách riêng lời của người A và lời của người B ra 2 entry liên tiếp.
 - CÂU HỎI và CÂU TRẢ LỜI luôn là 2 entry riêng biệt — người hỏi và người trả lời KHÔNG bao giờ được gộp chung.
+- LỖI NGHIÊM TRỌNG NHẤT LÀ GỘP NHẦM LỜI CỦA 2 NGƯỜI THÀNH 1 CÂU. Nếu một đoạn có nhiều người nói liên tục, HÃY CẮT NHỎ THÀNH NHIỀU ENTRY.
 - Trước khi gán speaker cho mỗi entry, hãy đối chiếu ÂM THANH THỰC TẾ: cao độ giọng, tốc độ nói, chất giọng. Nếu trong một đoạn liên tục có sự thay đổi âm sắc → phải tách entry mới ngay tại điểm đó.
 - KHÔNG suy đoán speaker theo ngữ cảnh (ai đặt câu hỏi thì ai trả lời) — chỉ dựa vào giọng nói thực tế nghe được.
 - Bỏ qua tạp âm, tiếng ồn, tiếng động nền.
