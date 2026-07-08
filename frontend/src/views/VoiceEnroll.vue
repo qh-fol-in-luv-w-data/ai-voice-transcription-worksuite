@@ -83,7 +83,7 @@ const localSubmitEnrollment = async () => {
 </script>
 
 <template>
-  <div class="w-full max-w-4xl mx-auto flex flex-col gap-lg pb-xl pt-lg fade-in">
+  <div class="w-full max-w-[1200px] px-4 md:px-8 mx-auto flex flex-col gap-lg pb-xl pt-lg fade-in">
     <header class="mb-md">
       <h2 class="font-headline-lg text-headline-lg text-on-surface mb-sm">{{ t('enroll_title') }}</h2>
       <p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">{{ t('enroll_desc') }}</p>

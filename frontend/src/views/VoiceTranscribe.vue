@@ -284,7 +284,7 @@ const startExtractTasks = async () => {
 </script>
 
 <template>
-<div class="max-w-[1200px] mx-auto pb-xl pt-lg">
+<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-xl pt-lg">
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
     
     <!-- LEFT COLUMN: Audio Analysis -->
@@ -374,8 +374,8 @@ const startExtractTasks = async () => {
          <div class="flex-1">
             <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Language</label>
             <div class="relative">
-               <select v-model="language" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface focus:outline-none focus:border-primary/70 transition-colors shadow-inner" style="-webkit-appearance: none; -moz-appearance: none; appearance: none;">
-                  <option v-for="l in languages" :key="l.val" :value="l.val" class="bg-surface">{{ l.label }}</option>
+               <select v-model="language" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface dark:text-white dark:bg-[#1a1c22] focus:outline-none focus:border-primary/70 transition-colors shadow-inner" style="-webkit-appearance: none; -moz-appearance: none; appearance: none;">
+                  <option v-for="l in languages" :key="l.val" :value="l.val" class="bg-surface dark:bg-[#1a1c22]">{{ l.label }}</option>
                </select>
                <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">keyboard_arrow_down</span>
             </div>
@@ -389,7 +389,7 @@ const startExtractTasks = async () => {
          </div>
          <div class="flex-1">
             <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Participants</label>
-            <input type="number" v-model="numAttendees" min="0" max="20" placeholder="0 = Tự động" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface focus:outline-none focus:border-primary/70 transition-colors shadow-inner">
+            <input type="number" v-model="numAttendees" min="0" max="20" placeholder="0 = Tự động" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-3 text-body-md text-on-surface dark:text-white focus:outline-none focus:border-primary/70 transition-colors shadow-inner">
          </div>
       </div>
 
@@ -400,7 +400,7 @@ const startExtractTasks = async () => {
          </div>
          <div class="flex-1">
             <label class="text-[13px] font-bold text-on-surface-variant mb-1 block">Keywords</label>
-            <textarea v-model="vocabulary" class="w-full bg-surface-container-highest/50 border border-outline-variant/40 rounded-xl px-4 py-3 text-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors shadow-inner resize-none min-h-[90px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
+            <textarea v-model="vocabulary" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-3 text-body-md text-on-surface dark:text-white placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors shadow-inner resize-none min-h-[90px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
          </div>
       </div>
 
@@ -415,38 +415,43 @@ const startExtractTasks = async () => {
       <div class="pl-[64px] space-y-5 -mt-3">
          <!-- Date -->
          <div class="flex-1">
-            <el-date-picker
-               v-model="meetingDate"
-               type="datetime"
-               format="DD/MM/YYYY HH:mm"
-               placeholder="08/07/2026 17:51"
-               class="custom-el-date-premium w-full"
-               style="width: 100%"
-            />
+            <div class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-1 py-1 transition-colors overflow-hidden">
+               <el-date-picker
+                  v-model="meetingDate"
+                  type="datetime"
+                  format="DD/MM/YYYY HH:mm"
+                  placeholder="08/07/2026 17:51"
+                  class="w-full custom-el-override"
+                  style="width: 100%; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;"
+               />
+            </div>
          </div>
          
          <!-- Location -->
          <div class="flex-1">
             <label class="text-[12px] font-bold text-on-surface-variant/70 mb-1 block">Location</label>
-            <input v-model="meetingLocation" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 rounded-xl px-4 py-2.5 text-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+            <input v-model="meetingLocation" class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-2.5 text-body-md text-on-surface dark:text-white placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
          </div>
          
          <!-- Host -->
          <div class="flex-1">
             <label class="text-[12px] font-bold text-on-surface-variant/70 mb-1 block">Host</label>
-            <el-select
-               v-model="hostId"
-               filterable
-               placeholder="Chọn người chủ trì..."
-               class="custom-el-select-premium w-full"
-            >
-               <el-option
-                  v-for="emp in dbEmployees"
-                  :key="emp.user_id"
-                  :label="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')"
-                  :value="emp.user_id"
-               />
-            </el-select>
+            <div class="w-full bg-surface-container-highest/30 border border-outline-variant/30 dark:border-white/5 rounded-xl px-1 py-1 transition-colors overflow-hidden">
+               <el-select
+                  v-model="hostId"
+                  filterable
+                  placeholder="Chọn người chủ trì..."
+                  class="w-full custom-el-override"
+                  style="width: 100%; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;"
+               >
+                  <el-option
+                     v-for="emp in dbEmployees"
+                     :key="emp.user_id"
+                     :label="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')"
+                     :value="emp.user_id"
+                  />
+               </el-select>
+            </div>
          </div>
       </div>
 
@@ -538,33 +543,32 @@ const startExtractTasks = async () => {
 </template>
 
 <style>
-/* 
-  Custom styles for overriding Element Plus light theme 
-  and matching the deep dark aesthetic of the app
-*/
-.dark .custom-el-date-premium .el-input__wrapper,
-.dark .custom-el-select-premium .el-input__wrapper {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.1) !important;
-  border-radius: 0.75rem !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  padding: 0.5rem 1rem !important;
+/* Base override for element plus in light/dark mode */
+.custom-el-override .el-input__wrapper {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
-.dark .custom-el-date-premium .el-input__inner,
-.dark .custom-el-select-premium .el-input__inner {
-  color: #fff !important;
+.custom-el-override .el-input__inner {
+  color: inherit !important;
 }
 
-.dark .custom-el-date-premium .el-input__inner::placeholder,
-.dark .custom-el-select-premium .el-input__inner::placeholder {
+.dark .custom-el-override .el-input__inner {
+  color: white !important;
+}
+
+.custom-el-override .el-input__inner::placeholder {
+  color: rgba(128, 128, 128, 0.6) !important;
+}
+
+.dark .custom-el-override .el-input__inner::placeholder {
   color: rgba(255, 255, 255, 0.4) !important;
 }
 
-.dark .custom-el-date-premium .el-input__prefix,
-.dark .custom-el-date-premium .el-input__suffix,
-.dark .custom-el-select-premium .el-input__suffix {
-  color: rgba(255, 255, 255, 0.5) !important;
+.custom-el-override .el-input__prefix,
+.custom-el-override .el-input__suffix {
+  color: inherit !important;
 }
 
 /* Specific audio range slider styles to ensure they look uniform */
