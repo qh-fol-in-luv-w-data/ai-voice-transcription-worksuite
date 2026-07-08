@@ -548,7 +548,7 @@ const startExtractTasks = async () => {
 </div>
 
 <!-- TRANSCRIPT CARD -->
-<div v-if="transcriptResults.length > 0" class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[300px]">
+<div v-if="transcriptResults.length > 0" class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[60vh]">
   <div class="border-b border-gray-200 dark:border-outline-variant pb-md mb-md flex flex-col md:flex-row md:items-center justify-between gap-md shrink-0">
     <div>
       <h3 class="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">{{ t('transcript_result') }}</h3>
