@@ -67,8 +67,8 @@ const meetingChairperson = ref('')
 const globalEmployees = ref([])
 const employeeOptions = computed(() => {
   return globalEmployees.value.map(emp => ({
-    value: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : ''),
-    label: emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '')
+    value: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - '),
+    label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
   }))
 })
 
@@ -523,7 +523,7 @@ const submitVoiceTask = async () => {
       let assignee = res.task.assignee_display || '';
       if (!assignee && currentUser.value && res.employees) {
         const emp = res.employees.find(e => e.user_id === currentUser.value);
-        if (emp) assignee = emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '');
+        if (emp) assignee = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ');
       }
       
       parsedVoiceTask.value = {
@@ -608,7 +608,7 @@ const submitVoiceTaskRefine = async () => {
       let assignee = res.task.assignee_display || '';
       if (!assignee && currentUser.value && res.employees) {
         const emp = res.employees.find(e => e.user_id === currentUser.value);
-        if (emp) assignee = emp.employee_name + (emp.user_id ? ' - ' + emp.user_id : '');
+        if (emp) assignee = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ');
       }
       
       parsedVoiceTask.value = {
@@ -652,7 +652,7 @@ const syncVoiceTaskToERP = async () => {
       const match = displayStr.match(/\((HR[-_]EMP[-_][^)]+)\)/i)
       if (match) parsedVoiceTask.value.assignee_hr_code = match[1]
       
-      const matchedEmp = voiceTaskEmployees.value.find(e => e.employee_name + (e.user_id ? ' - ' + e.user_id : '') === displayStr)
+      const matchedEmp = voiceTaskEmployees.value.find(e => [e.employee_name, e.user_id, e.designation].filter(Boolean).join(' - ') === displayStr)
       if (matchedEmp) {
         parsedVoiceTask.value.assignee_email = matchedEmp.user_id
         parsedVoiceTask.value.assignee_hr_code = matchedEmp.name
