@@ -88,15 +88,20 @@ def get_gemini_model():
     return ""
 
 def get_worksuite_url():
+    val = None
     try:
         if frappe.db:
             frappe.flags.ignore_permissions = True
             doc = frappe.get_doc("Voice App Settings")
             val = doc.sync_api_url or doc.worksuite_url
             frappe.flags.ignore_permissions = False
-            if val: return val
     except Exception: pass
-    return os.getenv("WORKSUITE_URL", "https://cterp.ctgroupvietnam.com")
+    if not val:
+        val = os.getenv("WORKSUITE_URL", "https://cterp.ctgroupvietnam.com")
+    val = val.strip()
+    if not val.startswith("http://") and not val.startswith("https://"):
+        val = "https://" + val
+    return val.rstrip("/")
 
 def get_worksuite_token():
     try:
