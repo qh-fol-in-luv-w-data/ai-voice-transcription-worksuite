@@ -2,7 +2,6 @@
 import { onMounted, watch } from 'vue'
 import { initSession, useSession } from './utils/session'
 import { getEmployees, getEnrolledSpeakers } from './api'
-import { dbEmployees, voiceDbSpeakers, loadHistory } from './composables/useVoiceApp'
 import CTSplashScreen from './components/CTSplashScreen.vue'
 import CTAccessDenied from './components/CTAccessDenied.vue'
 import AppSidebar from './components/AppSidebar.vue'
@@ -16,9 +15,10 @@ import MeetingHistory from './views/MeetingHistory.vue'
 import TaskModal from './components/TaskModal.vue'
 
 import { 
+  dbEmployees, voiceDbSpeakers, loadHistory,
   activeTab, uiLang, isDark, currentMeeting, dict,
-  isTaskModalOpen, tasks, dbEmployees, hrProjectsMap,
-  docxUrl, excelUrl, selectedAttendees, voiceDbSpeakers, isReanalyzing 
+  isTaskModalOpen, tasks, hrProjectsMap,
+  docxUrl, excelUrl, selectedAttendees, isReanalyzing 
 } from './composables/useVoiceApp'
 import { getElevenLabsInfo, syncTasksToERP } from './api'
 import { ElMessage } from 'element-plus'
