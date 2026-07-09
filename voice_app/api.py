@@ -1,4 +1,4 @@
-import json
+mport json
 import frappe
 import os
 import traceback
@@ -17,7 +17,7 @@ from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 _logger = ActivityLogger("VOICE", "voice_app")
 
 @frappe.whitelist(allow_guest=False)
-def transcribe_audio(language="vi", filter_speakers=None, stt_mode="elevenlabs", num_speakers=None, custom_vocabulary=""):
+def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num_speakers=None, custom_vocabulary=""):
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
 
