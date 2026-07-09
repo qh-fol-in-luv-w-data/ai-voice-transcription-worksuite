@@ -109,6 +109,27 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
+      /* Light Mode Global Overrides */
+      html:not(.dark) body, html:not(.dark) * {
+        color: #000 !important;
+        font-weight: 600 !important;
+      }
+      html:not(.dark) .bg-background,
+      html:not(.dark) .bg-surface-container-lowest,
+      html:not(.dark) .bg-surface-container,
+      html:not(.dark) .bg-surface-variant,
+      html:not(.dark) .bg-surface,
+      html:not(.dark) body {
+        background-color: #f3f4f6 !important;
+      }
+      html:not(.dark) .bg-white,
+      html:not(.dark) .bg-gray-50,
+      html:not(.dark) .bg-gray-100,
+      html:not(.dark) div.rounded-2xl,
+      html:not(.dark) div.rounded-xl {
+        background-color: #ffffff !important;
+        border-color: rgba(0,0,0,0.1) !important;
+      }
       /* =====================================================
        * CT Group Security Pattern - Splash Screen
        * #app is hidden until JS loads.
@@ -271,6 +292,7 @@
     </div>
 
     <div id="app"></div>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

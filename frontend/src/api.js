@@ -13,7 +13,7 @@ api.interceptors.request.use(config => {
 
   const sid = getSessionId()
   if (sid) config.headers['X-App-Session-Id'] = sid
-
+  
   return config;
 })
 

@@ -5,6 +5,7 @@ import {
   hrProjectsMap, docxUrl, excelUrl, loadHistory, modelType 
 } from '../composables/useVoiceApp'
 import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus } from '../api'
+import { socket } from '../socket.js'
 
 const props = defineProps({
   meeting: Object,
@@ -136,7 +137,7 @@ const startExtractTasks = async () => {
         } catch(err) {
           console.error("Polling extract error", err)
         }
-      }, 3000)
+      }, 5000)
     } else if (res.status === 'success') {
       extractStatus.value = props.t('status_extract_ok')
       tasks.value = res.items || []
