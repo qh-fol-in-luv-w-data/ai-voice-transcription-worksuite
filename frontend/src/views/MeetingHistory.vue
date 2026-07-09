@@ -5,7 +5,6 @@ import {
   hrProjectsMap, docxUrl, excelUrl, loadHistory, modelType 
 } from '../composables/useVoiceApp'
 import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus } from '../api'
-import { socket } from '../socket.js'
 
 const props = defineProps({
   meeting: Object,
