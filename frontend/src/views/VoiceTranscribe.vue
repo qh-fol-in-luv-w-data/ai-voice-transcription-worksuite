@@ -9,6 +9,7 @@ import {
 
 import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
+import { socket } from '../socket.js'
 
 const t = (key) => dict[uiLang.value][key] || key
 const transcribeProgress = ref(0)
@@ -210,7 +211,6 @@ const startTranscribe = async () => {
     const res = await transcribeAudio(audioFile.value, language.value)
     if (res.status === 'processing' && res.meeting_name) {
       currentMeetingName.value = res.meeting_name
-      
       // Polling loop
       const pollTimer = setInterval(async () => {
         try {
@@ -251,7 +251,8 @@ const startTranscribe = async () => {
         } catch (err) {
           console.error("Polling error", err)
         }
-      }, 3000)
+      }, 5000)
+      
     } else if (res.status === 'success') {
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results
@@ -339,7 +340,7 @@ const startExtractTasks = async () => {
         } catch(err) {
           console.error("Polling extract error", err)
         }
-      }, 3000)
+      }, 5000)
     } else if (res.status === 'success') {
       extractStatus.value = t('status_extract_ok')
       tasks.value = res.items || []
@@ -364,7 +365,7 @@ const startExtractTasks = async () => {
 
 <template>
 <div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md flex-1 min-h-0 h-full flex flex-col">
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch flex-1 overflow-hidden">
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch flex-1">
     
     <!-- LEFT COLUMN: Audio Analysis -->
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">

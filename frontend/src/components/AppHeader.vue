@@ -9,10 +9,10 @@ const { currentUser, currentFullName } = useSession()
 <header class="bg-transparent flex justify-end items-center h-20 px-8 w-full shrink-0 z-10 sticky top-0">
 <div class="flex items-center gap-6">
 <div class="flex items-center gap-1 mr-4">
-    <button v-show="false" @click="toggleDark" class="text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-variant/30 p-2 rounded-full transition-colors group" title="Toggle Theme">
+    <button @click="toggleDark" class="text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-variant/30 p-2 rounded-full transition-colors group" title="Toggle Theme">
     <span class="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform font-light">{{ isDark ? 'dark_mode' : 'light_mode' }}</span>
     </button>
-    <button v-show="false" @click="toggleLang" class="text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-variant/30 p-2 rounded-full transition-colors group" title="Translate">
+    <button @click="toggleLang" class="text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-variant/30 p-2 rounded-full transition-colors group" title="Translate">
     <span class="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform font-light">translate</span>
     </button>
 </div>
