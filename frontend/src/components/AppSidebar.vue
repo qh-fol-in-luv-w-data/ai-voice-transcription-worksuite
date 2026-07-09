@@ -1,92 +1,138 @@
 <script setup>
+import { ref } from 'vue'
 import { useSession } from '../utils/session'
-import { activeTab, meetingHistory, loadPastMeeting, t, currentMeeting } from '../composables/useVoiceApp'
+import { activeTab, meetingHistory, loadPastMeeting, t, currentMeeting, loadHistory } from '../composables/useVoiceApp'
+import { renameMeeting } from '../api'
 
 const { currentUser, currentFullName } = useSession()
 
 const setTab = (tab) => {
   activeTab.value = tab
 }
+
+const isHistoryModalOpen = ref(false)
+const editingMeeting = ref(null)
+const editTitleInput = ref('')
+
+const startEdit = (meeting) => {
+  editingMeeting.value = meeting.name
+  editTitleInput.value = meeting.title
+}
+
+const saveEdit = async (meeting) => {
+  if (!editTitleInput.value.trim()) return
+  try {
+    await renameMeeting(meeting.name, editTitleInput.value)
+    // Update local state immediately
+    meeting.title = editTitleInput.value
+    if (currentMeeting.value?.name === meeting.name) {
+      currentMeeting.value.title = editTitleInput.value
+    }
+  } catch (e) {
+    alert("Không thể đổi tên cuộc họp: " + e.message)
+  }
+  editingMeeting.value = null
+}
+
+const cancelEdit = () => {
+  editingMeeting.value = null
+}
+
+const selectMeetingFromModal = (meeting) => {
+  loadPastMeeting(meeting)
+  isHistoryModalOpen.value = false
+}
 </script>
 
 <template>
-  <aside class="w-72 border-r border-border bg-background shrink-0 flex flex-col transition-all duration-300">
-    <div class="h-16 flex items-center px-6 border-b border-border">
-      <div class="flex items-center gap-3 w-full">
-        <div class="w-8 h-8 rounded bg-foreground flex items-center justify-center text-background font-bold shadow-sm">
-          A
-        </div>
-        <span class="font-bold text-lg tracking-tight text-foreground truncate">Agent Hub</span>
-      </div>
-    </div>
-    
-    <nav class="flex-1 overflow-y-auto p-4 space-y-6 sidebar-scroll">
-      <div>
-        <h3 class="mb-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ t('menu_main') === 'menu_main' ? 'Menu' : t('menu_main') }}</h3>
-        <ul class="space-y-1">
-          <li>
-            <button
-              @click="setTab('transcribe')"
-              :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200',
-                       activeTab === 'transcribe' ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground']"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="activeTab === 'transcribe' ? 'text-foreground' : 'text-muted-foreground'"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
-              {{ t('tab_transcribe') }}
-            </button>
-          </li>
-          <li>
-            <button
-              @click="setTab('enroll')"
-              :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200',
-                       activeTab === 'enroll' ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground']"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="activeTab === 'enroll' ? 'text-foreground' : 'text-muted-foreground'"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-              {{ t('tab_enroll') }}
-            </button>
-          </li>
-          <li>
-            <button
-              @click="setTab('voice_task')"
-              :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200',
-                       activeTab === 'voice_task' ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground']"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="activeTab === 'voice_task' ? 'text-foreground' : 'text-muted-foreground'"><path d="M12 2c-1.7 0-3 1.2-3 2.6v6.8c0 1.4 1.3 2.6 3 2.6s3-1.2 3-2.6V4.6C15 3.2 13.7 2 12 2z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="m9 17 3 3 5-5"/></svg>
-              {{ t('tab_voice_task') || 'Tạo Task qua Voice' }}
-            </button>
-          </li>
-        </ul>
-      </div>
+<aside class="bg-white/95 dark:bg-[#0a0f1c]/95 backdrop-blur-xl flex flex-col py-6 docked fixed left-0 h-full w-[280px] border-r border-gray-200 dark:border-white/5 z-20 hidden md:flex shadow-2xl">
+<!-- Header Logo -->
+<div class="px-6 mb-10 flex items-center gap-3">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-secondary to-primary flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(192,193,255,0.3)]">
+<span class="font-bold text-white text-[15px] tracking-tight">2AS</span>
+</div>
+<div>
+<h1 class="text-[17px] font-bold text-gray-900 dark:text-white tracking-wide">2AS Worksuite</h1>
+</div>
+</div>
+<!-- Navigation Links -->
+<nav class="flex-1 px-4 flex flex-col gap-2 overflow-y-auto custom-scrollbar">
+<!-- Active Tab -->
+<a @click.prevent="setTab('transcribe')" :class="['flex items-center gap-4 px-4 py-3.5 rounded-xl font-medium transition-all group cursor-pointer', activeTab === 'transcribe' ? 'text-primary-container dark:text-white font-bold bg-primary/10 dark:bg-white/10 shadow-sm border border-primary/20 dark:border-white/5' : 'text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5']">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform font-light">chat_bubble</span>
+<span class="font-body-md text-[14.5px] truncate">Phân tích Hội thoại</span>
+</a>
+<a @click.prevent="setTab('voice_task')" :class="['flex items-center gap-4 px-4 py-3.5 rounded-xl font-medium transition-all group cursor-pointer', activeTab === 'voice_task' ? 'text-primary-container dark:text-white font-bold bg-primary/10 dark:bg-white/10 shadow-sm border border-primary/20 dark:border-white/5' : 'text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5']">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform font-light">edit_square</span>
+<span class="font-body-md text-[14.5px] truncate">Tự tạo Task qua Voice</span>
+</a>
+<a @click.prevent="setTab('enroll')" :class="['flex items-center gap-4 px-4 py-3.5 rounded-xl font-medium transition-all group cursor-pointer', activeTab === 'enroll' ? 'text-primary-container dark:text-white font-bold bg-primary/10 dark:bg-white/10 shadow-sm border border-primary/20 dark:border-white/5' : 'text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5']">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform font-light">mic</span>
+<span class="font-body-md text-[14.5px] truncate">Đăng ký Giọng nói</span>
+</a>
 
-      <div>
-        <h3 class="mb-2 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ t('meeting_history') === 'meeting_history' ? 'History' : t('meeting_history') }}</h3>
-        <ul v-if="meetingHistory.length > 0" class="space-y-1">
-          <li v-for="meeting in meetingHistory" :key="meeting.name">
-            <button
-              @click="loadPastMeeting(meeting)"
-              :class="['w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors truncate',
-                       activeTab === 'view_meeting' && currentMeeting?.name === meeting.name ? 'bg-muted text-foreground font-semibold' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground']"
-            >
-              {{ meeting.title }}
-            </button>
-          </li>
-        </ul>
-        <div v-else class="px-3 py-2 text-sm text-muted-foreground/60 italic">
-          {{ t('no_history') === 'no_history' ? 'No history' : t('no_history') }}
-        </div>
-      </div>
-    </nav>
+<h3 class="px-4 text-[11px] font-bold text-gray-400 dark:text-on-surface-variant/50 uppercase tracking-wider mb-2 mt-4">Lịch sử Cuộc họp</h3>
+<a @click.prevent="isHistoryModalOpen = true" class="flex items-center gap-4 px-4 py-3.5 rounded-xl font-medium transition-all group cursor-pointer text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform font-light">format_list_bulleted</span>
+<span class="font-body-md text-[14.5px] truncate">Quản lý Lịch sử Cuộc họp</span>
+</a>
+</nav>
+
+<!-- History Modal -->
+<Teleport to="body">
+<div v-if="isHistoryModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm">
+  <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 rounded-3xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-white tracking-wide">Lịch sử Cuộc họp</h2>
+      <button @click="isHistoryModalOpen = false" class="w-8 h-8 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 flex items-center justify-center text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white transition-colors">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
     
-    <!-- User Profile Footer -->
-    <div class="p-4 border-t border-border bg-muted/20">
-      <div class="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer">
-        <div class="w-9 h-9 rounded-full bg-foreground flex items-center justify-center text-background font-bold shadow-inner">
-          {{ currentFullName?.charAt(0) || 'U' }}
+    <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-2">
+      <div v-if="meetingHistory.length === 0" class="text-center text-gray-500 dark:text-on-surface-variant py-8">
+        <span class="material-symbols-outlined text-4xl mb-2 opacity-50">history</span>
+        <p>Chưa có cuộc họp nào</p>
+      </div>
+      
+      <div v-for="meeting in meetingHistory" :key="meeting.name" class="flex items-center gap-4 p-4 rounded-xl border border-transparent hover:border-gray-200 dark:hover:border-outline-variant/30 hover:bg-gray-50 dark:hover:bg-surface-container-highest/30 transition-all cursor-pointer group">
+        <div class="w-12 h-12 rounded-full bg-primary/10 dark:bg-primary/20 text-primary-container dark:text-primary flex items-center justify-center shrink-0">
+          <span class="material-symbols-outlined text-[24px]">graphic_eq</span>
         </div>
+        
         <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-foreground truncate">{{ currentFullName }}</p>
-          <p class="text-xs text-muted-foreground truncate">{{ currentUser }}</p>
+          <template v-if="editingMeeting === meeting.name">
+            <input v-model="editTitleInput" @keyup.enter="saveEdit(meeting)" @keyup.esc="cancelEdit" class="bg-gray-100 dark:bg-surface-variant/50 border border-gray-300 dark:border-outline-variant/50 rounded px-2 py-1 text-[15px] font-bold text-gray-900 dark:text-white focus:outline-none focus:border-primary/50" autoFocus />
+          </template>
+          <template v-else>
+            <div @click="selectMeetingFromModal(meeting)" class="text-[15px] font-bold text-gray-900 dark:text-white group-hover:text-primary-container dark:group-hover:text-primary transition-colors flex items-center gap-2">
+              {{ meeting.title }}
+            </div>
+          </template>
+        </div>
+        
+        <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-on-surface-variant mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <template v-if="editingMeeting === meeting.name">
+            <button @click="saveEdit(meeting)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary/20 text-primary transition-colors" title="Lưu">
+              <span class="material-symbols-outlined text-[18px]">check</span>
+            </button>
+            <button @click="cancelEdit" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-error/20 text-error transition-colors" title="Hủy">
+              <span class="material-symbols-outlined text-[18px]">close</span>
+            </button>
+          </template>
+          <template v-else>
+            <button @click="startEdit(meeting)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-200 dark:hover:bg-white/10 text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white transition-colors" title="Đổi tên">
+              <span class="material-symbols-outlined text-[18px]">edit</span>
+            </button>
+            <button @click="selectMeetingFromModal(meeting)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-primary/20 text-primary transition-colors" title="Mở">
+              <span class="material-symbols-outlined text-[18px]">open_in_new</span>
+            </button>
+          </template>
         </div>
       </div>
     </div>
-  </aside>
+  </div>
+</div>
+</Teleport>
+</aside>
 </template>

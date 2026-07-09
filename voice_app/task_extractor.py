@@ -198,7 +198,8 @@ Nội dung biên bản họp:
             model=model_type,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=2000,
+            max_tokens=16000,
+            response_format={"type": "json_object"}
         )
         raw = response.choices[0].message.content.strip()
 

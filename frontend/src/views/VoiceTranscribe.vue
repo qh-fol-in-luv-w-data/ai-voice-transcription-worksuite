@@ -7,15 +7,110 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
 const transcribeProgress = ref(0)
 
+const numAttendees = ref(0) // 0 means auto
+const vocabulary = ref('')
+const meetingDate = ref(new Date().toLocaleString('vi-VN', { hour12: false }))
+const meetingLocation = ref('')
+const hostId = ref('')
+
 // ── STRANGER MAPPING ─────────────────────────────────────────────────────────
 const speakerMapping = ref({})
 const isEnrollingMapped = ref(false)
+const hasSelectedMapping = computed(() => {
+  return Object.values(speakerMapping.value).some(val => !!val)
+})
+
+// ── CUSTOM AUDIO PLAYER ──────────────────────────────────────────────────────
+const audioPlayerRef = ref(null)
+const isPlaying = ref(false)
+const currentTime = ref(0)
+const duration = ref(0)
+const volume = ref(1)
+const playbackRate = ref(1)
+
+let audioCtx = null;
+let gainNode = null;
+let mediaSource = null;
+
+const togglePlay = () => {
+  if (!audioPlayerRef.value) return
+  
+  if (!audioCtx) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContext();
+    mediaSource = audioCtx.createMediaElementSource(audioPlayerRef.value);
+    gainNode = audioCtx.createGain();
+    
+    gainNode.gain.value = volume.value;
+    
+    mediaSource.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+  }
+
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+
+  if (isPlaying.value) {
+    audioPlayerRef.value.pause()
+  } else {
+    audioPlayerRef.value.play()
+  }
+  isPlaying.value = !isPlaying.value
+}
+
+const formatTime = (time) => {
+  if (isNaN(time)) return '0:00'
+  const m = Math.floor(time / 60)
+  const s = Math.floor(time % 60)
+  return `${m}:${s < 10 ? '0' : ''}${s}`
+}
+
+const onTimeUpdate = () => {
+  if (audioPlayerRef.value) {
+    currentTime.value = audioPlayerRef.value.currentTime
+  }
+}
+
+const onLoadedMetadata = () => {
+  if (audioPlayerRef.value) {
+    duration.value = audioPlayerRef.value.duration
+  }
+}
+
+const seek = () => {
+  if (audioPlayerRef.value) {
+    audioPlayerRef.value.currentTime = currentTime.value
+  }
+}
+
+const updateVolume = () => {
+  if (gainNode) {
+    gainNode.gain.value = volume.value
+  } else if (audioPlayerRef.value) {
+    audioPlayerRef.value.volume = Math.min(volume.value, 1)
+  }
+}
+
+const setPlaybackRate = (rate) => {
+  playbackRate.value = rate
+  if (audioPlayerRef.value) {
+    audioPlayerRef.value.playbackRate = rate
+  }
+}
+
+const skip = (seconds) => {
+  if (audioPlayerRef.value) {
+    audioPlayerRef.value.currentTime += seconds
+    currentTime.value = audioPlayerRef.value.currentTime
+  }
+}
 
 const unknownSpeakers = computed(() => {
   const speakers = new Set()
@@ -92,6 +187,10 @@ const handleFileChange = (e) => {
   }
 }
 
+const audioUrl = computed(() => {
+  return audioFile.value ? URL.createObjectURL(audioFile.value) : null
+})
+
 const startTranscribe = async () => {
   if (!audioFile.value) {
     alert(t('alert_no_file'))
@@ -118,8 +217,20 @@ const startTranscribe = async () => {
           const pollRes = await checkMeetingStatus(currentMeetingName.value)
           if (pollRes.status === 'processing') {
             if (pollRes.progress_info) {
-               transcribeProgress.value = pollRes.progress_info.progress || 0
-               transcribeStatus.value = pollRes.progress_info.message || "Đang xử lý..."
+               if (pollRes.progress_info.stt !== undefined) {
+                 const sttProg = pollRes.progress_info.stt.progress || 0;
+                 const spkProg = pollRes.progress_info.speaker ? pollRes.progress_info.speaker.progress : 0;
+                 transcribeProgress.value = Math.round((sttProg * 0.5) + (spkProg * 0.5));
+                 
+                 if (sttProg < 100) {
+                    transcribeStatus.value = pollRes.progress_info.stt.msg || "Đang xử lý STT...";
+                 } else {
+                    transcribeStatus.value = pollRes.progress_info.speaker ? pollRes.progress_info.speaker.msg : "Đang xử lý Speaker...";
+                 }
+               } else {
+                 transcribeProgress.value = pollRes.progress_info.progress || 0
+                 transcribeStatus.value = pollRes.progress_info.message || "Đang xử lý..."
+               }
             }
           } else if (pollRes.status === 'success') {
             clearInterval(pollTimer)
@@ -205,20 +316,46 @@ const startExtractTasks = async () => {
   
   try {
     const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value)
-    if (res.status === 'success') {
+    if (res.status === 'processing') {
+      const pollTimer = setInterval(async () => {
+        try {
+          const pollRes = await checkExtractStatus(currentMeetingName.value)
+          if (pollRes.status === 'success') {
+            clearInterval(pollTimer)
+            extractStatus.value = t('status_extract_ok')
+            tasks.value = pollRes.items || []
+            hrProjectsMap.value = pollRes.hr_projects_map || {}
+            dbEmployees.value = pollRes.employees || []
+            docxUrl.value = pollRes.docx_url
+            excelUrl.value = pollRes.excel_url
+            loadHistory()
+            isExtracting.value = false
+            isTaskModalOpen.value = true
+          } else if (pollRes.status === 'error') {
+            clearInterval(pollTimer)
+            extractStatus.value = '❌ Error: ' + pollRes.message
+            isExtracting.value = false
+          }
+        } catch(err) {
+          console.error("Polling extract error", err)
+        }
+      }, 3000)
+    } else if (res.status === 'success') {
       extractStatus.value = t('status_extract_ok')
-      tasks.value = res.items
+      tasks.value = res.items || []
       hrProjectsMap.value = res.hr_projects_map || {}
       dbEmployees.value = res.employees || []
       docxUrl.value = res.docx_url
       excelUrl.value = res.excel_url
       loadHistory()
+      isExtracting.value = false
+      isTaskModalOpen.value = true
     } else {
       extractStatus.value = '❌ Error: ' + res.message
+      isExtracting.value = false
     }
   } catch (e) {
     extractStatus.value = t('error_connect')
-  } finally {
     isExtracting.value = false
   }
 }
@@ -226,141 +363,310 @@ const startExtractTasks = async () => {
 </script>
 
 <template>
-  <div class="w-full flex flex-col gap-8 pb-10 mt-2 fade-in">
-    <!-- UPLOAD CARD -->
-    <div class="shadcn-card glow-effect border-border/50">
-      <div class="card-header border-b border-border bg-muted/5">
-        <h3 class="card-title text-xl flex items-center gap-2 font-semibold">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-foreground"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
-          {{ t('audio_processing') }}
-        </h3>
-        <p class="card-description">{{ t('audio_desc') }}</p>
-      </div>
-      <div class="card-content flex flex-col gap-6 p-8">
-        <div class="flex items-center gap-4 p-8 border-2 border-dashed border-border rounded-xl bg-muted/5 hover:bg-muted/20 transition-colors relative overflow-hidden group">
-            <div class="absolute inset-0 bg-gradient-to-r from-foreground/0 via-foreground/5 to-foreground/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
-            <input type="file" accept="audio/*" @change="handleFileChange" class="hidden" id="audio-upload" />
-            <label for="audio-upload" class="shadcn-btn cursor-pointer shrink-0 shadow-sm border border-border hover:bg-foreground hover:text-background transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-              {{ t('upload_empty') }}
-            </label>
-            <div class="flex flex-col min-w-0">
-               <span class="text-sm font-semibold text-foreground truncate">
-                 {{ audioFile ? audioFile.name : (t('no_file_selected') === 'no_file_selected' ? 'Chưa có file nào' : t('no_file_selected')) }}
-               </span>
-               <span class="text-xs text-muted-foreground">{{ t('upload_support') }}</span>
+<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md flex-1 min-h-0 h-full flex flex-col">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch flex-1 overflow-hidden">
+    
+    <!-- LEFT COLUMN: Audio Analysis -->
+    <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
+      
+      <!-- Dropzone & Progress Overlay -->
+      <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group flex-1 min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
+        <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+        
+        <div class="relative mb-4">
+          <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
+        </div>
+        
+        <p class="font-body-md text-gray-900 dark:text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
+        
+        <div v-if="audioFile" class="flex items-center gap-2 bg-white dark:bg-surface px-3 py-1.5 rounded-full border border-gray-300 dark:border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
+           <span class="font-body-sm text-gray-900 dark:text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
+           <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-gray-500 dark:text-on-surface-variant cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
+        </div>
+
+        <!-- Progress Bar Overlay -->
+        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 dark:bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
+          <div class="w-full space-y-2">
+            <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
+              <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
             </div>
+            <div class="flex justify-between items-center text-xs font-medium text-on-surface-variant">
+              <span>{{ transcribeProgress }}%</span>
+              <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px] animate-spin">autorenew</span> {{ transcribeStatus || 'Processing...' }}</span>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div class="flex items-center gap-4 flex-wrap">
-           <div class="flex-1 min-w-[200px]">
-              <label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{{ t('target_lang') }}</label>
-              <select v-model="language" class="shadcn-input w-full h-12 bg-muted/5 font-medium border-border/50 focus:border-foreground">
-                 <option v-for="l in languages" :key="l.val" :value="l.val">{{ l.label }}</option>
-              </select>
-           </div>
+      <!-- Custom Audio Player -->
+      <div v-if="audioUrl" class="mt-4 border-t border-gray-200 dark:border-outline-variant/30 pt-4">
+        <div class="flex flex-col gap-2 bg-gray-50 dark:bg-surface rounded-xl p-3 border border-gray-200 dark:border-outline-variant/20 shadow-inner">
+           <audio ref="audioPlayerRef" :src="audioUrl" @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata" @ended="isPlaying = false" class="hidden"></audio>
            
-           <div class="flex-1 min-w-[200px]">
-              <label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Model</label>
-              <select v-model="modelType" class="shadcn-input w-full h-12 bg-muted/5 font-medium border-border/50 focus:border-foreground">
-                 <option value="gpt-4o-mini">GPT-4o-mini</option>
-                 <option value="gpt-4o">GPT-4o</option>
-              </select>
-           </div>
-           
-           <div class="flex-none self-end">
-              <button @click="startTranscribe" :disabled="isTranscribing" class="shadcn-btn h-12 px-8 font-bold text-background bg-foreground shadow-lg hover:bg-foreground/90 transition-all">
-                 <svg v-if="!isTranscribing" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                 <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                 {{ isTranscribing ? t('analyzing') : t('analyze_voice') }}
-              </button>
-           </div>
-        </div>
-
-        <div v-if="transcribeStatus" 
-             class="p-4 rounded-lg text-sm border font-medium flex flex-col gap-2 shadow-inner"
-             :class="transcribeStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (transcribeStatus.includes('⏳') || isTranscribing ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')">
-           <span>{{ transcribeStatus }}</span>
-           <div v-if="isTranscribing" class="flex items-center gap-3 mt-1">
-             <div class="flex-1 h-2 bg-foreground/10 rounded-full overflow-hidden">
-               <div class="h-full bg-primary transition-all duration-500 ease-out" :style="{ width: transcribeProgress + '%' }"></div>
+           <div class="flex items-center gap-3">
+             <button @click="togglePlay" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shrink-0 hover:scale-105 transition-transform shadow-sm">
+                <span class="material-symbols-outlined">{{ isPlaying ? 'pause' : 'play_arrow' }}</span>
+             </button>
+             <div class="flex-1 flex flex-col gap-1 min-w-0">
+                <input type="range" min="0" :max="duration || 100" v-model="currentTime" @input="seek" class="w-full h-1 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary" />
              </div>
-             <span class="text-xs font-bold text-primary w-8 text-right">{{ transcribeProgress }}%</span>
+             <span class="text-[10px] font-bold text-gray-500 dark:text-on-surface-variant w-auto sm:w-16 text-right whitespace-nowrap">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
+             
+             <div class="flex items-center gap-1 border-l border-gray-300 dark:border-outline-variant/50 pl-2 ml-1">
+               <span class="material-symbols-outlined text-[14px] text-gray-500 dark:text-on-surface-variant">{{ volume == 0 ? 'volume_off' : (volume > 1.5 ? 'volume_up' : 'volume_down') }}</span>
+               <input type="range" min="0" max="3" step="0.1" v-model.number="volume" @input="updateVolume" class="w-12 sm:w-16 h-1 bg-outline-variant/30 rounded-full appearance-none cursor-pointer accent-primary" title="Âm lượng (có thể khuếch đại 300%)" />
+             </div>
+           </div>
+
+           <!-- Additional Controls (Speed & Skip) -->
+           <div class="flex items-center justify-center gap-6 mt-1 pt-2 border-t border-gray-200 dark:border-outline-variant/30">
+             <button @click="skip(-30)" class="text-xs font-bold text-gray-500 dark:text-on-surface-variant hover:text-primary dark:hover:text-primary flex items-center gap-1 transition-colors group">
+                <span class="material-symbols-outlined text-[18px] group-hover:-rotate-45 transition-transform">replay_30</span> 
+                <span class="hidden sm:inline">-30s</span>
+             </button>
+             
+             <div class="flex items-center gap-1 bg-gray-200 dark:bg-surface-container-highest rounded-lg p-1">
+               <button v-for="s in [0.5, 1, 1.5, 2]" :key="s" @click="setPlaybackRate(s)" class="px-2.5 py-0.5 rounded text-[11px] font-bold transition-all" :class="playbackRate === s ? 'bg-primary text-white shadow-sm' : 'text-gray-600 dark:text-on-surface-variant hover:bg-gray-300 dark:hover:bg-outline-variant/30'">
+                  {{ s }}x
+               </button>
+             </div>
+             
+             <button @click="skip(30)" class="text-xs font-bold text-gray-500 dark:text-on-surface-variant hover:text-primary dark:hover:text-primary flex items-center gap-1 transition-colors group">
+                <span class="hidden sm:inline">+30s</span> 
+                <span class="material-symbols-outlined text-[18px] group-hover:rotate-45 transition-transform">forward_30</span>
+             </button>
            </div>
         </div>
       </div>
+      
+      <button @click="startTranscribe" :disabled="!audioFile || isTranscribing" class="mt-4 w-full font-bold py-2.5 px-6 rounded-xl transition-all flex justify-center items-center gap-2" :class="audioFile && !isTranscribing ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:opacity-90 active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
+        <span class="material-symbols-outlined text-[20px]" :class="{ 'animate-spin': isTranscribing }">{{ isTranscribing ? 'autorenew' : 'graphic_eq' }}</span>
+        {{ isTranscribing ? 'Analyzing...' : 'Start Transcribe' }}
+      </button>
     </div>
 
-    <!-- STRANGER MAPPING CARD -->
-    <div v-if="unknownSpeakers.length > 0" class="shadcn-card" style="border-color: hsl(var(--primary)/0.5); border-width: 2px;">
-      <div class="card-header border-b border-border bg-muted/5">
-        <h3 class="card-title text-base font-semibold flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m19 11-2 2-2-2"/><path d="m15 15 2-2 2 2"/></svg>
-          Gán tên người tham dự
-        </h3>
-        <p class="card-description">AI phát hiện giọng nói chưa xác định. Chọn tên nhân viên thực tế để gán vào biên bản và đăng ký vào hệ thống.</p>
-      </div>
-      <div class="card-content p-4 flex flex-col gap-3">
-        <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-3 bg-background border border-border p-3 rounded-lg">
-          <span class="font-bold text-sm min-w-[140px]">{{ spk }}</span>
-          <el-select
-            v-model="speakerMapping[spk]"
-            filterable
-            clearable
-            allow-create
-            default-first-option
-            placeholder="Chọn nhân viên hoặc nhập tên..."
-            style="flex: 1"
-          >
-            <el-option
-              v-for="opt in employeeOptions"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
-            />
-          </el-select>
-        </div>
-        <div class="flex justify-end mt-1">
-          <el-button type="primary" :loading="isEnrollingMapped" @click="enrollMapped">
-            Cập nhật danh tính & Đăng ký giọng
-          </el-button>
-        </div>
-      </div>
-    </div>
-
-    <!-- TRANSCRIPT CARD -->
-    <div v-if="transcriptResults.length > 0" class="shadcn-card border-border/50">
-      <div class="card-header border-b border-border bg-muted/5 flex justify-between items-center">
-        <div>
-          <h3 class="card-title font-semibold">{{ t('transcript_result') }}</h3>
-          <p class="card-description">{{ t('transcript_desc') }}</p>
-        </div>
-        <div class="flex gap-2">
-           <button @click="startCleanTranscript" :disabled="isCleaning" class="shadcn-btn shadcn-btn-outline" :class="isCleaned ? 'border-foreground text-foreground' : ''">
-             <svg v-if="isCleaning" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-             <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-             {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "↩ Hoàn tác" : "✨ Chuẩn hoá hội thoại") }}
-           </button>
-           
-           <button @click="openTaskModal" class="shadcn-btn bg-foreground text-background shadow-md shadow-foreground/20 hover:bg-foreground/90 transition-colors" :disabled="isExtracting">
-             <svg v-if="isExtracting" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-             <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-             {{ tasks.length > 0 ? "View Tasks" : t('extract_task') }}
-           </button>
-        </div>
-      </div>
-      <div class="card-content p-0">
-         <div class="log-view p-6 space-y-6 max-h-[600px] overflow-auto relative">
-            <div v-for="(seg, idx) in transcriptResults" :key="idx" class="log-entry group">
-               <div class="log-meta">
-                  <span class="log-speaker group-hover:text-primary transition-colors">{{ seg[2] }}</span>
-                  <span class="log-time">[{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s]</span>
-               </div>
-               <p class="log-text">{{ seg[3] }}</p>
-            </div>
+    <!-- RIGHT COLUMN: Meeting Details -->
+    <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md">Meeting Details</h2>
+      
+      <!-- Language -->
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Language</label>
+         <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
+             <el-select
+                v-model="language"
+                class="w-full custom-el-override"
+                style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;"
+             >
+                <el-option v-for="l in languages" :key="l.val" :label="l.label" :value="l.val" />
+             </el-select>
          </div>
       </div>
+
+      <!-- Participants -->
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Participants</label>
+         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors">
+      </div>
+
+      <!-- Keywords -->
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords</label>
+         <textarea v-model="vocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
+      </div>
+
+      <!-- Date -->
+      <div class="space-y-1 mb-4">
+         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Date</label>
+         <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
+            <el-date-picker
+               v-model="meetingDate"
+               type="datetime"
+               format="DD/MM/YYYY HH:mm"
+               placeholder="08/07/2026 17:51"
+               class="w-full custom-el-override"
+               style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;"
+            />
+         </div>
+      </div>
+         
+         <!-- Location -->
+         <div class="flex-1">
+            <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
+            <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 dark:border-white/5 rounded-xl px-4 py-2 text-body-md text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+         </div>
+         
+         <!-- Host -->
+         <div class="flex-1">
+            <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Host</label>
+            <div class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 dark:border-white/5 rounded-xl px-1 py-1 transition-colors overflow-hidden">
+               <el-select
+                  v-model="hostId"
+                  filterable
+                  placeholder="Chọn người chủ trì..."
+                  class="w-full custom-el-override"
+                  style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;"
+                  fit-input-width
+               >
+                  <el-option
+                     v-for="emp in dbEmployees"
+                     :key="emp.user_id"
+                     :label="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')"
+                     :value="emp.user_id"
+                  >
+                     <div class="truncate w-full block" :title="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')">
+                        {{ [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ') }}
+                     </div>
+                  </el-option>
+               </el-select>
+            </div>
+         </div>
+
     </div>
-    
   </div>
+
+
+
+<!-- STRANGER MAPPING CARD -->
+<div v-if="unknownSpeakers.length > 0" class="bg-error-container/10 border border-error/20 rounded-xl p-lg shadow-sm">
+  <div class="mb-lg border-b border-error/10 pb-md">
+    <h3 class="font-headline-md text-headline-md text-error mb-xs flex items-center gap-sm">
+      <span class="material-symbols-outlined">person_add</span>
+      Gán tên người tham dự
+    </h3>
+    <p class="font-body-md text-body-md text-on-surface-variant">AI phát hiện giọng nói chưa xác định. Chọn tên nhân viên thực tế để gán vào biên bản và đăng ký vào hệ thống.</p>
+  </div>
+  <div class="flex flex-col gap-md">
+    <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-md bg-surface border border-outline-variant/50 p-md rounded-lg shadow-sm hover:border-primary/50 transition-colors">
+      <div class="flex items-center gap-sm min-w-[180px]">
+        <div class="w-8 h-8 rounded-full bg-error/10 flex items-center justify-center text-error font-bold text-xs shrink-0">?</div>
+        <span class="font-body-md text-body-md font-bold text-on-surface">{{ spk }}</span>
+      </div>
+      <el-select
+        v-model="speakerMapping[spk]"
+        filterable
+        clearable
+        allow-create
+        default-first-option
+        placeholder="Chọn nhân viên hoặc nhập tên..."
+        style="flex: 1; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent;"
+        class="w-full custom-el-override"
+        fit-input-width
+      >
+        <el-option
+          v-for="opt in employeeOptions"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        >
+          <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
+        </el-option>
+      </el-select>
+    </div>
+    <div class="flex justify-end mt-sm">
+      <button :disabled="!hasSelectedMapping || isEnrollingMapped" @click="enrollMapped" class="font-medium py-2.5 px-6 rounded-md transition-all flex items-center gap-sm" :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-error text-white hover:bg-error/90 shadow-md active:scale-[0.98]' : 'bg-error/30 text-white/50 cursor-not-allowed'">
+        <span class="material-symbols-outlined text-[20px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
+        {{ isEnrollingMapped ? 'Đang xử lý...' : 'Cập nhật danh tính & Đăng ký giọng' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TRANSCRIPT CARD -->
+<div v-if="transcriptResults.length > 0" class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 dark:border-white/5 rounded-3xl p-6 shadow-2xl flex flex-col flex-1 min-h-[60vh]">
+  <div class="border-b border-gray-200 dark:border-outline-variant pb-md mb-md flex flex-col md:flex-row md:items-center justify-between gap-md shrink-0">
+    <div>
+      <h3 class="font-headline-md text-headline-md text-gray-900 dark:text-on-surface">{{ t('transcript_result') }}</h3>
+      <p class="font-body-sm text-body-sm text-gray-500 dark:text-on-surface-variant">{{ transcriptResults.length }} đoạn hội thoại</p>
+    </div>
+    <div class="flex flex-wrap gap-sm">
+       <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-gray-900 dark:text-on-surface'">
+         <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'undo' : 'auto_fix_high') }}</span>
+         {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Hoàn tác" : "Chuẩn hoá hội thoại") }}
+       </button>
+       
+       <button @click="openTaskModal" class="px-4 py-2 bg-primary text-white hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
+         <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
+         {{ tasks.length > 0 ? "Xem Task đã tạo" : t('extract_task') }}
+       </button>
+    </div>
+  </div>
+  
+  <!-- Transcript Messages Area -->
+  <div class="flex-1 overflow-y-auto space-y-md pr-sm rounded-lg relative scrollbar-premium">
+    <div v-for="(seg, idx) in transcriptResults" :key="idx" class="flex flex-col gap-xs group hover:bg-gray-50 dark:hover:bg-surface-container-highest/30 p-md rounded-lg transition-colors border border-transparent hover:border-gray-200 dark:hover:border-outline-variant/30">
+       <div class="flex items-center gap-sm">
+          <div class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/20 text-primary font-label-caps text-[10px] tracking-wider font-bold shrink-0">
+             {{ seg[2] ? seg[2].charAt(0).toUpperCase() : '?' }}
+          </div>
+          <span class="font-label-caps text-label-caps font-bold transition-colors" :class="seg[2].includes('Người lạ') ? 'text-red-600' : 'text-primary'">{{ seg[2] }}</span>
+          <span class="font-label-caps text-[11px] text-gray-500 dark:text-on-surface-variant/60 bg-gray-100 dark:bg-surface px-1.5 py-0.5 rounded border border-gray-200 dark:border-outline-variant/30">{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s</span>
+       </div>
+       <div class="pl-8">
+          <p class="font-body-md text-body-md text-gray-900 dark:text-on-surface leading-relaxed">{{ seg[3] }}</p>
+       </div>
+    </div>
+  </div>
+</div>
+
+</div>
 </template>
+
+<style>
+/* Base override for element plus in light/dark mode */
+.custom-el-override {
+  --el-fill-color-blank: transparent !important;
+  --el-input-bg-color: transparent !important;
+  --el-bg-color: transparent !important;
+  --el-bg-color-overlay: transparent !important;
+  background-color: transparent !important;
+}
+
+.custom-el-override .el-input__wrapper,
+.custom-el-override .el-select__wrapper {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.custom-el-override .el-input__inner,
+.custom-el-override .el-select__placeholder {
+  color: inherit !important;
+}
+
+.dark .custom-el-override .el-input__inner,
+.dark .custom-el-override .el-select__placeholder {
+  color: white !important;
+}
+
+.custom-el-override .el-input__inner::placeholder,
+.custom-el-override .el-select__placeholder.is-transparent {
+  color: rgba(128, 128, 128, 0.6) !important;
+}
+
+.dark .custom-el-override .el-input__inner::placeholder,
+.dark .custom-el-override .el-select__placeholder.is-transparent {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.custom-el-override .el-input__prefix,
+.custom-el-override .el-input__suffix,
+.custom-el-override .el-select__caret {
+  color: inherit !important;
+}
+
+/* Specific audio range slider styles to ensure they look uniform */
+input[type="range"].accent-primary::-webkit-slider-thumb {
+  background: var(--color-primary, #a8c7fa);
+  border-radius: 50%;
+  cursor: pointer;
+}
+input[type="range"].accent-primary::-moz-range-thumb {
+  background: var(--color-primary, #a8c7fa);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+</style>
+

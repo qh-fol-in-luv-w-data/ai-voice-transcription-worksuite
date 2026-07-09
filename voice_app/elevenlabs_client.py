@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Tuple
 from elevenlabs.client import ElevenLabs
 from .constants import get_elevenlabs_api_key
 
-def call_elevenlabs_stt(wav_path: str, language: str = "vi", num_speakers: int = None) -> tuple:
+def call_elevenlabs_stt(wav_path: str, language: str = "vi", num_speakers: int = None, custom_vocabulary: str = None) -> tuple:
     """
     Gọi ElevenLabs Speech-to-Text API với diarization.
     Trả về: (segments, full_text, error, chars_used, chars_remaining)
@@ -72,6 +72,10 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi", num_speakers: int =
             "ASAP", "FYI", "TBD", "TBC", "EOD", "EOM", "ETA",
             "Q1", "Q2", "Q3", "Q4", "YTD", "MoM", "YoY",
         ]
+        
+        if custom_vocabulary:
+            custom_terms = [t.strip() for t in custom_vocabulary.split(',') if t.strip()]
+            KEYTERMS.extend(custom_terms)
 
         with open(wav_path, "rb") as f:
             result = client.speech_to_text.convert(

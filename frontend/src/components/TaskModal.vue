@@ -67,8 +67,8 @@ const onAttendeeSelect = (val) => {
     <div class="flex-col space-y-6">
       
       <!-- ATTENDEES -->
-      <el-card shadow="never">
-        <template #header>
+      <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant rounded-2xl shadow-sm">
+        <div class="p-4 border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low rounded-t-2xl">
           <div class="flex justify-between items-center w-full">
             <div>
               <h3 class="text-lg font-medium m-0 flex items-center gap-2">
@@ -89,9 +89,9 @@ const onAttendeeSelect = (val) => {
               {{ isReanalyzing ? t('reanalyzing') : t('btn_reanalyze') }}
             </el-button>
           </div>
-        </template>
+        </div>
         
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="p-5 flex flex-wrap items-center gap-3">
           <el-tag
             v-for="name in selectedAttendees"
             :key="name"
@@ -121,11 +121,11 @@ const onAttendeeSelect = (val) => {
             />
           </el-select>
         </div>
-      </el-card>
+      </div>
 
       <!-- TASK LIST -->
-      <el-card shadow="never">
-        <template #header>
+      <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant rounded-2xl shadow-sm">
+        <div class="p-4 border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low rounded-t-2xl">
           <div class="flex justify-between items-center">
             <div>
               <h3 class="text-lg font-medium m-0">{{ t('task_list') }}</h3>
@@ -146,9 +146,11 @@ const onAttendeeSelect = (val) => {
               </el-button>
             </div>
           </div>
-        </template>
+          </div>
+        </div>
 
-        <el-table :data="tasks" style="width: 100%" border stripe size="large">
+        <div class="p-5">
+        <el-table :data="tasks" style="width: 100%" size="large" stripe class="custom-task-table">
           <el-table-column type="index" label="#" width="50" align="center" />
           
           <el-table-column :label="t('col_name')" min-width="250">
@@ -234,18 +236,16 @@ const onAttendeeSelect = (val) => {
             </template>
           </el-table-column>
         </el-table>
-
-      </el-card>
-
-    </div>
+        </div>
+      </div>
 
     <template #footer>
-      <div class="dialog-footer">
-        <el-button @click="emit('close')">Đóng</el-button>
-        <el-button type="primary" @click="emit('sync-erp')">
-          <el-icon class="mr-1"><UploadFilled /></el-icon>
+      <div class="dialog-footer pt-4 mt-2 border-t border-gray-200 dark:border-outline-variant flex justify-end gap-3">
+        <button @click="emit('close')" class="px-5 py-2 rounded-lg font-medium border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-gray-700 dark:text-on-surface">Đóng</button>
+        <button @click="emit('sync-erp')" class="px-5 py-2 rounded-lg font-medium bg-primary text-white hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm">
+          <el-icon><UploadFilled /></el-icon>
           {{ t('btn_sync') }}
-        </el-button>
+        </button>
       </div>
     </template>
   </el-dialog>
@@ -256,6 +256,119 @@ const onAttendeeSelect = (val) => {
   padding-top: 10px;
   padding-bottom: 10px;
 }
+
+:deep(.el-dialog) {
+  border-radius: 20px !important;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+}
+
+html.dark :deep(.el-dialog) {
+  background-color: #0f1423 !important; /* Match inner body color or slightly lighter */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html.dark :deep(.el-dialog__title) {
+  color: white !important;
+  font-weight: 600;
+  font-size: 1.125rem;
+}
+
+/* Custom Table Styles - Modern & Soft */
+html.dark :deep(.custom-task-table),
+html.dark :deep(.el-table),
+html.dark :deep(.el-table__expanded-cell) {
+  background-color: transparent !important;
+  --el-table-border-color: rgba(255, 255, 255, 0.05);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Header Cells */
+html.dark :deep(.el-table th.el-table__cell) {
+  background-color: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-right: none !important;
+  color: #94a3b8 !important; /* Tailwind slate-400 */
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  padding: 12px 0;
+}
+
+/* Body Rows */
+html.dark :deep(.el-table tr) {
+  background-color: transparent !important;
+}
+
+html.dark :deep(.el-table .el-table__row--striped td.el-table__cell) {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+}
+
+/* Body Cells */
+html.dark :deep(.el-table td.el-table__cell) {
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1) !important;
+  border-right: none !important;
+  padding: 16px 0;
+}
+
+html.dark :deep(.el-table--border::after), 
+html.dark :deep(.el-table--group::after), 
+html.dark :deep(.el-table::before) {
+  display: none;
+}
+
+/* Inputs, Selects, and Textareas */
+html.dark :deep(.el-input__wrapper), 
+html.dark :deep(.el-textarea__inner) {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+  border-radius: 8px !important;
+  color: #f1f5f9 !important; /* slate-100 */
+  transition: all 0.2s ease;
+  padding: 8px 12px;
+}
+
+html.dark :deep(.el-input__wrapper:hover), 
+html.dark :deep(.el-textarea__inner:hover) {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+}
+
+html.dark :deep(.el-input__wrapper.is-focus), 
+html.dark :deep(.el-textarea__inner:focus) {
+  box-shadow: 0 0 0 1px #4f46e5 inset !important; /* Indigo 600 */
+  background-color: rgba(79, 70, 229, 0.05) !important;
+}
+
+html.dark :deep(.el-input__inner) {
+  color: #f1f5f9 !important;
+}
+
+/* Select Dropdown Menu */
+html.dark :deep(.el-select-dropdown) {
+  background-color: #1e1e2d !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+}
+
+html.dark :deep(.el-select-dropdown__item) {
+  color: #cbd5e1 !important; /* slate-300 */
+  border-radius: 6px;
+  margin: 2px 4px;
+}
+
+html.dark :deep(.el-select-dropdown__item.hover), 
+html.dark :deep(.el-select-dropdown__item:hover) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: white !important;
+}
+
+/* Date Picker adjustments */
+html.dark :deep(.el-date-editor) {
+  --el-date-editor-width: 100%;
+}
+
 .space-y-6 > * + * {
   margin-top: 1.5rem;
 }

@@ -10,7 +10,7 @@ export const activeTab = ref('transcribe')
 // Global App State
 export const audioFile = ref(null)
 export const language = ref('auto')
-export const modelType = ref('gpt-4o')
+export const modelType = ref('gpt-4o-mini')
 
 export const isTranscribing = ref(false)
 export const transcribeStatus = ref('')
@@ -196,6 +196,19 @@ export const loadHistory = async () => {
 export const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
   activeTab.value = 'view_meeting'
+  
+  if (meeting.tasks_json) {
+    try {
+      tasks.value = typeof meeting.tasks_json === 'string' 
+        ? JSON.parse(meeting.tasks_json) 
+        : meeting.tasks_json
+    } catch (e) {
+      console.error("Failed to parse tasks_json", e)
+      tasks.value = []
+    }
+  } else {
+    tasks.value = []
+  }
 }
 
 export const currentLocalDate = () => {
