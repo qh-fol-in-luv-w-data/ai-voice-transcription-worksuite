@@ -83,64 +83,68 @@ const localSubmitEnrollment = async () => {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto w-full flex flex-col gap-8 pb-10 mt-10 fade-in">
-    <div class="shadcn-card glow-effect border-border/50">
-      <div class="card-header border-b border-border bg-muted/5">
-        <h3 class="card-title text-xl font-semibold">{{ t('enroll_title') }}</h3>
-        <p class="card-description">{{ t('enroll_desc') }}</p>
+  <div class="w-full max-w-[1200px] px-4 md:px-8 mx-auto flex flex-col gap-md py-4 fade-in flex-1 min-h-0 h-full">
+    <header class="mb-2 shrink-0">
+      <h2 class="font-headline-lg text-headline-lg text-gray-900 dark:text-on-surface mb-1">{{ t('enroll_title') }}</h2>
+      <p class="font-body-md text-body-md text-gray-500 dark:text-on-surface-variant max-w-2xl">{{ t('enroll_desc') }}</p>
+    </header>
+    
+    <div class="grid grid-cols-1 gap-lg">
+      <!-- Sample Text Card -->
+      <div class="flex flex-col gap-md">
+        <h3 class="font-label-caps text-label-caps text-gray-400 dark:text-on-surface-variant uppercase tracking-wider">Đoạn văn mẫu</h3>
+        <div class="bg-gray-50 dark:bg-surface-container/50 p-lg rounded-xl h-full border border-gray-200 dark:border-outline-variant">
+          <p class="font-body-lg text-body-lg leading-relaxed text-gray-900 dark:text-on-surface italic">
+            "Chào hệ thống, tôi đang thực hiện ghi âm để cung cấp mẫu dữ liệu giọng nói cho trợ lý AI. Việc cung cấp một đoạn âm thanh rõ ràng và tự nhiên sẽ giúp AI dễ dàng nhận diện và phân biệt được giọng nói của tôi trong các cuộc họp trực tuyến hoặc khi thảo luận công việc với đồng nghiệp. Tôi hy vọng đoạn ghi âm này đủ độ dài và chi tiết để hệ thống học được các đặc trưng riêng biệt trong chất giọng của tôi."
+          </p>
+        </div>
       </div>
-      <div class="card-content flex flex-col gap-8 mt-8">
-        
-        <div class="flex items-center gap-4 p-8 border-2 border-dashed border-border rounded-xl bg-muted/5 hover:bg-muted/20 transition-colors">
-            <input type="file" accept="audio/*" @change="localHandleEnrollFileChange" class="hidden" id="enroll-upload" />
-            <label for="enroll-upload" class="shadcn-btn shadcn-btn-outline cursor-pointer shrink-0 hover:bg-foreground hover:text-background transition-colors shadow-sm">
-               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-               {{ t('choose_audio_file') === 'choose_audio_file' ? 'Chọn file Audio' : t('choose_audio_file') }}
-            </label>
-            <span class="text-sm text-muted-foreground truncate flex-1">
-              {{ localEnrollAudioFile ? localEnrollAudioFile.name : (t('no_file_selected') === 'no_file_selected' ? 'Chưa có file nào được chọn' : t('no_file_selected')) }}
-            </span>
-        </div>
-
-        <div class="flex items-center gap-4">
-            <div class="h-px bg-border flex-1"></div>
-            <span class="text-xs text-muted-foreground uppercase tracking-widest font-bold">OR</span>
-            <div class="h-px bg-border flex-1"></div>
-        </div>
-
-        <div class="flex flex-col items-center gap-6 py-4">
-            <button 
-              @click="localToggleRecording" 
-              :class="['w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl', localIsRecording ? 'bg-destructive animate-pulse scale-105 shadow-destructive/40' : 'bg-foreground hover:scale-105 hover:bg-foreground/90 shadow-foreground/20']"
-            >
-              <svg v-if="localIsRecording" xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--background)" stroke-width="2"><rect x="6" y="6" width="12" height="12"></rect></svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--background)" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
-            </button>
-            <span class="text-sm font-semibold tracking-wide" :class="localIsRecording ? 'text-destructive' : 'text-foreground'">
-               {{ localIsRecording ? t('btn_stop') : t('btn_record') }}
-            </span>
-            <audio v-if="localRecordedAudioUrl" :src="localRecordedAudioUrl" controls class="mt-4 w-full max-w-md h-12 rounded-full shadow-sm"></audio>
-        </div>
-
-        <div class="pt-8 border-t border-border">
-            <button 
-              @click="localSubmitEnrollment" 
-              :disabled="localIsEnrolling || !localEnrollAudioFile" 
-              class="shadcn-btn w-full h-14 text-lg font-bold transition-all shadow-md"
-              :class="(localIsEnrolling || !localEnrollAudioFile) ? 'bg-muted text-muted-foreground border border-border' : 'bg-foreground text-background hover:bg-foreground/90 hover:scale-[1.02] shadow-foreground/20'"
-            >
-               <svg v-if="!localIsEnrolling" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-               <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-               {{ t('btn_enroll') }}
+      
+      <!-- Action Area -->
+      <div class="flex flex-col gap-md flex-1">
+        <h3 class="font-label-caps text-label-caps text-gray-400 dark:text-on-surface-variant uppercase tracking-wider">Cung cấp mẫu giọng nói</h3>
+        <div class="bg-white dark:bg-[#0a0f1c]/90 border border-gray-200 dark:border-white/5 rounded-3xl p-6 lg:p-8 flex flex-col items-center justify-center shadow-2xl relative overflow-hidden min-h-[400px]">
+          <div class="w-full max-w-md flex flex-col items-center gap-md relative z-10">
+            
+            <!-- Record Button -->
+            <button @click="localToggleRecording" :class="['flex items-center justify-center gap-sm font-headline-md text-lg px-lg py-3 rounded-full transition-all active:scale-95 w-full max-w-[280px]', localIsRecording ? 'bg-error text-on-error shadow-[0_0_25px_rgba(255,180,171,0.5)] animate-pulse' : 'bg-primary text-on-primary shadow-[0_0_15px_rgba(192,193,255,0.3)] hover:shadow-[0_0_25px_rgba(192,193,255,0.5)]']">
+              <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">{{ localIsRecording ? 'stop_circle' : 'mic' }}</span>
+              {{ localIsRecording ? t('btn_stop') : 'Bắt đầu thu âm' }}
             </button>
             
-            <div v-if="localEnrollStatus" 
-                 class="mt-6 p-4 rounded-lg text-sm border font-semibold flex items-center justify-center animate-in fade-in slide-in-from-bottom-2"
-                 :class="localEnrollStatus.includes('❌') ? 'bg-destructive/10 text-destructive border-destructive/20' : (localEnrollStatus.includes('⏳') ? 'bg-muted text-foreground border-border' : 'bg-primary/10 text-primary border-primary/20')">
-               {{ localEnrollStatus }}
+            <audio v-if="localRecordedAudioUrl" :src="localRecordedAudioUrl" controls class="w-full max-w-md h-12 rounded-full shadow-sm mt-xs"></audio>
+            
+            <div class="w-full flex items-center gap-md">
+              <div class="h-px bg-gray-200 dark:bg-outline-variant flex-1"></div>
+              <span class="font-label-caps text-label-caps text-gray-400 dark:text-on-surface-variant">HOẶC</span>
+              <div class="h-px bg-gray-200 dark:bg-outline-variant flex-1"></div>
             </div>
+            
+            <!-- Drag and Drop Zone -->
+            <div class="flex flex-col items-center gap-sm cursor-pointer opacity-70 hover:opacity-100 transition-opacity relative w-full p-4 rounded-lg hover:bg-gray-50 dark:hover:bg-surface-variant/30">
+              <input type="file" accept="audio/*" @change="localHandleEnrollFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" />
+              <div class="w-16 h-16 rounded-full bg-gray-100 dark:bg-surface-variant flex items-center justify-center mb-sm">
+                <span class="material-symbols-outlined text-3xl text-gray-500 dark:text-on-surface-variant">cloud_upload</span>
+              </div>
+              <p class="font-body-md text-body-md text-gray-900 dark:text-on-surface text-center">Kéo thả file vào đây hoặc bấm để chọn</p>
+              <p class="font-body-sm text-body-sm text-primary font-medium" v-if="localEnrollAudioFile">{{ localEnrollAudioFile.name }}</p>
+              <p class="font-body-sm text-body-sm text-gray-500 dark:text-on-surface-variant" v-else>Hỗ trợ: .mp3, .wav</p>
+            </div>
+            
+          </div>
         </div>
-
+      </div>
+    </div>
+    
+    <!-- Final Action -->
+    <div class="mt-4 flex flex-col items-center pt-4 border-t border-gray-200 dark:border-outline-variant justify-center gap-md shrink-0">
+      <button @click="localSubmitEnrollment" :disabled="localIsEnrolling || !localEnrollAudioFile" :class="['font-headline-md text-lg px-xl py-sm rounded-lg transition-colors min-w-[200px] flex items-center justify-center gap-2', (localIsEnrolling || !localEnrollAudioFile) ? 'bg-gray-100 text-gray-400 dark:bg-surface-variant dark:text-on-surface-variant opacity-50 cursor-not-allowed' : 'bg-primary-container text-white hover:bg-primary active:scale-95']">
+        <span v-if="localIsEnrolling" class="material-symbols-outlined animate-spin text-[20px]">autorenew</span>
+        {{ localIsEnrolling ? t('status_enrolling') : 'Đăng ký Hệ thống' }}
+      </button>
+      
+      <div v-if="localEnrollStatus" class="font-body-md font-medium text-center px-4 py-2 rounded-md" :class="localEnrollStatus.includes('❌') ? 'bg-error/10 text-error' : (localEnrollStatus.includes('⏳') ? 'bg-surface-variant text-on-surface' : 'bg-primary/10 text-primary')">
+        {{ localEnrollStatus }}
       </div>
     </div>
   </div>

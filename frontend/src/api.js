@@ -38,7 +38,7 @@ export async function transcribeAudio(file, language, filterSpeakers = null, stt
 
 export async function extractTasks(results, modelType, meetingName, startTime = null, endTime = null, location = null, chairperson = null) {
   const res = await api.post('/api/method/voice_app.api.extract_tasks', {
-    results: results,
+    results: [], // Do not send huge results array to avoid 413 Payload Too Large
     model_type: modelType,
     meeting_name: meetingName,
     start_time: startTime,
@@ -52,6 +52,14 @@ export async function extractTasks(results, modelType, meetingName, startTime = 
 export async function getMeetingHistory() {
   const res = await api.get('/api/method/voice_app.api.get_meeting_history')
   return res.data.message
+}
+
+export async function renameMeeting(meetingName, newTitle) {
+  const res = await api.post('/api/method/voice_app.meeting_api.rename_meeting', {
+    meeting_name: meetingName,
+    new_title: newTitle
+  })
+  return res.data
 }
 
 export async function getEmployees() {

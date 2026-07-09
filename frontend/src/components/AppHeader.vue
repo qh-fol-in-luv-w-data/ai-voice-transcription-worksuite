@@ -1,23 +1,39 @@
 <script setup>
 import { isDark, toggleDark, uiLang, toggleLang, dict } from '../composables/useVoiceApp'
+import { useSession } from '../utils/session'
+
+const { currentUser, currentFullName } = useSession()
 </script>
 
 <template>
-  <header class="h-16 border-b border-border bg-background/90 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-10 shrink-0">
-    <div>
-      <h1 class="text-xl font-bold tracking-tight text-foreground">
-        2AS Voice Suite
-      </h1>
-      <p class="text-xs text-muted-foreground font-medium uppercase tracking-wider mt-0.5">{{ dict[uiLang].title }}</p>
+<header class="bg-transparent flex justify-end items-center h-20 px-8 w-full shrink-0 z-10 sticky top-0">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-1 mr-4">
+    <button v-show="false" @click="toggleDark" class="text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-variant/30 p-2 rounded-full transition-colors group" title="Toggle Theme">
+    <span class="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform font-light">{{ isDark ? 'dark_mode' : 'light_mode' }}</span>
+    </button>
+    <button v-show="false" @click="toggleLang" class="text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-on-surface hover:bg-gray-100 dark:hover:bg-surface-variant/30 p-2 rounded-full transition-colors group" title="Translate">
+    <span class="material-symbols-outlined text-[20px] group-hover:scale-110 transition-transform font-light">translate</span>
+    </button>
+</div>
+
+<button class="relative text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-on-surface p-2 rounded-full transition-colors group">
+<span class="material-symbols-outlined text-[24px] group-hover:scale-110 transition-transform font-light">notifications</span>
+<div class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border border-white dark:border-background"></div>
+</button>
+
+<div class="h-6 w-px bg-gray-200 dark:bg-outline-variant/30"></div>
+
+<!-- User Profile -->
+<div class="flex items-center gap-3 cursor-pointer group">
+<span class="font-body-md text-[14px] text-gray-900 dark:text-on-surface hidden sm:block font-medium group-hover:text-primary transition-colors">{{ currentFullName || currentUser || 'User' }}</span>
+<div class="w-10 h-10 rounded-full bg-gray-100 dark:bg-surface-container overflow-hidden border border-gray-200 dark:border-outline-variant/50 group-hover:border-primary/50 transition-colors flex items-center justify-center">
+    <img v-if="false" src="" alt="Avatar" class="w-full h-full object-cover">
+    <div v-else class="w-full h-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold text-sm uppercase">
+        {{ currentFullName ? currentFullName.charAt(0) : (currentUser ? currentUser.charAt(0) : 'U') }}
     </div>
-    <div class="flex items-center gap-4">
-      <button @click="toggleLang" class="shadcn-btn shadcn-btn-ghost w-10 h-10 p-0 rounded-full font-bold hover:bg-muted transition-colors">
-        {{ uiLang === 'vi' ? 'VN' : 'EN' }}
-      </button>
-      <button @click="toggleDark" class="shadcn-btn shadcn-btn-ghost w-10 h-10 p-0 rounded-full hover:bg-muted transition-colors">
-        <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
-      </button>
-    </div>
-  </header>
+</div>
+</div>
+</div>
+</header>
 </template>

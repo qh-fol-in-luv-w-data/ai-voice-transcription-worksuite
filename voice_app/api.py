@@ -512,6 +512,22 @@ def _extract_tasks_async(payload, user, session_id_header):
 
     cache_key = f"extract_result_{meeting_name}"
 
+    if not results and meeting_name:
+        try:
+            # Check if it's the primary key
+            raw_results = frappe.db.get_value("Voice Meeting", meeting_name, "raw_results")
+            if not raw_results:
+                # Fallback to searching by title
+                doc_name = frappe.db.get_value("Voice Meeting", {"title": meeting_name, "owner": frappe.session.user}, "name")
+                if doc_name:
+                    meeting_name = doc_name
+                    raw_results = frappe.db.get_value("Voice Meeting", doc_name, "raw_results")
+            
+            if raw_results:
+                results = json.loads(raw_results)
+        except Exception:
+            pass
+
     if not results:
         frappe.cache().set_value(cache_key, {"status": "error", "message": "Không có nội dung để tạo task"}, expires_in_sec=86400)
         return
@@ -829,6 +845,11 @@ def update_meeting_results():
         return {"status": "error", "message": "Thiếu meeting_name hoặc results"}
 
     try:
+        if not frappe.db.exists("Voice Meeting", meeting_name):
+            doc_name = frappe.db.get_value("Voice Meeting", {"title": meeting_name, "owner": frappe.session.user}, "name")
+            if doc_name:
+                meeting_name = doc_name
+                
         if frappe.db.exists("Voice Meeting", meeting_name):
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
             if meeting_owner != frappe.session.user:
@@ -857,6 +878,11 @@ def update_transcript_text():
         return {"status": "error", "message": "Thiếu meeting_name hoặc results"}
 
     try:
+        if not frappe.db.exists("Voice Meeting", meeting_name):
+            doc_name = frappe.db.get_value("Voice Meeting", {"title": meeting_name, "owner": frappe.session.user}, "name")
+            if doc_name:
+                meeting_name = doc_name
+                
         if frappe.db.exists("Voice Meeting", meeting_name):
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
             if meeting_owner != frappe.session.user:
@@ -906,9 +932,17 @@ def download_meeting_file():
     meeting_name = frappe.form_dict.get("meeting_name") or frappe.local.form_dict.get("meeting_name")
     file_type    = frappe.form_dict.get("file_type")    or frappe.local.form_dict.get("file_type", "docx")
 
-    if not meeting_name:
-        frappe.throw("Thiếu meeting_name")
+    if not meeting_name or not file_type:
+        frappe.throw("Thiếu tham số meeting_name hoặc file_type")
 
+    if not frappe.db.exists("Voice Meeting", meeting_name):
+        doc_name = frappe.db.get_value("Voice Meeting", {"title": meeting_name, "owner": frappe.session.user}, "name")
+        if doc_name:
+            meeting_name = doc_name
+
+    if not frappe.db.exists("Voice Meeting", meeting_name):
+        frappe.throw("Meeting không tồn tại")
+        
     meeting = frappe.get_doc("Voice Meeting", meeting_name)
 
     # Kiểm tra chủ sở hữu
