@@ -9,7 +9,6 @@ import {
 
 import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
-import { socket } from '../socket.js'
 
 const t = (key) => dict[uiLang.value][key] || key
 const transcribeProgress = ref(0)
