@@ -13,11 +13,11 @@ api.interceptors.request.use(config => {
 
   const sid = getSessionId()
   if (sid) config.headers['X-App-Session-Id'] = sid
-  
+
   return config;
 })
 
-export async function transcribeAudio(file, language, filterSpeakers = null, sttMode = 'elevenlabs', numSpeakers = null, customVocabulary = '') {
+export async function transcribeAudio(file, language, filterSpeakers = null, sttMode = 'google', numSpeakers = null, customVocabulary = '') {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('language', language)
