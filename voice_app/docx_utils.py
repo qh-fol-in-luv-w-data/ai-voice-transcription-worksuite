@@ -81,10 +81,14 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
         # ── Chỉ hiện header ở trang đầu tiên thôi ────────────────────────────
         current_date = "17/11/2025"
         for section in doc.sections:
-            section.different_first_page_header_footer = True
-            # Header trang đầu: giữ nguyên như template (có logo, tiêu đề, ngày)
-            if section.first_page_header:
-                for t in section.first_page_header.tables:
+            if section.header:
+                # Thay thế {DATE}
+                for p in section.header.paragraphs:
+                    if '{DATE}' in p.text:
+                        p.text = p.text.replace('{DATE}', current_date)
+                        for run in p.runs:
+                            set_font_times(run, 10)
+                for t in section.header.tables:
                     for r in t.rows:
                         for c in r.cells:
                             for p in c.paragraphs:
@@ -92,15 +96,19 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                                     p.text = p.text.replace('{DATE}', current_date)
                                     for run in p.runs:
                                         set_font_times(run, 10)
-            # Header các trang sau: để trống hoàn toàn
-            if section.header:
-                for p in section.header.paragraphs:
-                    p.clear()
-                for t in section.header.tables:
-                    for r in t.rows:
-                        for c in r.cells:
-                            for p in c.paragraphs:
-                                p.clear()
+                
+                # Di chuyển toàn bộ nội dung header vào phần nội dung chính (body)
+                elements_to_move = []
+                for e in section.header._element:
+                    elements_to_move.append(e)
+                
+                for e in elements_to_move:
+                    section.header._element.remove(e)
+                    
+                for e in reversed(elements_to_move):
+                    doc._body._element.insert(0, e)
+                    
+            section.different_first_page_header_footer = False
 
 
         # ── Chèn thông tin cuộc họp (Thời gian, Địa điểm, Chủ trì) ───────────
@@ -128,7 +136,13 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
 
             # Lấy danh sách tên người nói duy nhất
             unique_speakers = []
-            for _, _, spk, _ in results:
+            
+            def clean_xml_text(text):
+                return re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]', '', text)
+
+            for _, _, spk, txt in results:
+                # Nếu txt chứa ký tự điều khiển không hợp lệ -> Word crash (Text Recovery converter)
+                txt = clean_xml_text(txt)
                 clean_spk = _clean_speaker(spk)
                 if clean_spk and clean_spk not in unique_speakers:
                     unique_speakers.append(clean_spk)
@@ -165,6 +179,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
 
             for start, end, spk, txt in results:
                 txt = normalize_whitespace(txt)
+                txt = clean_xml_text(txt)
                 clean_spk = _clean_speaker(spk)
 
                 p = target_p.insert_paragraph_before("")
