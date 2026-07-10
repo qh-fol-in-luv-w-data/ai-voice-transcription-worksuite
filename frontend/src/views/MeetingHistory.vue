@@ -21,26 +21,99 @@ const stringToColor = (str) => {
   return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
-const parseSegments = computed(() => {
-  const raw = props.meeting?.raw_results;
-  if (!raw) return [];
-  try {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch (e) {
-    return [];
+// --- LOCAL SEGMENTS FOR EDITING ---
+const localSegments = ref([])
+import { watch } from 'vue'
+
+watch(() => props.meeting, (newVal) => {
+  if (newVal && newVal.raw_results) {
+    try {
+      localSegments.value = typeof newVal.raw_results === 'string' ? JSON.parse(newVal.raw_results) : newVal.raw_results
+    } catch {
+      localSegments.value = []
+    }
+  } else {
+    localSegments.value = []
   }
-})
+}, { immediate: true })
 
 const formatTime = (seconds) => {
-  if (seconds == null) return '0.00s';
-  return (typeof seconds === 'number' ? seconds : parseFloat(seconds)).toFixed(2) + 's';
+  if (seconds == null) return '0.00s'
+  return (typeof seconds === 'number' ? seconds : parseFloat(seconds)).toFixed(2) + 's'
 }
 
-const downloadFile = (url, defaultName) => {
-  if (!url) return;
-  window.open(url, '_blank');
+const downloadFile = (url) => {
+  if (!url) return
+  window.open(url, '_blank')
+}
+
+// ── ADMIN CHECK ────────────────────────────────────────────────────────────
+const isAdmin = computed(() => {
+  try {
+    const roles = window.frappe?.boot?.user?.roles || []
+    return roles.includes('System Manager') || roles.includes('Administrator')
+  } catch { return false }
+})
+
+// --- INLINE EDITING ---
+const editingIdx = ref(null)
+const editingText = ref('')
+const editingSpeaker = ref(null)
+const editingSpeakerName = ref('')
+const newSpeakerEmployee = ref('')
+
+const startEditText = (idx) => {
+  editingIdx.value = idx
+  editingText.value = localSegments.value[idx][3]
+}
+const saveEditText = async (idx) => {
+  if (editingIdx.value !== idx) return
+  localSegments.value[idx][3] = editingText.value
+  editingIdx.value = null
+  if (props.meeting?.name) {
+    await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
+}
+const startEditSpeaker = (idx) => {
+  editingSpeaker.value = idx
+  editingSpeakerName.value = localSegments.value[idx][2]
+  newSpeakerEmployee.value = ''
+}
+const saveEditSpeaker = async (idx) => {
+  const finalName = newSpeakerEmployee.value
+  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  const oldName = localSegments.value[idx][2]
+  for (const seg of localSegments.value) {
+    if (seg[2] === oldName) seg[2] = finalName.trim()
+  }
+  editingSpeaker.value = null
+  if (props.meeting?.name) {
+    await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
+}
+const addNewSegment = async () => {
+  const newSeg = [0, 0, 'Người lạ (mới)', '']
+  localSegments.value.push(newSeg)
+  editingIdx.value = localSegments.value.length - 1
+  if (props.meeting?.name) {
+    await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
+}
+const insertSegmentAfter = async (idx) => {
+  const time = localSegments.value[idx] ? localSegments.value[idx][0] : 0
+  const newSeg = [time, time, 'Người lạ (mới)', '']
+  localSegments.value.splice(idx + 1, 0, newSeg)
+  editingIdx.value = idx + 1
+  if (props.meeting?.name) {
+    await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
+}
+const deleteSegment = async (idx) => {
+  if (!confirm("Bạn có chắc chắn muốn xóa đoạn hội thoại này?")) return
+  localSegments.value.splice(idx, 1)
+  if (props.meeting?.name) {
+    await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
 }
 
 // --- SPEAKER MAPPING LOGIC ---
@@ -51,22 +124,32 @@ const hasSelectedMapping = computed(() => {
   return Object.values(speakerMapping.value).some(val => !!val)
 })
 
-const unknownSpeakers = computed(() => {
+const uniqueSpeakers = computed(() => {
   const speakers = new Set()
-  for (const seg of parseSegments.value) {
-    if (seg[2] && seg[2].includes('Người lạ')) {
-      speakers.add(seg[2])
-    }
+  for (const seg of localSegments.value) {
+    if (seg[2]) speakers.add(seg[2])
   }
   return Array.from(speakers)
 })
 
 const employeeOptions = computed(() =>
   dbEmployees.value.map(emp => ({
-    value: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - '),
+    value: emp.employee_name,
     label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
   }))
 )
+
+const assignStrangerNames = async () => {
+  const validMappings = {}
+  for (const [spk, name] of Object.entries(speakerMapping.value)) {
+    if (name) validMappings[spk] = name
+  }
+  if (Object.keys(validMappings).length === 0) { alert('Chưa chọn tên cho người lạ nào!'); return }
+  for (const seg of localSegments.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
+  if (props.meeting?.name) await updateMeetingResults(props.meeting.name, localSegments.value)
+  speakerMapping.value = {}
+  alert('✅ Đã gán tên thành công!')
+}
 
 const enrollMapped = async () => {
   const validMappings = {}
@@ -89,11 +172,11 @@ const enrollMapped = async () => {
     if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
     alert(msg)
     
-    for (const seg of parseSegments.value) {
+    for (const seg of localSegments.value) {
       if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
     }
     
-    await updateMeetingResults(props.meeting.name, parseSegments.value)
+    await updateMeetingResults(props.meeting.name, localSegments.value)
     speakerMapping.value = {}
   } catch(e) {
     alert('❌ Lỗi: ' + e.message)
@@ -104,7 +187,7 @@ const enrollMapped = async () => {
 
 // --- EXTRACT TASKS LOGIC ---
 const startExtractTasks = async () => {
-  if (parseSegments.value.length === 0) {
+  if (localSegments.value.length === 0) {
     alert(props.t('alert_no_transcript'))
     return
   }
@@ -112,7 +195,7 @@ const startExtractTasks = async () => {
   extractStatus.value = props.t('status_extract_wait')
   
   try {
-    const res = await extractTasks(parseSegments.value, modelType.value, props.meeting.name)
+    const res = await extractTasks(localSegments.value, modelType.value, props.meeting.name)
     if (res.status === 'processing') {
       const pollTimer = setInterval(async () => {
         try {
@@ -158,7 +241,7 @@ const startExtractTasks = async () => {
 }
 
 const openTaskModal = () => {
-    if (tasks.value.length === 0 && parseSegments.value.length > 0) {
+    if (tasks.value.length === 0 && localSegments.value.length > 0) {
         startExtractTasks()
     } else {
         isTaskModalOpen.value = true
@@ -194,18 +277,23 @@ const openTaskModal = () => {
     </section>
 
     <!-- STRANGER MAPPING CARD -->
-    <section v-if="unknownSpeakers.length > 0" class="bg-error-container/10 border border-error/20 rounded-xl p-lg shadow-sm">
-      <div class="mb-lg border-b border-error/10 pb-md">
-        <h3 class="font-headline-md text-headline-md text-error mb-xs flex items-center gap-sm">
-          <span class="material-symbols-outlined">person_add</span>
-          Gán tên người tham dự
-        </h3>
-        <p class="font-body-md text-body-md text-gray-500 dark:text-on-surface-variant">AI phát hiện giọng nói chưa xác định. Chọn tên nhân viên thực tế để gán vào biên bản và đăng ký vào hệ thống.</p>
+    <section v-if="uniqueSpeakers.length > 0" class="bg-error-container/10 border border-error/20 rounded-xl p-lg shadow-sm">
+      <div class="mb-lg border-b border-error/10 pb-md flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h3 class="font-headline-md text-headline-md text-error mb-xs flex items-center gap-sm">
+            <span class="material-symbols-outlined">person_add</span>
+            Sửa / Gán tên người tham dự
+          </h3>
+          <p class="font-body-md text-body-md text-gray-500 dark:text-on-surface-variant">Phát hiện <strong>{{ uniqueSpeakers.length }}</strong> người tham gia. Chọn tên để gán lại nếu cần thiết và đăng ký vào hệ thống.</p>
+        </div>
+        <span v-if="isAdmin" class="text-[10px] font-bold text-error bg-error/10 px-2 py-0.5 rounded-full border border-error/30 self-start mt-1">ADMIN MODE</span>
       </div>
       <div class="flex flex-col gap-md">
-        <div v-for="spk in unknownSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-md bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/50 p-md rounded-lg shadow-sm hover:border-primary/50 transition-colors">
+        <div v-for="spk in uniqueSpeakers" :key="spk" class="flex flex-col md:flex-row md:items-center gap-md bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/50 p-md rounded-lg shadow-sm hover:border-primary/50 transition-colors">
           <div class="flex items-center gap-sm min-w-[180px]">
-            <div class="w-8 h-8 rounded-full bg-error/10 flex items-center justify-center text-error font-bold text-xs shrink-0">?</div>
+            <div class="w-8 h-8 rounded-full bg-error/10 flex items-center justify-center text-error font-bold text-xs shrink-0">
+              <span class="material-symbols-outlined text-[16px]">person</span>
+            </div>
             <span class="font-body-md text-body-md font-bold text-gray-900 dark:text-on-surface">{{ spk }}</span>
           </div>
           <el-select
@@ -229,17 +317,26 @@ const openTaskModal = () => {
             </el-option>
           </el-select>
         </div>
-        <div class="flex justify-end mt-sm">
-          <button :disabled="!hasSelectedMapping || isEnrollingMapped" @click="enrollMapped" class="font-medium py-2.5 px-6 rounded-md transition-all flex items-center gap-sm" :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-error text-white hover:bg-error/90 shadow-md active:scale-[0.98]' : 'bg-error/30 text-white/50 cursor-not-allowed'">
-            <span class="material-symbols-outlined text-[20px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
-            {{ isEnrollingMapped ? 'Đang xử lý...' : 'Cập nhật danh tính & Đăng ký giọng' }}
+        <div class="flex justify-end gap-2 mt-sm">
+          <!-- Ai cũng thấy: chỉ gán tên -->
+          <button :disabled="!hasSelectedMapping" @click="assignStrangerNames"
+            class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm"
+            :class="hasSelectedMapping ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-sm active:scale-[0.98]' : 'bg-gray-200 text-gray-400 cursor-not-allowed'">
+            <span class="material-symbols-outlined text-[18px]">label</span> Gán tên
+          </button>
+          <!-- CHỈ ADMIN thấy: gán tên + enroll giọng -->
+          <button v-if="isAdmin" :disabled="!hasSelectedMapping || isEnrollingMapped" @click="enrollMapped" 
+            class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm" 
+            :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
+            <span class="material-symbols-outlined text-[18px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
+            {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Đăng ký giọng' }}
           </button>
         </div>
       </div>
     </section>
 
     <!-- Transcript Section (Adapted from the box style) -->
-    <section v-if="parseSegments.length > 0" class="bg-white dark:bg-surface-container rounded-xl border border-gray-200 dark:border-outline-variant overflow-hidden shadow-sm">
+    <section v-if="localSegments.length > 0" class="bg-white dark:bg-surface-container rounded-xl border border-gray-200 dark:border-outline-variant overflow-hidden shadow-sm">
       <div class="p-lg border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low flex justify-between items-center">
         <div>
           <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
@@ -250,15 +347,42 @@ const openTaskModal = () => {
       </div>
       <div class="p-lg bg-white dark:bg-surface">
         <div class="transcript-log max-h-[600px] overflow-auto flex flex-col gap-4 pr-2">
-          <div v-for="(seg, idx) in parseSegments" :key="idx" class="relative border-l-2 border-gray-300 dark:border-outline-variant pl-4 py-1">
+          <div v-for="(seg, idx) in localSegments" :key="idx" class="relative border-l-2 border-gray-300 dark:border-outline-variant pl-4 py-1 group">
             <div class="absolute -left-[5px] top-3 w-2 h-2 rounded-full bg-primary/50"></div>
-            <div class="flex items-center gap-2 mb-1">
-              <span class="font-bold text-sm tracking-wide" :class="seg[2].includes('Người lạ') ? 'text-red-600' : ''" :style="!seg[2].includes('Người lạ') ? { color: stringToColor(seg[2]) } : {}">{{ seg[2] }}</span>
-              <span class="text-xs text-gray-500 dark:text-on-surface-variant font-label-caps">[{{ formatTime(seg[0]) }}]</span>
+            
+            <div class="flex items-center gap-2 mb-1 flex-wrap">
+              <template v-if="editingSpeaker === idx">
+                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override" @change="saveEditSpeaker(idx)">
+                  <el-option v-for="opt in employeeOptions" :key="opt.value" :label="opt.label" :value="opt.value">
+                    <span class="text-xs">{{ opt.label }}</span>
+                  </el-option>
+                </el-select>
+                <button @click="saveEditSpeaker(idx)" class="text-xs font-bold text-white bg-primary px-2 py-0.5 rounded hover:bg-primary/90 ml-1">Lưu</button>
+                <button @click="editingSpeaker = null" class="text-xs text-gray-400 hover:text-gray-600">Hủy</button>
+              </template>
+              <template v-else>
+                <span class="font-bold text-sm tracking-wide cursor-pointer hover:underline" @click="startEditSpeaker(idx)" :class="seg[2] && seg[2].includes('Người lạ') ? 'text-red-600' : ''" :style="seg[2] && !seg[2].includes('Người lạ') ? { color: stringToColor(seg[2]) } : {}">{{ seg[2] }}</span>
+                <span class="text-xs text-gray-500 dark:text-on-surface-variant font-label-caps">[{{ formatTime(seg[0]) }}]</span>
+                <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-primary ml-0.5" @click="startEditSpeaker(idx)" title="Đổi tên">edit</span>
+                <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-green-500 ml-1" @click="insertSegmentAfter(idx)" title="Chèn đoạn hội thoại mới xuống dưới">add_circle</span>
+                <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-error ml-1" @click="deleteSegment(idx)" title="Xóa đoạn hội thoại này">delete</span>
+              </template>
             </div>
-            <p class="text-sm leading-relaxed text-gray-900 dark:text-on-surface whitespace-pre-wrap break-words m-0">{{ seg[3] }}</p>
+            
+            <template v-if="editingIdx === idx">
+              <textarea v-model="editingText" class="w-full border border-primary/50 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary resize-none bg-white dark:bg-surface mt-1" rows="3" @keydown.ctrl.enter="saveEditText(idx)" @keyup.esc="editingIdx = null"></textarea>
+              <div class="flex gap-2 mt-1">
+                <button @click="saveEditText(idx)" class="text-xs font-bold text-white bg-primary px-3 py-1 rounded hover:bg-primary/90">Lưu (Ctrl+Enter)</button>
+                <button @click="editingIdx = null" class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded border border-gray-300 hover:bg-gray-50">Hủy</button>
+              </div>
+            </template>
+            <template v-else>
+              <p class="text-sm leading-relaxed text-gray-900 dark:text-on-surface whitespace-pre-wrap break-words m-0 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10 rounded px-1 -mx-1" @click="startEditText(idx)">{{ seg[3] || '(Nhập nội dung hội thoại...)' }}</p>
+            </template>
           </div>
         </div>
+
+        <!-- Nút thêm người / thêm hội thoại (đã xóa theo yêu cầu) -->
       </div>
     </section>
     

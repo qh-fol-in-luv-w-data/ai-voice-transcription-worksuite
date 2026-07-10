@@ -71,10 +71,16 @@ def concat_speaker_segments(wav_path: str, segs: list,
     tmp_files = []
     total = 0.0
     for seg in candidates:
-        seg_start = max(0.0, seg["start"] - 0.1)
-        seg_end   = min(duration, seg["end"] + 0.1)
-        take      = min(seg_end - seg_start, max_total_sec - total)
-        if take < min_seg_sec:
+        # Gọt mép 0.2s ở 2 đầu để tránh tạp âm và tiếng người khác xen ngang
+        seg_start = seg["start"] + 0.2
+        seg_end   = seg["end"] - 0.2
+        
+        # Nếu gọt xong bị âm (đoạn quá ngắn), thì bỏ qua đoạn này
+        if seg_end <= seg_start:
+            continue
+            
+        take = min(seg_end - seg_start, max_total_sec - total)
+        if take <= 0:
             break
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -132,10 +138,8 @@ def concat_speaker_segments(wav_path: str, segs: list,
 
 def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_chunk_sec: float = 1500.0) -> list:
     """
-    Sử dụng webrtcvad để lọc bỏ toàn bộ khoảng lặng > 1 giây.
-    Ép các đoạn có tiếng người vào các file chunk đặc ruột.
-    Trả về danh sách: [(chunk_wav_path, start_time_offset, mappings), ...]
-    Trong đó mappings = [{"orig_start": ..., "orig_end": ..., "dense_start": ..., "dense_end": ...}, ...]
+    VAD "nhẹ nhẹ" theo yêu cầu: Chỉ cắt bỏ những đoạn im lặng chết chóc > 15 giây.
+    Mọi tiếng ngập ngừng, lật giấy, nói thầm đều được giữ lại 100%.
     """
     import webrtcvad
     import wave
@@ -144,19 +148,19 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
 
     duration = get_duration(wav_path)
     
-    # 1. Khởi tạo VAD
-    vad = webrtcvad.Vad(3) # Mức 3: mạnh nhất để lọc tạp âm
+    # Mức 0: Nhạy nhất với tiếng ồn/tiếng người. Gần như có âm thanh là nó tính là Speech.
+    vad = webrtcvad.Vad(0) 
     frame_duration_ms = 30
     
     with wave.open(wav_path, 'rb') as wf:
         sample_rate = wf.getframerate()
         sample_width = wf.getsampwidth()
-        raw_data = wf.readframes(wf.getnframes())
+        n_frames = wf.getnframes()
+        raw_data = wf.readframes(n_frames)
         
     frame_size = int(sample_rate * (frame_duration_ms / 1000.0) * sample_width)
     frames = [raw_data[i:i+frame_size] for i in range(0, len(raw_data), frame_size)]
     
-    # 2. Quét VAD
     is_speech_flags = []
     for f in frames:
         if len(f) == frame_size:
@@ -164,8 +168,8 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
         else:
             is_speech_flags.append(False)
             
-    # 3. Làm mượt (smooth): Giữ 900ms trước và sau mỗi đoạn nói để không bị gọt âm cuối
-    ring_buffer_size = 30 
+    # Đệm 1.8 giây (60 frames) trước và sau mỗi điểm nói, đảm bảo 100% không lẹm chữ
+    ring_buffer_size = 60 
     smoothed_flags = [False] * len(is_speech_flags)
     
     for i, flag in enumerate(is_speech_flags):
@@ -175,7 +179,6 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
             for j in range(start, end):
                 smoothed_flags[j] = True
 
-    # 4. Gộp các frame liên tiếp thành các đoạn nói (segments)
     segments = []
     in_speech = False
     start_frame = 0
@@ -190,23 +193,21 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
     if in_speech:
         segments.append((start_frame, len(smoothed_flags)))
         
-    # 5. Ghép các đoạn nói gần nhau (cách nhau < 2s = 66 frames) để tránh vụn vặt và giữ nhịp thở
+    # GỘP NHẸ NHÀNG: Khoảng cách < 15 giây (500 frames) thì gộp luôn không cắt!
     merged_segments = []
     for seg in segments:
         if not merged_segments:
             merged_segments.append(seg)
         else:
             prev_start, prev_end = merged_segments[-1]
-            if seg[0] - prev_end < 66:
+            if seg[0] - prev_end < 500:
                 merged_segments[-1] = (prev_start, seg[1])
             else:
                 merged_segments.append(seg)
                 
-    # Nếu file toàn im lặng thì fallback
     if not merged_segments:
         return [(wav_path, 0.0, [])]
 
-    # 6. Gom vào các chunk đặc ruột
     chunks = []
     current_chunk_frames = []
     current_chunk_mappings = []
@@ -224,7 +225,6 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
             wf.setframerate(sample_rate)
             wf.writeframes(b''.join(current_chunk_frames))
         chunks.append((chunk_out, current_chunk_orig_start, current_chunk_mappings))
-        # Reset cho chunk mới
         current_chunk_frames = []
         current_chunk_mappings = []
         current_dense_start = 0.0
@@ -232,7 +232,6 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
     for start, end in merged_segments:
         seg_duration = (end - start) * 30 / 1000.0
         
-        # Nếu đoạn này làm chunk vượt quá max_chunk_sec thì cắt sang chunk mới
         if current_dense_start + seg_duration > chunk_length_sec and current_dense_start > 0:
             finalize_chunk()
             current_chunk_orig_start = start * 30 / 1000.0

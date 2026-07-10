@@ -78,11 +78,13 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
     if os.path.exists(template_path):
         doc = docx.Document(template_path)
 
-        # ── Cập nhật ngày ban hành trong header ───────────────────────────────
+        # ── Chỉ hiện header ở trang đầu tiên thôi ────────────────────────────
         current_date = "17/11/2025"
         for section in doc.sections:
-            if section.header:
-                for t in section.header.tables:
+            section.different_first_page_header_footer = True
+            # Header trang đầu: giữ nguyên như template (có logo, tiêu đề, ngày)
+            if section.first_page_header:
+                for t in section.first_page_header.tables:
                     for r in t.rows:
                         for c in r.cells:
                             for p in c.paragraphs:
@@ -90,6 +92,16 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                                     p.text = p.text.replace('{DATE}', current_date)
                                     for run in p.runs:
                                         set_font_times(run, 10)
+            # Header các trang sau: để trống hoàn toàn
+            if section.header:
+                for p in section.header.paragraphs:
+                    p.clear()
+                for t in section.header.tables:
+                    for r in t.rows:
+                        for c in r.cells:
+                            for p in c.paragraphs:
+                                p.clear()
+
 
         # ── Chèn thông tin cuộc họp (Thời gian, Địa điểm, Chủ trì) ───────────
         for p in doc.paragraphs:

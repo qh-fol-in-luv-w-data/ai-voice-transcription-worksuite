@@ -1,0 +1,1577 @@
+[
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 244.45,
+    "end": 247.45,
+    "text": "Em mở cái danh sách yêu cầu từ ban đầu.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 249.45,
+    "end": 252.45,
+    "text": "Cái file yêu cầu đó.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 258.71,
+    "end": 264.87,
+    "text": "Em mở cái bảng scope của anh Tuấn.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 265.87,
+    "end": 276.27,
+    "text": "Anh Tuấn có yêu cầu. Có 5 yêu cầu.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 276.27,
+    "end": 279.27,
+    "text": "Cái này là một cả team chưa?",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 279.27,
+    "end": 286.27,
+    "text": "Chưa, cái này của anh Tuấn thôi. Của cả team nó bị mất tiêu cái file đó rồi anh.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 286.27,
+    "end": 341.27,
+    "text": "Theo như mà 5 yêu cầu của cả team thì có anh Quân với lại anh Gia Minh có yêu cầu của phần chỉnh sửa 2D. Trong đó thì có yêu cầu là cho con iMaster nó sẽ thông minh hơn, nó suy nghĩ sâu hơn. Có thêm cái yêu cầu là cái nút thay vì mình chỉ...",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 341.27,
+    "end": 356.27,
+    "text": "Khoan khoan, em phải nói tổng quan để cho anh Tuấn nắm là cái này mình đang làm cho cái sản phẩm gì, mục tiêu cuối cùng là gì.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 356.27,
+    "end": 361.27,
+    "text": "Có hai anh kia thì yêu cầu là cho nó edit...",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 361.27,
+    "end": 366.27,
+    "text": "Chưa chưa, chưa đi vào chi tiết vội.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 366.27,
+    "end": 381.27,
+    "text": "Yêu cầu của hai anh là cho cái room nó sẽ được, cái edit room nó sẽ tốt hơn. Nói chung là hai anh sẽ tập trung vào phần 2D mà tụi em đang làm của hai cái chức năng đó là tạo sinh hình ảnh và tinh chỉnh hình ảnh.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 381.27,
+    "end": 386.27,
+    "text": "Còn của anh Tuấn là cái tập trung vào phần 3D.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 386.27,
+    "end": 443.88,
+    "text": "Cái phần 3D này tụi em đã nghiên cứu rồi, thì cái 3D hiện tại trên thị trường AI làm tốt nhất thì cho lĩnh vực game. Và các ví dụ như là về mặt video quảng cáo là chính thôi.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 443.88,
+    "end": 453.88,
+    "text": "Nên là ứng dụng trong xây dựng...",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 453.88,
+    "end": 463.88,
+    "text": "Em với Gia Minh lên chỗ Aurora có hợp với lại 2AS về thiết kế.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 463.88,
+    "end": 478.88,
+    "text": "Cái hiện tại đối với phần 3D thì nó chỉ dựng mô hình cho game, còn mô hình xây dựng như mình, ví dụ như cái ứng dụng Unreal hay là...",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 478.88,
+    "end": 533.88,
+    "text": "Bây giờ dựng render nó không dùng...",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 533.88,
+    "end": 548.88,
+    "text": "Mấy cái phần đó nó chạy nó không lên. Nhất là màu với lại cái sắc thái lồi, ánh sáng rồi shape của nó không có chuẩn.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 548.88,
+    "end": 563.88,
+    "text": "Nên là tụi em cũng trong buổi hôm nay sẽ có cái phần mình đi sâu vào trong cái tụi em làm được, còn cái không làm được cũng trả lời luôn.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 563.88,
+    "end": 578.88,
+    "text": "AI hiện tại nó chỉ dùng được ở đó.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 578.88,
+    "end": 633.88,
+    "text": "Rồi, đối với phần 3D là nó dừng lại không đạt được cái mong muốn của mình. Nên tụi em báo cáo lại anh Tuấn.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 633.88,
+    "end": 648.88,
+    "text": "Còn phần gen ảnh 2D thì cũng như hôm trước thì tụi em cũng làm hai...",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 648.88,
+    "end": 663.88,
+    "text": "Tụi em tập trung chủ yếu vào hai chức năng chính đó là tạo sinh hình ảnh và tinh chỉnh hình ảnh.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 663.88,
+    "end": 678.88,
+    "text": "Bên phần tạo sinh hình ảnh thì em có, mỗi cái một cái phiên thiết kế thì nó sẽ có hai chức năng là tạo sinh hoặc là tinh chỉnh hình ảnh.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 678.88,
+    "end": 733.88,
+    "text": "Ở đây em có tổng cái con agent đầu tiên là con iMaster thì nó vẫn sẽ là...",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 733.88,
+    "end": 748.88,
+    "text": "Tạo sinh là nghĩa là sao em?",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 748.88,
+    "end": 763.88,
+    "text": "Là nó sẽ gen ra những bức ảnh từ một cái ảnh hiện trạng mà nó sẽ ra những cái bản thiết kế mới hơn.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 763.88,
+    "end": 778.88,
+    "text": "Nó gọi là thuật ngữ tạo sinh.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 778.88,
+    "end": 833.88,
+    "text": "Nó là generative.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 833.88,
+    "end": 848.88,
+    "text": "Thì có con iMaster thì nó vẫn giữ vai trò của nó là trung tâm điều phối và có nhiệm vụ là tiếp nhận yêu cầu, phân tích yêu cầu và giao các công việc cho các agent con.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 848.88,
+    "end": 863.88,
+    "text": "Nó sẽ có cái bước đó là bước deep thinking để mà em cải tiến hơn khi mà nhận yêu cầu của anh Quân. Thì em đã thêm được cái bước deep thinking để cho nó suy nghĩ sâu hơn, nó sẽ phân tích được yêu cầu rủi ro thông tin cũng như là thêm các tiêu chí để thành công cho một cái bước tạo sinh hình ảnh đó.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 863.88,
+    "end": 878.88,
+    "text": "Các agent con thì em có ba con là kiến trúc, nội thất và cảnh quan thì các agent con này nó sẽ nhận công việc, nhận nhiệm vụ từ con iMaster và nó sẽ thực hiện nhiệm vụ đó. Các con này nó có thể phối hợp trao đổi và phản biện kết quả để nâng cao chất lượng đầu ra.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 878.88,
+    "end": 933.88,
+    "text": "Ngoài ra thì có thêm một số con như là con chuẩn hóa prompt. Em dùng con GPT-4o giúp yêu cầu nó rõ ràng hơn, đầy đủ và dễ xử lý hơn khi mà đưa cái mô tả yêu cầu của mình cho các con AI này nó làm.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 933.88,
+    "end": 948.88,
+    "text": "Con agent để phân tích ảnh đầu vào, phân tích ảnh hiện trạng đầu vào cũng như là phân tích những cái ảnh tham chiếu, những cái ảnh tham khảo để mà nó ra được cái ảnh cuối cùng.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 948.88,
+    "end": 963.88,
+    "text": "Và con agent để mà gen ảnh và chỉnh sửa hình ảnh.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 963.88,
+    "end": 978.88,
+    "text": "Tổng quan thì nó sẽ có input là ảnh đầu vào, một số cái thông số kỹ thuật và mô tả yêu cầu.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 1",
+    "start": 978.88,
+    "end": 1033.88,
+    "text": "Các input này nó sẽ được đưa vào con iMaster, iMaster nó sẽ giao nhiệm vụ cho ba con là kiến trúc, nội thất và cảnh quan. Ba con nó thảo luận nó làm việc với nhau và nó sẽ trả về kết quả cho iMaster. Con iMaster nó sẽ đánh giá kết quả của ba con này, sau đó là nó sẽ nếu như mà kết quả đạt thì nó sẽ cho con gen ảnh nó gen ra ảnh kết quả, còn nếu không đạt thì nó sẽ lại tiếp tục giao nhiệm vụ cho ba con này để ba con nó làm việc.",
+    "speaker_id": "c0_speaker_1"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1033.88,
+    "end": 1048.88,
+    "text": "Quay lại cái đó anh thấy nó sai sai.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1048.88,
+    "end": 1066.97,
+    "text": "Kiến trúc, nội thất và cảnh quan đó là ba bộ môn. Ba bộ môn như vậy thì nó sẽ ra cái...",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1066.97,
+    "end": 1081.97,
+    "text": "Cái tương tác với con iMaster là không đúng.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1081.97,
+    "end": 1141.5,
+    "text": "Có nghĩa là ba cái đó là ba bộ môn, nhưng mà nó lại tương tác với con iMaster để nó ra được một cái image cho một cái outdoor. Em thấy cái đó nó không đúng.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 1141.5,
+    "end": 1159.38,
+    "text": "Bây giờ là ba thằng này là ba thằng chuyên viên. Ba thằng ba bộ môn khác nhau, một thằng nó làm về landscape, một thằng nó làm về ID, còn một thằng nó làm về archi. Nó tổng hợp ra những cái phần nào nhiệm vụ thằng đó nó làm, còn thằng iMaster là thằng duyệt mà.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 1159.38,
+    "end": 1181.46,
+    "text": "Thằng duyệt là thằng chủ trì mà.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1181.46,
+    "end": 1196.46,
+    "text": "Thì nguyên tắc...",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1196.46,
+    "end": 1251.46,
+    "text": "Ba con này thì nó nên nếu mà em phân tích cái này thì nó nằm ở trong một cái bối cảnh khác, trong design tụi anh sẽ không không thể chia ra ba cái nhóm này trong một tấm ảnh, mà nó sẽ chia ra ba nhóm khác.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1251.46,
+    "end": 1266.46,
+    "text": "Về kiến trúc, về ấy hơn, nó chuyên môn hơn chứ không phải là về... Tức là, ví dụ như là kiến trúc thì nó là style, nó có là bối cảnh môi trường. Nó khác với cái chuyện là kiến trúc, cảnh quan và nội thất.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1266.46,
+    "end": 1281.46,
+    "text": "Trong design.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1281.46,
+    "end": 1296.46,
+    "text": "Có nghĩa là phân tích ra cái này trong một tấm ảnh để ra ra ba cái này là nó không đúng với cái con iMaster, con iMaster này nó phải nhìn cái cách khác chuyên môn hơn. Còn ba cái này thì nó lại không phải là design.",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 1296.46,
+    "end": 1351.46,
+    "text": "Bây giờ giải thích làm sao cho anh ấy hiểu được.",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1351.46,
+    "end": 1366.46,
+    "text": "Tại vì nếu như là anh, anh trong đầu anh thiết kế...",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 1366.46,
+    "end": 1381.46,
+    "text": "Bây giờ hỏi, đối với một bức hình dựng mới, thằng nào làm?",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c0_Speaker 3",
+    "start": 1381.46,
+    "end": 1396.46,
+    "text": "Thì con iMaster là mình làm đúng rồi đó. Vô để prompt là con iMaster là đúng, nhưng mà khi mà chia ra ba con...",
+    "speaker_id": "c0_speaker_3"
+  },
+  {
+    "speaker": "c0_Speaker 2",
+    "start": 1396.46,
+    "end": 1412.07,
+    "text": "Thế phần kiến trúc này ai làm?",
+    "speaker_id": "c0_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1415.04,
+    "end": 1425.04,
+    "text": "Cái hình này tại thiết kế bên này, gần như ngày nào cũng lên ChatGPT xong rồi prompt cho nó.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1425.04,
+    "end": 1430.04,
+    "text": "Nó có nhiều cách, cách thứ nhất anh lên ảnh 2D.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1430.04,
+    "end": 1441.04,
+    "text": "Lên ảnh 2D thì anh chưa sẽ tạo một cái ảnh đầu tiên là ảnh không gian ba chiều thì anh sẽ không bắt nó phức tạp.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1441.04,
+    "end": 1448.04,
+    "text": "Mà đưa cho nó một cái cơ bản của bố cục như trong một cái phòng khách.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1448.04,
+    "end": 1452.04,
+    "text": "Vật liệu nhẹ nhàng thôi.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1452.04,
+    "end": 1456.04,
+    "text": "Đơn giản thôi, chủ yếu lấy cái không gian kiến trúc, sau đó anh hoàn thiện kiến trúc lần thứ hai.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1456.04,
+    "end": 1466.04,
+    "text": "Khi anh hoàn thiện thật đẹp một cái view chính thì anh copy, anh dùng prompt copy thuộc tính của nó.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1466.04,
+    "end": 1471.04,
+    "text": "Anh dán vào tất cả các góc khác của phối cảnh đó.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1471.04,
+    "end": 1472.04,
+    "text": "Dán ảnh.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1472.04,
+    "end": 1474.04,
+    "text": "Nó copy thuộc tính và nó dán lại.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1474.04,
+    "end": 1475.04,
+    "text": "Ý là anh dán ảnh.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1475.04,
+    "end": 1476.04,
+    "text": "Dán thuộc tính.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1476.04,
+    "end": 1525.04,
+    "text": "Dán thuộc tính của tấm ảnh đó, ví dụ như sofa mặc dù góc khác nhưng thuộc tính của sofa góc mới, đèn chiếu sáng và sofa vật liệu từ sàn tới trần phải giống.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1525.04,
+    "end": 1527.04,
+    "text": "Nó y chang.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1527.04,
+    "end": 1531.04,
+    "text": "Anh dùng công cụ gì?",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1531.04,
+    "end": 1533.04,
+    "text": "Midjourney.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1533.04,
+    "end": 1539.04,
+    "text": "Em không có background về kiến trúc nên em hỏi mấy câu chung chung.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1539.04,
+    "end": 1542.04,
+    "text": "Cách thứ hai thì anh dùng ảnh chụp.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1542.04,
+    "end": 1544.04,
+    "text": "Ảnh chụp thì nhanh hơn rất nhiều.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1544.04,
+    "end": 1550.04,
+    "text": "Ảnh chụp thì do anh chưa đi sâu về mặt từ ngữ của kiến trúc.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1550.04,
+    "end": 1551.04,
+    "text": "Anh hiểu.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1551.04,
+    "end": 1554.04,
+    "text": "Cái này thay vì nó trả ảnh cho anh thì nó trả code.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1554.04,
+    "end": 1563.04,
+    "text": "Nó trả, anh có vài cách làm, trả ảnh, trả prompt.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1563.04,
+    "end": 1567.04,
+    "text": "Hoặc là trả bảng tính.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1567.04,
+    "end": 1568.04,
+    "text": "Nó ra được nhiều.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1568.04,
+    "end": 1573.04,
+    "text": "Cách nói chung là em hiểu vậy, nó copy thuộc tính giống như copy map.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1573.04,
+    "end": 1574.04,
+    "text": "Copy hoàn toàn.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1574.04,
+    "end": 1619.04,
+    "text": "Xong rồi dán lại trong không gian cả góc chiều khác thì nó dán lại thì nó vẫn có thuộc tính đó.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1619.04,
+    "end": 1637.04,
+    "text": "Các góc camera nó chỉ khác đi, bình thường người ta rất là sợ chuyện ba view của một ngôi nhà nhưng khi render view thứ hai, thứ ba thì nó khác, khác vật liệu, khác ánh sáng, khác màu sắc, nó phá luôn, thay đổi luôn.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1637.04,
+    "end": 1646.04,
+    "text": "Thì nó có cách prompt lấy vật liệu, lấy cái gọi là atmosphere, cái thuộc tính đó và nó không thay đổi.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1646.04,
+    "end": 1648.04,
+    "text": "Nhiều.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1648.04,
+    "end": 1658.04,
+    "text": "Sofa nằm chính diện, bây giờ bên hông sofa thì nó vẫn là sofa đó, vật liệu đó, chiếu sáng trần, tường và bức tranh vẫn như thế.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1658.04,
+    "end": 1663.04,
+    "text": "Nó có một cái kiến thức nữa là kiến thức gần giống.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1663.04,
+    "end": 1673.04,
+    "text": "Có nghĩa là đừng tuyệt đối hóa thì nó có thể đạt 80 - 70%, sau đó mình chỉnh sửa 30% cục bộ.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1673.04,
+    "end": 1716.04,
+    "text": "Cũng được, nói chung là để có được một bộ sáu bảy tấm hình trong một phối cảnh kiến trúc thì nó khó, phải đi vô sâu.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 1",
+    "start": 1716.04,
+    "end": 1727.04,
+    "text": "Anh dùng phần mềm xong anh cắt 2D.",
+    "speaker_id": "c1_speaker_1"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1727.04,
+    "end": 1729.04,
+    "text": "Cắt.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1729.04,
+    "end": 1730.04,
+    "text": "Xong rồi render luôn.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1730.04,
+    "end": 1737.04,
+    "text": "Đúng rồi, cắt screenshot của cái hình 2D đó xong đẩy lên.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1737.04,
+    "end": 1738.04,
+    "text": "Nó trả lại hình.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1738.04,
+    "end": 1740.04,
+    "text": "Trả lại hình.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1740.04,
+    "end": 1743.04,
+    "text": "Xong rồi anh gắn vào trong thiết kế của mình.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_Speaker 2",
+    "start": 1743.04,
+    "end": 1745.04,
+    "text": "Cả PowerPoint.",
+    "speaker_id": "c1_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 1745.04,
+    "end": 1748.04,
+    "text": "Tôi nghĩ là làm ra một con AI có thể tạo ra ảnh.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1748.04,
+    "end": 1754.04,
+    "text": "Thiết kế concept cho dự án nào?",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 1754.04,
+    "end": 1760.04,
+    "text": "Dựa trên một cái gọi là cái ảnh hiện trạng, nó đưa lên một cái concept.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 1760.04,
+    "end": 1764.04,
+    "text": "Đưa lên concept.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1764.04,
+    "end": 1774.04,
+    "text": "Cái này về flow thì anh không nói, nhưng anh em mình cần một bộ hồ sơ chuẩn của một cái thiết kế.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1774.04,
+    "end": 1787.04,
+    "text": "Step by step mình phải đạt được mục tiêu như một cái hồ sơ design của người ta.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1787.04,
+    "end": 1802.04,
+    "text": "Đây là bộ hồ sơ thiết kế nội thất hoặc là kiến trúc nào đó mà nó chuẩn. Anh đưa về xong rồi em dựa trên đó để em tạo ra được một cái skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1802.04,
+    "end": 1808.04,
+    "text": "Thì anh nghĩ nó hay hơn vì cái này mình đang đi thấp quá.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1808.04,
+    "end": 1818.04,
+    "text": "Mình đang đi thấp quá thì một cái bản vẽ nó không đủ để xử lý một cái documentation cả trăm trang như vậy.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1818.04,
+    "end": 1827.04,
+    "text": "Anh đưa cho một cái bộ hồ sơ của Rever hay là của Keppel Land. Anh sẽ nhìn cái bộ hồ sơ gọi là sale kit.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1827.04,
+    "end": 1836.04,
+    "text": "Rất là đã. Thế thì bây giờ mình dùng cái đó, mình tự skill nó ra xem sao. Mình đi đi ngược lại.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1836.04,
+    "end": 1841.04,
+    "text": "Để nó thành một bộ skill xong rồi mình chụp cái skill đó lại để chạy.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 1841.04,
+    "end": 1845.04,
+    "text": "Cái đó là một cái thiết kế hồi nãy chuẩn mới ra.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 1845.04,
+    "end": 1847.04,
+    "text": "Cái mà flagship store.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1847.04,
+    "end": 1854.04,
+    "text": "Flagship store là một cái dự án của Tiger. Bên anh đang phải outsource ra bên ngoài để thuê design.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 1854.04,
+    "end": 1863.04,
+    "text": "Nhưng design không mình phải có ý tưởng của mình để đưa cho sếp duyệt trước. Nếu mà mình tự làm cái này mình ra được đúng ý anh thì thằng kia nó chỉ là nhảy vào một cái giai đoạn khác thôi. Vì thường là một bộ thiết kế của họ...",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 1863.04,
+    "end": 1892.04,
+    "text": "Thứ nhất là concept, thứ hai là thiết kế cơ sở, thứ ba là phát triển thiết kế, và cái thứ tư là bản thiết kế thi công. Nếu mà mình dùng phía mình có thể ra được cái concept thì chi phí bỏ ra nó chỉ là còn ba bước còn lại, rất là thấp. Nó sẽ đỡ hơn cái chi phí concept vì thường là một cái bộ mà bốn bước thiết kế như vậy, concept là nó tính chi phí cao nhất.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 1892.04,
+    "end": 1900.04,
+    "text": "Thành ra nếu mà mình làm như vậy mình tốn có 5.000 nhưng mà lại tiết kiệm được cho tập đoàn mấy chục triệu.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1900.04,
+    "end": 1911.04,
+    "text": "Anh sẽ download một vài file PDF của nước ngoài về cái thiết kế gọi là futuristic. Anh training nó trở thành một cái skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1911.04,
+    "end": 1917.04,
+    "text": "Rồi từ cái skill đó anh chạy.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 1917.04,
+    "end": 1921.04,
+    "text": "Bây giờ tập trung vô để mà làm cái thực nghiệm này chạy cái flagship store thì như thế nào?",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1921.04,
+    "end": 1925.04,
+    "text": "Không được, tại vì bạn hình dung là nó phải có skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1925.04,
+    "end": 1929.04,
+    "text": "Training cái tài liệu đó mình phải có.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 1929.04,
+    "end": 1932.04,
+    "text": "Thì anh cứ cho em cái bộ tài liệu đó.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1932.04,
+    "end": 1939.04,
+    "text": "Để cho nó học. Nó phải học đã, chứ còn bây giờ mình đùng một cái bảo nó tạo ra một cái store xong bảo nó chạy chắc chắn là nó không có skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 1939.04,
+    "end": 1942.04,
+    "text": "Cái prompt ở đây nó cũng gọi là cái prompt khá đơn giản.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1942.04,
+    "end": 1947.04,
+    "text": "Nó cần phải chi tiết ra.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1947.04,
+    "end": 1964.04,
+    "text": "Thí dụ như em hình dung trong một không gian nội thất của tụi anh nhé, thì nó có cái kiến trúc, cái chiếu sáng, cái texture hoàn thiện trên một cái bề mặt vật liệu, rồi cái tạo khối.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1964.04,
+    "end": 1970.04,
+    "text": "Design và form. Thực ra là mình phải tạo ra nhiều cái, càng chi tiết, càng nhiều skill như vậy thì cái hồ sơ sau cùng của mình...",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1970.04,
+    "end": 1976.04,
+    "text": "Dựa trên cái layout thì nó mới chạy ra được cái chuẩn.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1976.04,
+    "end": 1987.04,
+    "text": "Chứ còn nếu như bây giờ mình đang còn chung chung trên một cái ảnh hoặc là xử lý tường, trần, sàn với lại là một vài cái bàn, một vài cái ghế thì nó không thể nào chạy cho một cái dự án được.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1987.04,
+    "end": 1994.04,
+    "text": "Ví dụ như là chiếu sáng đi, em sẽ có ba skill: direct light, focus light...",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 1994.04,
+    "end": 2002.04,
+    "text": "Spotlight và ánh sáng viền, ánh sáng hắt lên các cái diện.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2002.04,
+    "end": 2009.04,
+    "text": "Thế thì từng cái đó phải phân tích ra thành các skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2009.04,
+    "end": 2019.04,
+    "text": "Một bộ môn như vậy là một bộ skill. Có nghĩa là mình sẽ chia kiến trúc chạy riêng một cái hệ kiến trúc riêng, sau đó mình quăng layer chiếu sáng lên mix cả hai hồ sơ chiếu sáng.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2019.04,
+    "end": 2025.04,
+    "text": "Cùng một cái view nó chạy phải năm sáu layer như vậy, rồi chạy qua một layer nữa là layer vật liệu hoàn thiện furniture.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2025.04,
+    "end": 2030.04,
+    "text": "Thì anh hy vọng như vậy thì em mới có thể xử lý được gọi là triệt để.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2030.04,
+    "end": 2037.04,
+    "text": "Đã hiểu ý anh chưa? Nó rất là chi tiết như vậy, chứ còn nếu không là mình đang chung chung thế này mình tát qua một cái hình lên.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2037.04,
+    "end": 2046.04,
+    "text": "Mục tiêu của em cũng muốn là dùng AI để nó tạo ra những cái sản phẩm nó mang giá trị cao hơn thay vì là nó chỉ đơn giản là generate như thế này.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2046.04,
+    "end": 2052.04,
+    "text": "Đó là cấp độ thiết kế. Kinh nghiệm của anh rất quan trọng, kinh nghiệm của anh sẽ biết được là những cái nào sẽ ứng dụng AI nó phù hợp hơn.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2052.04,
+    "end": 2057.04,
+    "text": "Và tụi em sẽ biết được là cái hạn chế của AI đang ở chỗ nào.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2057.04,
+    "end": 2063.04,
+    "text": "Ví dụ như một bên nào đó mình phải làm một sản phẩm thì bên em sẽ cố gắng làm một sản phẩm tương tự bằng AI.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2063.04,
+    "end": 2069.04,
+    "text": "Nhưng hiện tại trên thị trường nó chưa có cái nào ngon cả, nên mình sẽ tìm...",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2069.04,
+    "end": 2080.04,
+    "text": "Mình nhìn theo cái hướng đó, công cụ của mình là có đủ nhưng mà cái cách mình dựng. Tại vì anh cũng đang nghiên cứu mà, thì anh thấy là cái cách dựng của mình, dựng kiến trúc, nội thất, cảnh quan thì góc nhìn nó chưa đúng.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2080.04,
+    "end": 2100.04,
+    "text": "Mà nó phải có góc nhìn của trong bộ môn. Thí dụ trong một không gian nội thất có ba bộ môn: kiến trúc, furniture (gọi là thiết kế tạo khối), và vật liệu, chiếu sáng. Trong chiếu sáng có vài bộ môn, trong vật liệu có vài bộ môn.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2100.04,
+    "end": 2105.04,
+    "text": "Vật liệu hoàn thiện có vài bộ môn, xong rồi lại trong kiến trúc của nội thất cũng có vài bộ môn.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2105.04,
+    "end": 2117.04,
+    "text": "Em phải hiểu là cửa nó khác với tường, trần, sàn, joinery. Joinery là cái kết cấu tường gỗ lắp ghép như thế nào chẳng hạn, tất cả những cái đó đều là một skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2117.04,
+    "end": 2119.04,
+    "text": "Biến nó thành skill, là prompt thôi.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2119.04,
+    "end": 2130.04,
+    "text": "Thì tất cả những cái, anh nghĩ là nguyên lý nó càng chi tiết cái skill nó ra thì em mới đủ năng lực để chạy cho một cái...",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2130.04,
+    "end": 2132.04,
+    "text": "Em vẫn chưa hiểu cái skill là cái gì.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2132.04,
+    "end": 2135.04,
+    "text": "Cái prompt đó, skill của con AI agent.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2135.04,
+    "end": 2139.04,
+    "text": "Một con agent là một skill riêng.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2139.04,
+    "end": 2141.04,
+    "text": "Nếu mà dịch ra tiếng Việt nó là cái gì?",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2141.04,
+    "end": 2146.04,
+    "text": "Nó là skill đó, là kỹ năng của cái con đó chỉ xử lý một việc đó.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2146.04,
+    "end": 2150.04,
+    "text": "Ví dụ như là từ một văn bản nó có thể xuất PDF.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2150.04,
+    "end": 2157.04,
+    "text": "Xuất file Word, xuất file PowerPoint, đó là các skill.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2157.04,
+    "end": 2164.04,
+    "text": "Anh nói viết nhưng mà quan trọng là có nghĩa ngoài chữ skill.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2164.04,
+    "end": 2172.04,
+    "text": "Có nghĩa là càng nhiều skill trong một cái bản thì cái bản nó càng khả năng ngon càng cao.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2172.04,
+    "end": 2183.04,
+    "text": "Vì anh đã thấy rằng là anh em trong ngành họ một cái tấm ảnh render về kiến trúc của nó khoảng 20 skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2183.04,
+    "end": 2193.04,
+    "text": "Chụp thả chụp thả chụp thả. Thả chụp thả và nó giống như là 20 cái prompt trong một cái lần chạy.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2193.04,
+    "end": 2212.04,
+    "text": "Là như em hiểu ngoài prompt ra thì là các skill nó nằm bên dưới những cái tag mình thả.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2212.04,
+    "end": 2217.04,
+    "text": "Nếu mà anh tổng hợp cho tụi em cái skill đó thì có thể là làm được.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2217.04,
+    "end": 2224.04,
+    "text": "Thì đó, bởi vậy anh mới nói là muốn làm dự án.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2224.04,
+    "end": 2237.04,
+    "text": "Nhưng mà ở góc độ của anh sẽ giúp tụi em là anh sẽ biết được cái đó có hợp lý hay không.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2237.04,
+    "end": 2240.04,
+    "text": "Bây giờ anh cover cho em một cái chuyện chiếu sáng đi.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2240.04,
+    "end": 2249.04,
+    "text": "Chiếu sáng nó sẽ phân loại là ánh sáng tự nhiên, ánh sáng của công sở, ánh sáng của chuyên môn, và ánh sáng của nhà ở, nhà hàng.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2249.04,
+    "end": 2255.04,
+    "text": "Từ 3.000K, 4.000K cho đến ánh sáng trắng 5.000K, 6.000K.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2255.04,
+    "end": 2262.04,
+    "text": "Trường học, bệnh viện, siêu thị là 5.000K, 6.000K. Không gian nhà ở, không gian trưng bày, không gian thời trang, cái gì liên quan đến sắc đẹp thì là 4.000K.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2262.04,
+    "end": 2279.04,
+    "text": "Cái gì mà liên quan đến nhà hàng ăn uống hoặc là trưng bày sản phẩm về ẩm thực thì là 3.000K.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2279.04,
+    "end": 2283.04,
+    "text": "Kiểu như vậy, skill là nó phải rõ ràng như vậy.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2283.04,
+    "end": 2306.04,
+    "text": "Thế khi mà mình làm việc, mình sẽ chụp cái skill đó. Ví dụ như đây là tôi render một cái không gian trưng bày sản phẩm futuristic bao gồm drone, UAV rồi các cái ấy thì là mình biết là chắc chắn là ánh sáng đây là ánh sáng của trưng bày, display, có thể là từ 5.000K hoặc là 4.000K, 5.000K, hoặc là 5.000K, 6.000K để nó có cảm giác là lên tính chất của vật liệu.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2306.04,
+    "end": 2312.04,
+    "text": "Rồi nhưng mà kèm theo đó nó vẫn có phải có cái độ ấm hay là có một cái spotlight, nếu có spotlight đó thì mình sẽ lấy cái skill của spotlight mình thả vào, gọi là plugin.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2312.04,
+    "end": 2329.04,
+    "text": "Khi rất nhiều skill đóng gói như vậy thì gọi là plugin chiếu sáng.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2329.04,
+    "end": 2341.04,
+    "text": "Và trong plugin chiếu sáng có rất nhiều skill của chiếu sáng.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2341.04,
+    "end": 2351.04,
+    "text": "Giống như tụi anh làm 3ds Max hay là SketchUp tụi anh cũng làm như vậy.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2351.04,
+    "end": 2358.04,
+    "text": "Thì phải chi tiết như thế mới có khả năng ứng dụng cho AI cho thiết kế của xây dựng.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2358.04,
+    "end": 2362.04,
+    "text": "Nó rất là thực tế.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2362.04,
+    "end": 2370.04,
+    "text": "Nhưng về cơ bản là nó sẽ làm được chứ không phải không được, nhưng mình phải từ từ, nó phải xây lên chi tiết.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2370.04,
+    "end": 2375.04,
+    "text": "Tụi em muốn làm ngon cho ngành xây dựng.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2375.04,
+    "end": 2378.04,
+    "text": "Không có thời gian đâu.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2378.04,
+    "end": 2394.04,
+    "text": "Thật đó, nếu mà làm cái đó thì trước mắt anh chỉ hỗ trợ tụi em làm một cái này là nhanh nhất. Tụi anh là những cái thằng tiện tay làm rất là nhanh, cái gì mà quen hết á. Thí dụ đó là cách để mà tạo cho một skill cho Claude hoặc là Gemini.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2394.04,
+    "end": 2398.04,
+    "text": "Thì mình sẽ có cái tạo skill ra, tại vì anh nhớ là nó có ba bước lận.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2398.04,
+    "end": 2402.04,
+    "text": "Tụi em cũng biết được một số cái skill riêng.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2402.04,
+    "end": 2422.04,
+    "text": "Thì tụi anh sẽ đóng gói cái đó thành một số bản chuyên môn gì đó chuyên môn sâu thì sẽ làm skill về tính toán về điện, skill tính toán về nước, skill tính toán về kết cấu. Đi từng chuyên môn sâu như vậy thì người ta sẽ làm.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2422.04,
+    "end": 2428.04,
+    "text": "Khi mà dùng cái đó để mà chạy thì nó nhanh.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2428.04,
+    "end": 2429.04,
+    "text": "Nhanh dữ chưa?",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2429.04,
+    "end": 2439.04,
+    "text": "Nhanh chứ, vì bây giờ nếu đó là có một số nhân vật là bắt đầu tự chạy tự tạo được cái năng lực tính toán rồi.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2439.04,
+    "end": 2444.04,
+    "text": "Năng lực tính toán là sao?",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2444.04,
+    "end": 2448.04,
+    "text": "Thì tính toán điện, tính toán thuyết minh.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2448.04,
+    "end": 2451.04,
+    "text": "Thuyết minh tính toán dựa trên tiêu chuẩn đàng hoàng chứ.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2451.04,
+    "end": 2460.04,
+    "text": "AI làm được mấy cái đó hả? Rồi có kiểm tra lại chứ không thôi thẩm tra bây giờ thẩm định bỏ hết sao? AI làm rồi AI thẩm định?",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2460.04,
+    "end": 2465.04,
+    "text": "Bởi vậy mới gọi là skill đó, thẩm định thì kể cả pháp lý cũng là một dạng thẩm định đúng không? Thì bây giờ là biến pháp lý thành skill.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2465.04,
+    "end": 2471.04,
+    "text": "Cái này mới làm đúng không? Nó mới ra.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2471.04,
+    "end": 2472.04,
+    "text": "Cái này là modern sang elegant.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2472.04,
+    "end": 2475.04,
+    "text": "Cái đầu đẹp.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2475.04,
+    "end": 2480.04,
+    "text": "Cái thứ hai đẹp.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2480.04,
+    "end": 2485.04,
+    "text": "Modern thì nó ấm hơn à? Modern thì màu sắc nó ấm hơn.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2485.04,
+    "end": 2486.04,
+    "text": "Em chưa thích lắm.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2486.04,
+    "end": 2488.04,
+    "text": "Chưa thích hả?",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2488.04,
+    "end": 2492.04,
+    "text": "Sao chưa thích? Ví dụ như là nhìn phải có lý do.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2492.04,
+    "end": 2499.04,
+    "text": "Thằng kia nó đi xuyên tường luôn.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2499.04,
+    "end": 2504.04,
+    "text": "Hơi ghê.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2504.04,
+    "end": 2509.04,
+    "text": "Mở cái hình bên này anh xem thử, cái hình đầu tiên.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2509.04,
+    "end": 2512.04,
+    "text": "Nếu mà đi theo cái...",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2512.04,
+    "end": 2515.04,
+    "text": "Xử lý chi tiết tốt hơn.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2515.04,
+    "end": 2519.04,
+    "text": "Tường, trần, sàn. Xử lý chi tiết tốt.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2519.04,
+    "end": 2525.04,
+    "text": "Có shadow line mà tự nhiên có cái gì ở giữa chạy ghê.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2525.04,
+    "end": 2528.04,
+    "text": "Đèn.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2528.04,
+    "end": 2536.04,
+    "text": "Làm nhà này mà nguyên tắc làm nhà phong thủy đâu có ai có một cái đèn mà chẻ đôi cái trần ra như vậy.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 3",
+    "start": 2536.04,
+    "end": 2543.04,
+    "text": "Ví dụ nó có thể ra nhưng nó không có chạy kiểu đó, ví dụ nó chấm phá những cái đèn này đèn kia kìa.",
+    "speaker_id": "c1_resume_speaker_3"
+  },
+  {
+    "speaker": "c1_resume_Speaker 2",
+    "start": 2543.04,
+    "end": 2550.04,
+    "text": "Để em xóa.",
+    "speaker_id": "c1_resume_speaker_2"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2550.04,
+    "end": 2562.04,
+    "text": "Em xóa em biến thành gõ giúp anh biến thành các đoạn hộp đèn ngắn.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c1_resume_Speaker 1",
+    "start": 2562.04,
+    "end": 2573.04,
+    "text": "Các đoạn hộp đèn ngắn.",
+    "speaker_id": "c1_resume_speaker_1"
+  },
+  {
+    "speaker": "c2_Speaker 1",
+    "start": 2583.51,
+    "end": 2596.51,
+    "text": "Nổi bật nhất là em vẽ cái vùng giống như Photoshop vậy đó.",
+    "speaker_id": "c2_speaker_1"
+  },
+  {
+    "speaker": "c2_Speaker 2",
+    "start": 2596.51,
+    "end": 2611.51,
+    "text": "Anh Tuấn có tham khảo mấy cái bộ AI khác họ làm những cái dạng concept này chưa? Em nghe nói là họ có đưa bộ môn người trong cái skill của AI rồi.",
+    "speaker_id": "c2_speaker_2"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2611.51,
+    "end": 2640.51,
+    "text": "Để mà xử lý thỏa đáng về bản chất là cách xử lý là mình phải chia nhỏ ra nhiều skill. Bởi vì khi mà em đặt skill nó giống như kiểu trong Photoshop em thấy, nó có nhiều cái nhóm trong một cái chỉnh thể thì em chụp thả vào đó chứ không quan tâm đó là gì hết, đúng cái tên họ đúng cái nhiệm vụ đó thì nó sẽ xử lý. Đó là skill là nó như vậy.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 2",
+    "start": 2640.51,
+    "end": 2641.51,
+    "text": "Em hiểu ý anh rồi.",
+    "speaker_id": "c2_speaker_2"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2641.51,
+    "end": 2697.52,
+    "text": "Thì mình sẽ không cần phải làm prompt mà mình sẽ dùng những cái prompt nhỏ nhỏ. Đó, ý là như vậy đó. Thì thứ nhất là skill, thứ hai đó là những cái bộ plugin. Những bộ plugin AI, có nghĩa là ngoài plugin về chiếu sáng, có plugin về kiến trúc, plugin về furniture, xử lý hoặc là texture, xử lý về vật liệu, đó là cái bộ plugin.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2697.52,
+    "end": 2735.52,
+    "text": "Một lần xử lý một cái bộ hồ sơ chỉ xử lý được một cái nhóm công việc chứ không phải AI nó mình không có một con master để xử lý chung thì nó vẫn phải có skill thì nó sẽ nhanh hơn, đỡ phải liên quan suy nghĩ prompt như thế nào. Bởi vì từng cái prompt nhỏ nó đã nằm trong skill.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 2",
+    "start": 2735.52,
+    "end": 2798.52,
+    "text": "Dạ rồi. Em sẽ trao đổi với anh Tuấn thêm để mình làm cái mà sâu hơn. Cái này mình không biết là mình có áp dụng được cái này cho...",
+    "speaker_id": "c2_speaker_2"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2798.52,
+    "end": 2811.52,
+    "text": "Về cơ bản bạn làm như vậy anh thấy là tốt rồi đó. Nhưng để mà ra một sản phẩm giống như kiểu flagship store ở dưới tầng trệt là một câu chuyện khác hoàn toàn.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 2",
+    "start": 2811.52,
+    "end": 2812.52,
+    "text": "Dạ.",
+    "speaker_id": "c2_speaker_2"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2812.52,
+    "end": 2835.52,
+    "text": "Bởi vì thứ nhất là nếu mà tổng thể kiến trúc là mình không có một cái người có con mắt tổng thể để mà mình đánh giá nó đạt được cái tiêu chuẩn chưa. Đòi hỏi mình sẽ làm một cái việc khác là mình biến nhiều cái tiêu chuẩn đó trở thành một cái những cái tiêu chuẩn nhỏ nhỏ. Mình phải kiểm soát được từ thiết kế vật liệu, tổng thể chung rồi mặt bằng bố trí cứ làm layout.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2835.52,
+    "end": 2881.52,
+    "text": "Em hiểu không? Mình sẽ đánh giá nhỏ từng phần. Đó, thì bây giờ cái thiết kế layout, mặt bằng layout đó thì mình sẽ thay đổi, mình sẽ chỉnh chỉnh hiệu ứng vật liệu. Nhiều vật liệu nằm cạnh nhau thì nó sẽ tạo ra những cái kiểu kiểu như vậy thì mình sẽ chia nhỏ ra để mình làm.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 2",
+    "start": 2881.52,
+    "end": 2898.52,
+    "text": "Dạ.",
+    "speaker_id": "c2_speaker_2"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2898.52,
+    "end": 2915.52,
+    "text": "Thì là em bắt đầu mới có một cái sườn nhưng mà bắt đầu đi vô đến cái việc gọi là chuyên môn hóa. Thế thì bây giờ em sẽ phải làm ra là khi mà em bàn giao cái sườn đó, cái khung xe thôi, mà cái mình đang nói đến là cái mà những hộp plugin.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2915.52,
+    "end": 2919.52,
+    "text": "Cái đó có thể mua được.",
+    "speaker_id": "c2_speaker_3"
+  },
+  {
+    "speaker": "c2_Speaker 2",
+    "start": 2919.52,
+    "end": 2920.52,
+    "text": "Cái đó mình làm xong rồi có đem đi bán được không?",
+    "speaker_id": "c2_speaker_2"
+  },
+  {
+    "speaker": "c2_Speaker 3",
+    "start": 2920.52,
+    "end": 2926.29,
+    "text": "Được. Ở thời điểm hiện tại là anh ở trên X, trên trang của Twitter của Elon Musk thì là những người Ấn Độ, những người Pakistan, những cái anh cũng học cái đó mà họ bán những cái plugin. Nhé. Họ bán một folder plugin về những plugin thì anh thấy trong đó tất nhiên là họ bằng tiếng của đất nước họ nhưng về cơ bản là mình dịch ra mình cũng hiểu được là...",
+    "speaker_id": "c2_speaker_3"
+  }
+]
