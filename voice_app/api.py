@@ -211,16 +211,24 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
 
             for spk, segs in unique_speakers.items():
                 # Ghép nhiều đoạn của speaker để embedding đại diện hơn 1 đoạn đơn lẻ
-                concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.0)
+                # Tăng min_seg_sec lên 1.5s để chỉ lấy những đoạn đủ an toàn
+                concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.5)
                 if concat_wav is None:
                     segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
                     sample = segs_sorted[0]
-                    start = sample["start"]
-                    end = min(sample["end"], start + 5.0)
-                    if end - start < 0.5:
-                        completed_spk += 1
-                        continue
-                    emb = get_segment_embedding(wav, start, end)
+                    
+                    # Gọt mép (shrink) nhẹ 0.1s nếu đoạn đủ dài, để tránh nhiễu
+                    shrink = 0.1 if (sample["end"] - sample["start"] > 0.5) else 0.0
+                    start = sample["start"] + shrink
+                    end = sample["end"] - shrink
+                    
+                    if end <= start:
+                        # Rút cuộc quá ngắn thì đành lấy nguyên gốc
+                        start = sample["start"]
+                        end = sample["end"]
+                        
+                    # Lấy embedding, tối đa 5 giây
+                    emb = get_segment_embedding(wav, start, min(end, start + 5.0))
                 else:
                     from voice_app.audio_utils import get_duration
                     dur = get_duration(concat_wav)
@@ -290,21 +298,66 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
     
             # Gộp các "Người lạ" có giọng giống nhau giữa các chunk (cosine sim >= 0.5)
             # Vì nhiều chunk trả ra nhiều speaker độc lập, nên phải so khớp để gán chung
+            # Trả lại threshold 0.5 (mức chuẩn) và linkage 'average'
+            # Vì âm thanh đã được gọt mép sạch sẽ nên 0.5 là đủ an toàn, không cần siết quá gắt làm xé lẻ người lạ
             MERGE_THRESHOLD = 0.5
-            stranger_groups = {}
             strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
     
-            for spk in strangers:
-                merged = False
-                for rep in list(stranger_groups.keys()):
-                    if rep in spk_embeddings and spk in spk_embeddings:
-                        sim = 1 - cos_dist(spk_embeddings[spk], spk_embeddings[rep])
-                        if sim >= MERGE_THRESHOLD:
-                            stranger_groups[spk] = stranger_groups[rep]
-                            merged = True
-                            break
-                if not merged:
-                    stranger_groups[spk] = spk
+            groups = []
+            if strangers:
+                valid_strangers = [spk for spk in strangers if spk in spk_embeddings]
+                missing_strangers = [spk for spk in strangers if spk not in spk_embeddings]
+                
+                import re
+                import numpy as np
+                def get_chunk_idx(s):
+                    m = re.match(r'c(\d+)_', s)
+                    return int(m.group(1)) if m else 0
+                
+                # Sắp xếp speaker theo chunk: ưu tiên xử lý c0 trước, rồi c1, c2...
+                valid_strangers.sort(key=lambda x: (get_chunk_idx(x), x))
+                
+                # Thuật toán Gom Nhóm Ràng Buộc (Constrained Clustering):
+                # 1. Không bao giờ gộp 2 speaker trong CÙNG 1 chunk.
+                # 2. Người lạ ở chunk sau sẽ tìm group ở chunk trước có độ giống cao nhất.
+                groups = []
+                for spk in valid_strangers:
+                    chunk_idx = get_chunk_idx(spk)
+                    emb = spk_embeddings[spk]
+                    
+                    best_sim = -1
+                    best_group_idx = -1
+                    
+                    for i, grp in enumerate(groups):
+                        # RÀNG BUỘC CỐT LÕI: Group này đã có 1 người ở chunk hiện tại thì CẤM gộp thêm!
+                        if any(get_chunk_idx(member) == chunk_idx for member in grp):
+                            continue
+                            
+                        # Tính similarity với vector trung bình của group
+                        grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
+                        norm = np.linalg.norm(grp_emb)
+                        if norm > 0: grp_emb /= norm
+                        
+                        sim = np.dot(emb, grp_emb)
+                        if sim > best_sim:
+                            best_sim = sim
+                            best_group_idx = i
+                            
+                    if best_sim >= MERGE_THRESHOLD:
+                        groups[best_group_idx].append(spk)
+                    else:
+                        groups.append([spk])
+                    
+                # Những người không có âm thanh (không có embedding) thì mỗi người tự thành 1 nhóm riêng
+                for spk in missing_strangers:
+                    groups.append([spk])
+                    
+            # Tái tạo lại dictionary stranger_groups như cũ để không làm bể code phía dưới
+            stranger_groups = {}
+            for group in groups:
+                rep = group[0]
+                for spk in group:
+                    stranger_groups[spk] = rep
     
             # Đánh số "Người lạ N" theo thứ tự xuất hiện
             group_label = {}  # group_id -> "Người lạ N"
@@ -345,15 +398,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 # Loại bỏ câu chỉ có dấu câu / ký tự đặc biệt
                 if re.fullmatch(r'[\W\d]+', t):
                     return False
-                words = t.split()
-                # Loại bỏ câu <= 2 từ đơn lẻ không có nghĩa
-                if len(words) <= 2:
-                    # Cho phép nếu là tên riêng hoặc câu trả lời ngắn có nghĩa
-                    meaningful_short = {'vâng', 'dạ', 'có', 'không', 'rồi', 'ừ', 'okay', 'ok',
-                                        'được', 'đúng', 'đồng ý', 'yes', 'no', 'sure'}
-                    joined = ' '.join(words).lower().strip('.,!?')
-                    if joined not in meaningful_short:
-                        return False
+                # Bỏ cái check <= 2 từ đi vì nó hay xóa nhầm câu hợp lệ
                 return True
     
             # ── GỘP SEGMENT LIỀN KỀ CÙNG SPEAKER ─────────────────────────────────
@@ -854,8 +899,12 @@ def update_meeting_results():
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
             if meeting_owner != frappe.session.user:
                 return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+            # Gộp lại nội dung text
+            final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
+            
             frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
                                 json.dumps(results, ensure_ascii=False))
+            frappe.db.set_value("Voice Meeting", meeting_name, "transcript", final_text)
             frappe.db.commit()
         return {"status": "success"}
     except Exception as e:

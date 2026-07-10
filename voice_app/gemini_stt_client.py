@@ -42,22 +42,48 @@ def _get_api_key():
     return get_gemini_api_key()
 
 
+def _get_auth_headers_and_query(api_key):
+    """Xử lý chứng thực cho cả API Key thường và OAuth Token (Google Cloud)."""
+    import frappe
+    try:
+        project_id = frappe.conf.get("gemini_project_id")
+    except Exception:
+        project_id = "562803079059"
+    if not project_id:
+        project_id = "562803079059"
+
+    if api_key.startswith("ya29."):
+        # Đây mới thực sự là OAuth Token
+        return "", {
+            "Authorization": f"Bearer {api_key}",
+            "x-goog-user-project": project_id
+        }
+    else:
+        # API Key bình thường (bao gồm cả chuẩn cũ AIza... và chuẩn mới AQ...)
+        return f"?key={api_key}", {
+            "x-goog-user-project": project_id
+        }
+
 def _upload_file_data(wav_path, api_key):
     """Upload file lên Gemini, trả về (file_uri, file_name) ngay khi upload xong (chưa chờ ACTIVE)."""
     session = _get_session()
     file_size = os.path.getsize(wav_path)
+    
+    query, auth_headers = _get_auth_headers_and_query(api_key)
+    
     headers = {
         "X-Goog-Upload-Protocol": "resumable",
         "X-Goog-Upload-Command": "start",
         "X-Goog-Upload-Header-Content-Length": str(file_size),
         "X-Goog-Upload-Header-Content-Type": "audio/wav",
         "Content-Type": "application/json",
+        **auth_headers
     }
 
     for attempt in range(_RETRY_MAX):
         try:
             init = session.post(
-                f"{UPLOAD_URL}?key={api_key}",
+                f"{UPLOAD_URL}{query}",
                 headers=headers,
                 json={"file": {"display_name": os.path.basename(wav_path)}},
                 timeout=120,
@@ -119,9 +145,11 @@ def _upload_file_data(wav_path, api_key):
 def _wait_file_active(file_name, file_uri, api_key):
     """Poll cho đến khi file ACTIVE rồi mới trả về."""
     session = _get_session()
+    query, auth_headers = _get_auth_headers_and_query(api_key)
     for _ in range(30):
         sr = session.get(
-            f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
+            f"{FILE_STATUS_URL.format(name=file_name)}{query}",
+            headers=auth_headers,
             timeout=30,
         )
         if sr.status_code in [403, 429, 500, 502, 503, 504]:
@@ -150,8 +178,10 @@ def _delete_file(file_name, api_key):
     """Xóa file khỏi Gemini File API sau khi dùng xong."""
     try:
         session = _get_session()
+        query, auth_headers = _get_auth_headers_and_query(api_key)
         resp = session.delete(
-            f"{FILE_STATUS_URL.format(name=file_name)}?key={api_key}",
+            f"{FILE_STATUS_URL.format(name=file_name)}{query}",
+            headers=auth_headers,
             timeout=30,
         )
         if resp.status_code in (200, 204):
@@ -190,12 +220,14 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
     thoughts_tokens = 0
     cached_tokens   = 0
     finish_reason   = None
-    url = f"{STREAM_URL.format(model=model_name)}?key={api_key}&alt=sse"
+    query, auth_headers = _get_auth_headers_and_query(api_key)
+    url = f"{STREAM_URL.format(model=model_name)}{query}"
+    url += "&alt=sse" if "?" in url else "?alt=sse"
 
     for attempt in range(_RETRY_MAX):
         print(f"[Gemini STT] Streaming attempt {attempt + 1}/{_RETRY_MAX} (model={model_name})...")
         try:
-            resp = session.post(url, json=payload, timeout=1800, stream=True)
+            resp = session.post(url, json=payload, headers=auth_headers, timeout=1800, stream=True)
 
             if resp.status_code in [403, 429, 500, 502, 503, 504]:
                 if attempt < _RETRY_MAX - 1:
@@ -307,15 +339,13 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
 - Transcribe TOÀN BỘ nội dung từ đầu đến cuối file — KHÔNG được bỏ sót bất kỳ lượt nói nào.
 - LƯU Ý SỐ LƯỢNG NGƯỜI NÓI: {speaker_note}
 - KHÔNG ĐƯỢC TỰ BỊA ĐẶT LỜI THOẠI. Chỉ ghi chép những gì nghe được.
-- Mỗi lượt đổi người nói = 1 entry JSON riêng. Tuyệt đối KHÔNG gộp lời của 2 người khác nhau vào cùng một entry.
-- Phân biệt từng người nói dựa vào âm sắc giọng và phải nhất quán người đó từ đầu đến cuối.
-- Câu hỏi ngắn, đáp lời ngắn, xen ngang đều phải có entry riêng — KHÔNG bỏ qua dù ngắn.
-- NẾU CÓ 2 NGƯỜI NÓI ĐÈ LÊN NHAU (cùng lúc) hoặc xen ngang: TUYỆT ĐỐI KHÔNG gộp lời của họ vào chung 1 câu. Phải tách riêng lời của người A và lời của người B ra 2 entry liên tiếp.
+- ĐÂY LÀ YÊU CẦU QUAN TRỌNG NHẤT: BẠN PHẢI PHÂN BIỆT ĐƯỢC CÁC GIỌNG NÓI KHÁC NHAU. MỖI LƯỢT ĐỔI NGƯỜI NÓI (dù chỉ là tiếng xen ngang "Đúng rồi", "Ok") = 1 ENTRY JSON RIÊNG BIỆT.
+- NẾU CÓ 2 NGƯỜI NÓI ĐÈ LÊN NHAU (OVERLAP) HOẶC CÃI NHAU: TUYỆT ĐỐI KHÔNG GỘP CHUNG CHỮ VÀO 1 ENTRY. Bắt buộc phải tách lời của người A và người B thành 2 entry nối tiếp nhau. LỖI NGHIÊM TRỌNG NHẤT LÀ NHÉT LỜI CỦA 2 NGƯỜI VÀO CÙNG 1 CÂU NÓI CỦA 1 NGƯỜI.
 - CÂU HỎI và CÂU TRẢ LỜI luôn là 2 entry riêng biệt — người hỏi và người trả lời KHÔNG bao giờ được gộp chung.
-- LỖI NGHIÊM TRỌNG NHẤT LÀ GỘP NHẦM LỜI CỦA 2 NGƯỜI THÀNH 1 CÂU. Nếu một đoạn có nhiều người nói liên tục, HÃY CẮT NHỎ THÀNH NHIỀU ENTRY.
+- Nếu một đoạn có nhiều người nói liên tục, HÃY CẮT NHỎ THÀNH NHIỀU ENTRY LIÊN TIẾP.
 - TUYỆT ĐỐI KHÔNG TRẢ VỀ 1 ENTRY KÉO DÀI NHIỀU PHÚT. Nếu một người nói liên tục quá lâu, BẮT BUỘC PHẢI CẮT NHỎ lời nói của họ thành nhiều entry liên tiếp (mỗi entry khoảng 3-5 câu).
-- Trước khi gán speaker cho mỗi entry, hãy đối chiếu ÂM THANH THỰC TẾ: cao độ giọng, tốc độ nói, chất giọng. Nếu trong một đoạn liên tục có sự thay đổi âm sắc → phải tách entry mới ngay tại điểm đó.
-- KHÔNG suy đoán speaker theo ngữ cảnh (ai đặt câu hỏi thì ai trả lời) — chỉ dựa vào giọng nói thực tế nghe được.
+- Hãy đối chiếu ÂM THANH THỰC TẾ: cao độ giọng, tốc độ nói, chất giọng. Nếu trong một đoạn liên tục có sự thay đổi âm sắc (ví dụ từ giọng nam trầm sang giọng nam cao, hoặc giọng nữ) → PHẢI TẠO ENTRY MỚI NGAY TẠI ĐIỂM ĐÓ.
+- KHÔNG suy đoán speaker theo ngữ cảnh (ai đặt câu hỏi thì ai trả lời) — CHỈ ĐƯỢC PHÉP dựa vào sự thay đổi thực tế của sóng âm/chất giọng mà bạn nghe được.
 - Bỏ qua tạp âm, tiếng ồn, tiếng động nền.
 - CỰC KỲ QUAN TRỌNG: Nếu đoạn âm thanh LÀ KHOẢNG LẶNG, CHỈ CÓ TẠP ÂM, HOẶC KHÔNG CÓ TIẾNG NGƯỜI NÓI, TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ BỊA RA LỜI NÓI HOẶC LẶP LẠI LỜI CŨ. HÃY TRẢ VỀ MẢNG RỖNG [] NẾU KHÔNG NGHE THẤY GÌ.
 - NGUYÊN TẮC CHỐNG LẶP (ANTI-LOOP): Khi đã transcribe hết tiếng người nói thực sự trong audio, BẠN PHẢI DỪNG LẠI NGAY LẬP TỨC và đóng mảng JSON `]`. TUYỆT ĐỐI KHÔNG được lặp lại một câu nói nhiều lần. Nếu bạn thấy mình chuẩn bị viết lại cùng một câu (hoặc một cụm từ) đến lần thứ 2 liên tiếp mà không có tiếng nói thực sự tương ứng, hãy LẬP TỨC ĐÓNG JSON và ngắt luồng.

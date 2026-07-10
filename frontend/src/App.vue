@@ -91,7 +91,7 @@ watch(isDark, (val) => {
     
     <!-- Main Area -->
     <div class="flex-1 flex flex-col h-screen min-w-0 bg-background overflow-hidden relative md:ml-[280px]">
-      <AppHeader />
+      <AppHeader v-if="activeTab === 'transcribe'" />
       
       <!-- Scrollable content area -->
       <main class="flex-1 overflow-y-auto p-4 md:p-6 bg-surface-container-lowest relative text-on-background">
