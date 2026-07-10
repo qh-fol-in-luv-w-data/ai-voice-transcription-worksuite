@@ -98,16 +98,42 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                                     for run in p.runs:
                                         set_font_times(run, 10)
                 
-                # Di chuyển toàn bộ nội dung header vào phần nội dung chính (body)
+                # Fix lỗi ảnh bị "The picture can't be displayed" khi chuyển từ Header sang Body
+                from docx.opc.constants import RELATIONSHIP_TYPE as RT
+                import io
+                
+                header_part = section.header.part
+                doc_part = doc.part
+                rId_map = {}
+                
+                for rel in header_part.rels.values():
+                    if rel.reltype == RT.IMAGE:
+                        new_rId = doc_part.get_or_add_image(io.BytesIO(rel.target_part.blob))[0]
+                        rId_map[rel.rId] = new_rId
+
                 elements_to_move = []
                 for e in section.header._element:
                     elements_to_move.append(e)
                 
                 for e in elements_to_move:
+                    # Update rId trong XML để ảnh hiển thị đúng
+                    for img_elem in e.xpath('.//*[@r:embed]'):
+                        old_id = img_elem.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+                        if old_id in rId_map:
+                            img_elem.set('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', rId_map[old_id])
+                            
+                    for img_elem in e.xpath('.//*[@r:id]'):
+                        old_id = img_elem.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+                        if old_id in rId_map:
+                            img_elem.set('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id', rId_map[old_id])
+                            
                     section.header._element.remove(e)
                     
                 for e in reversed(elements_to_move):
                     doc._body._element.insert(0, e)
+                
+                # Thêm một paragraph rỗng vào header để tránh lỗi cấu trúc XML (Word crash nếu w:hdr rỗng)
+                section.header.add_paragraph("")
                     
             section.different_first_page_header_footer = False
 

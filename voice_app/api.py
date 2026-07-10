@@ -555,6 +555,26 @@ def _extract_tasks_async(payload, user, session_id_header):
     location = payload.get("location")
     chairperson = payload.get("chairperson")
 
+    if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
+        if location:
+            frappe.db.set_value("Voice Meeting", meeting_name, "location", location)
+        else:
+            location = frappe.db.get_value("Voice Meeting", meeting_name, "location")
+            
+        if chairperson:
+            frappe.db.set_value("Voice Meeting", meeting_name, "chairperson", chairperson)
+        else:
+            chairperson = frappe.db.get_value("Voice Meeting", meeting_name, "chairperson")
+
+        if not start_time:
+            meeting_date = frappe.db.get_value("Voice Meeting", meeting_name, "date")
+            if meeting_date:
+                # Format datetime if it is a datetime object
+                if hasattr(meeting_date, "strftime"):
+                    start_time = meeting_date.strftime("%d/%m/%Y %H:%M:%S")
+                else:
+                    start_time = str(meeting_date)
+
     cache_key = f"extract_result_{meeting_name}"
 
     if not results and meeting_name:
