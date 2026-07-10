@@ -147,10 +147,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 if clean_spk and clean_spk not in unique_speakers:
                     unique_speakers.append(clean_spk)
 
-            # Xóa các hàng cũ
-            while len(attendee_table.rows) > 0:
-                tr = attendee_table.rows[-1]._element
-                tr.getparent().remove(tr)
+            num_old_rows = len(attendee_table.rows)
 
             # Thêm các hàng mới với font Times New Roman 12
             for i, spk_name in enumerate(unique_speakers):
@@ -166,6 +163,11 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                     row_cells[2].text = designation
                 for cell in row_cells:
                     apply_font_to_cell(cell, 12)
+
+            # Xóa các hàng mẫu ban đầu
+            for _ in range(num_old_rows):
+                tr = attendee_table.rows[0]._element
+                tr.getparent().remove(tr)
 
         # ── Chèn nội dung biên bản vào phần "II. Nội dung chi tiết" ──────────
         start_idx = -1
@@ -194,7 +196,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
             num_inserted = len(results)
             current_paragraphs = doc.paragraphs
             for p in current_paragraphs[start_idx + 1 + num_inserted:-1]:
-                p._element.getparent().remove(p._element)
+                p.text = ""
 
         # ── Thêm chữ ký ở cuối biên bản ──────────────────────────────────────
         doc.add_paragraph("")
