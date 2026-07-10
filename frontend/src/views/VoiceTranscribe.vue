@@ -292,8 +292,23 @@ const openTaskModal = async () => {
 const startExtractTasks = async () => {
   if (transcriptResults.value.length === 0) { alert(t('alert_no_transcript')); return }
   isExtracting.value = true; extractStatus.value = t('status_extract_wait')
+  
+  let hostName = null;
+  if (hostId.value && dbEmployees.value) {
+    const emp = dbEmployees.value.find(e => e.user_id === hostId.value);
+    hostName = emp ? (emp.employee_name || emp.user_id) : hostId.value;
+  }
+  
+  let startTime = null;
+  if (meetingDate.value) {
+    const d = new Date(meetingDate.value);
+    if (!isNaN(d.getTime())) {
+      startTime = d.toLocaleString('vi-VN');
+    }
+  }
+
   try {
-    const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value)
+    const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value, startTime, null, meetingLocation.value, hostName)
     if (res.status === 'processing') {
       const pollTimer = setInterval(async () => {
         try {
