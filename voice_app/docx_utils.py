@@ -77,6 +77,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
 
     if os.path.exists(template_path):
         doc = docx.Document(template_path)
+        attendee_table = doc.tables[0] if len(doc.tables) > 0 else None
 
         # ── Chỉ hiện header ở trang đầu tiên thôi ────────────────────────────
         current_date = "17/11/2025"
@@ -128,9 +129,8 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                     if p4.runs: set_font_times(p4.runs[0], 12)
                 break
 
-        # ── Cập nhật bảng Thành phần tham dự (Table 0) ───────────────────────
-        if len(doc.tables) > 0:
-            attendee_table = doc.tables[0]
+        # ── Cập nhật bảng Thành phần tham dự ───────────────────────
+        if attendee_table is not None:
 
             roles_lower = {k.strip().lower(): v for k, v in speaker_roles.items()}
 
