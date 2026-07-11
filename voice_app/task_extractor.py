@@ -547,20 +547,38 @@ def after_login(state: AgentState) -> str:
 # EXPORT FUNCTIONS
 # ─────────────────────────────────────────────
 
+import concurrent.futures
+
+def node_fetch_all(state: AgentState) -> dict:
+    print("\n👥🏢 [Node 4] Lấy danh sách users & projects song song...")
+    session = state.get("session")
+    if not session:
+        return {"frappe_users": [], "frappe_projects": {}}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f_users = executor.submit(node_fetch_users, state)
+        f_projects = executor.submit(node_fetch_projects, state)
+        
+        users_result = f_users.result()
+        projects_result = f_projects.result()
+        
+    return {
+        "frappe_users": users_result.get("frappe_users", []),
+        "frappe_projects": projects_result.get("frappe_projects", {})
+    }
+
 def extract_tasks_only(file_path, model_type="gpt-4o"):
     g = StateGraph(AgentState)
     g.add_node("read_docx",     node_read_docx)
     g.add_node("extract_tasks", node_extract_tasks)
     g.add_node("login",         node_login_frappe)
-    g.add_node("fetch_users",   node_fetch_users)
-    g.add_node("fetch_projects", node_fetch_projects)
+    g.add_node("fetch_all",     node_fetch_all)
 
     g.set_entry_point("read_docx")
     g.add_conditional_edges("read_docx",     after_read,    {"extract": "extract_tasks", "report": END})
     g.add_conditional_edges("extract_tasks", after_extract, {"login": "login",           "report": END})
-    g.add_conditional_edges("login",         after_login,   {"fetch_users": "fetch_users","report": END})
-    g.add_edge("fetch_users", "fetch_projects")
-    g.add_edge("fetch_projects", END)
+    g.add_conditional_edges("login",         after_login,   {"fetch_all": "fetch_all",   "report": END})
+    g.add_edge("fetch_all", END)
 
     app = g.compile()
     

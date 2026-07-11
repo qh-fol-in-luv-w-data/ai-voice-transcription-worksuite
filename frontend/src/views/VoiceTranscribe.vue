@@ -264,46 +264,63 @@ const startTranscribe = async () => {
   transcribeStatus.value = t('status_transcribe_wait')
   transcriptResults.value = []; originalTranscriptResults.value = []
   isCleaned.value = false; transcriptText.value = ''; tasks.value = []; selectedAttendees.value = []
+
+  const handleProgress = (data) => {
+    if (data.progress_info) {
+       if (data.progress_info.stt !== undefined) {
+         const sttProg = data.progress_info.stt.progress || 0
+         const spkProg = data.progress_info.speaker ? data.progress_info.speaker.progress : 0
+         transcribeProgress.value = Math.round((sttProg * 0.5) + (spkProg * 0.5))
+         transcribeStatus.value = sttProg < 100
+           ? (data.progress_info.stt.msg || 'Đang xử lý STT...')
+           : (data.progress_info.speaker ? data.progress_info.speaker.msg : 'Đang xử lý Speaker...')
+       } else {
+         transcribeProgress.value = data.progress_info.progress || 0
+         transcribeStatus.value = data.progress_info.message || 'Đang xử lý...'
+       }
+    }
+  };
+
+  const handleResult = (data) => {
+    offSocketEvent("transcribe_progress", handleProgress);
+    offSocketEvent("transcribe_result", handleResult);
+    
+    if (data.status === 'success') {
+      transcribeProgress.value = 100; transcribeStatus.value = t('status_transcribe_ok')
+      transcriptResults.value = data.results; originalTranscriptResults.value = [...data.results]
+      isCleaned.value = false; transcriptText.value = data.final_text
+      dbEmployees.value = data.employees || []; loadHistory(); isTranscribing.value = false
+    } else {
+      transcribeStatus.value = '❌ Error: ' + data.message; isTranscribing.value = false
+    }
+  };
+
+  onSocketEvent("transcribe_progress", handleProgress);
+  onSocketEvent("transcribe_result", handleResult);
+
   try {
     const res = await transcribeAudio(audioFile.value, language.value)
     if (res.status === 'processing' && res.meeting_name) {
       currentMeetingName.value = res.meeting_name
-      const pollTimer = setInterval(async () => {
-        try {
-          const pollRes = await checkMeetingStatus(currentMeetingName.value)
-          if (pollRes.status === 'processing') {
-            if (pollRes.progress_info) {
-               if (pollRes.progress_info.stt !== undefined) {
-                 const sttProg = pollRes.progress_info.stt.progress || 0
-                 const spkProg = pollRes.progress_info.speaker ? pollRes.progress_info.speaker.progress : 0
-                 transcribeProgress.value = Math.round((sttProg * 0.5) + (spkProg * 0.5))
-                 transcribeStatus.value = sttProg < 100
-                   ? (pollRes.progress_info.stt.msg || 'Đang xử lý STT...')
-                   : (pollRes.progress_info.speaker ? pollRes.progress_info.speaker.msg : 'Đang xử lý Speaker...')
-               } else {
-                 transcribeProgress.value = pollRes.progress_info.progress || 0
-                 transcribeStatus.value = pollRes.progress_info.message || 'Đang xử lý...'
-               }
-            }
-          } else if (pollRes.status === 'success') {
-            clearInterval(pollTimer)
-            transcribeProgress.value = 100; transcribeStatus.value = t('status_transcribe_ok')
-            transcriptResults.value = pollRes.results; originalTranscriptResults.value = [...pollRes.results]
-            isCleaned.value = false; transcriptText.value = pollRes.final_text
-            dbEmployees.value = pollRes.employees || []; loadHistory(); isTranscribing.value = false
-          } else if (pollRes.status === 'error') {
-            clearInterval(pollTimer); transcribeStatus.value = '❌ Error: ' + pollRes.message; isTranscribing.value = false
-          }
-        } catch (err) { console.error('Polling error', err) }
-      }, 5000)
+      transcribeStatus.value = '⏳ Đang phân tích...';
     } else if (res.status === 'success') {
+      offSocketEvent("transcribe_progress", handleProgress);
+      offSocketEvent("transcribe_result", handleResult);
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results; originalTranscriptResults.value = [...res.results]
       isCleaned.value = false; transcriptText.value = res.final_text
       dbEmployees.value = res.employees || []; currentMeetingName.value = res.meeting_name || null
       if (res.meeting_name) loadHistory(); isTranscribing.value = false
-    } else { transcribeStatus.value = '❌ Error: ' + res.message; isTranscribing.value = false }
-  } catch (e) { transcribeStatus.value = t('error_connect'); isTranscribing.value = false }
+    } else { 
+      offSocketEvent("transcribe_progress", handleProgress);
+      offSocketEvent("transcribe_result", handleResult);
+      transcribeStatus.value = '❌ Error: ' + res.message; isTranscribing.value = false 
+    }
+  } catch (e) { 
+    offSocketEvent("transcribe_progress", handleProgress);
+    offSocketEvent("transcribe_result", handleResult);
+    transcribeStatus.value = t('error_connect'); isTranscribing.value = false 
+  }
 }
 
 const startCleanTranscript = async () => {
@@ -329,6 +346,8 @@ const openTaskModal = async () => {
    isTaskModalOpen.value = true
 }
 
+import { onSocketEvent, offSocketEvent } from '../utils/socket.js'
+
 const startExtractTasks = async () => {
   if (transcriptResults.value.length === 0) { alert(t('alert_no_transcript')); return }
   isExtracting.value = true; extractStatus.value = t('status_extract_wait')
@@ -347,29 +366,49 @@ const startExtractTasks = async () => {
     }
   }
 
+  const handleProgress = (data) => {
+    if (data.msg) extractStatus.value = `${data.progress}% - ${data.msg}`;
+  };
+
+  const handleResult = (data) => {
+    offSocketEvent("v2t_progress", handleProgress);
+    offSocketEvent("v2t_result", handleResult);
+    
+    if (data.status === 'success') {
+      extractStatus.value = t('status_extract_ok')
+      tasks.value = data.items || []; hrProjectsMap.value = data.hr_projects_map || {}
+      dbEmployees.value = data.employees || []; docxUrl.value = data.docx_url; excelUrl.value = data.excel_url
+      loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
+    } else {
+      extractStatus.value = '❌ Error: ' + data.message; isExtracting.value = false
+    }
+  };
+
+  onSocketEvent("v2t_progress", handleProgress);
+  onSocketEvent("v2t_result", handleResult);
+
   try {
     const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value, startTime, null, meetingLocation.value, hostName)
     if (res.status === 'processing') {
-      const pollTimer = setInterval(async () => {
-        try {
-          const pollRes = await checkExtractStatus(currentMeetingName.value)
-          if (pollRes.status === 'success') {
-            clearInterval(pollTimer); extractStatus.value = t('status_extract_ok')
-            tasks.value = pollRes.items || []; hrProjectsMap.value = pollRes.hr_projects_map || {}
-            dbEmployees.value = pollRes.employees || []; docxUrl.value = pollRes.docx_url; excelUrl.value = pollRes.excel_url
-            loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
-          } else if (pollRes.status === 'error') {
-            clearInterval(pollTimer); extractStatus.value = '❌ Error: ' + pollRes.message; isExtracting.value = false
-          }
-        } catch(err) { console.error('Polling extract error', err) }
-      }, 5000)
+      extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
+      // Socket events will handle the rest
     } else if (res.status === 'success') {
+      offSocketEvent("v2t_progress", handleProgress);
+      offSocketEvent("v2t_result", handleResult);
       extractStatus.value = t('status_extract_ok')
       tasks.value = res.items || []; hrProjectsMap.value = res.hr_projects_map || {}
       dbEmployees.value = res.employees || []; docxUrl.value = res.docx_url; excelUrl.value = res.excel_url
       loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
-    } else { extractStatus.value = '❌ Error: ' + res.message; isExtracting.value = false }
-  } catch (e) { extractStatus.value = t('error_connect'); isExtracting.value = false }
+    } else { 
+      offSocketEvent("v2t_progress", handleProgress);
+      offSocketEvent("v2t_result", handleResult);
+      extractStatus.value = '❌ Error: ' + res.message; isExtracting.value = false 
+    }
+  } catch (e) { 
+    offSocketEvent("v2t_progress", handleProgress);
+    offSocketEvent("v2t_result", handleResult);
+    extractStatus.value = t('error_connect'); isExtracting.value = false 
+  }
 }
 </script>
 
