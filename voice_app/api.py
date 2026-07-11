@@ -167,23 +167,105 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 update_progress(percent, msg, 0, "Chờ dịch văn bản...")
 
             if stt_mode == "google":
-                # Lấy existing_segments nếu đang resume
-                existing_segments = None
-                try:
-                    meeting_doc = frappe.get_doc("Voice Meeting", meeting_name)
-                    if meeting_doc.status == "Partial Error" and meeting_doc.raw_results:
-                        existing_segments = json.loads(meeting_doc.raw_results)
-                except: pass
+                from voice_app.audio_utils import split_audio_by_silence
+                import os
+                
+                chunk_dir = frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name)
+                os.makedirs(chunk_dir, exist_ok=True)
+                
+                raw_chunks = split_audio_by_silence(wav, output_dir=chunk_dir)
+                
+                chunks_info = []
+                for idx, c in enumerate(raw_chunks):
+                    chunk_name = frappe.db.get_value("Voice Meeting Chunk", {"meeting": meeting_name, "chunk_index": idx}, "name")
+                    if not chunk_name:
+                        doc = frappe.get_doc({
+                            "doctype": "Voice Meeting Chunk",
+                            "meeting": meeting_name,
+                            "chunk_index": idx,
+                            "status": "Pending",
+                            "audio_file_path": c[0],
+                            "offset_sec": c[1]
+                        })
+                        doc.insert(ignore_permissions=True)
+                        chunk_name = doc.name
+                        status = "Pending"
+                    else:
+                        status = frappe.db.get_value("Voice Meeting Chunk", chunk_name, "status")
+                    
+                    chunks_info.append({
+                        "name": chunk_name,
+                        "idx": idx,
+                        "wav": c[0],
+                        "offset": c[1],
+                        "mappings": c[2] if len(c) > 2 else [],
+                        "status": status
+                    })
+                frappe.db.commit()
+                
+                chunks_to_process = [c for c in chunks_info if c["status"] in ("Pending", "Error")]
+                
+                def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks):
+                    if c_status == "Processing":
+                        frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
+                    elif c_status == "Completed":
+                        frappe.db.set_value("Voice Meeting Chunk", c_name, {
+                            "status": "Completed",
+                            "raw_segments": json.dumps({"segments": c_segs, "raw_words": c_words}, ensure_ascii=False),
+                            "tokens_used": c_toks,
+                            "error_message": ""
+                        })
+                    elif c_status == "Error":
+                        frappe.db.set_value("Voice Meeting Chunk", c_name, {
+                            "status": "Error",
+                            "error_message": c_err
+                        })
+                    frappe.db.commit()
 
-                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_gemini_stt(
-                    wav, language, num_speakers=auto_num_speakers, 
-                    custom_vocabulary=custom_vocabulary, progress_callback=stt_cb, 
-                    existing_segments=existing_segments
-                )
+                err, el_chars_used, el_chars_remaining = None, 0, 0
+                if chunks_to_process:
+                    _segs, _raw, _txt, err, el_chars_used, el_chars_remaining = call_gemini_stt(
+                        chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
+                        language=language, num_speakers=auto_num_speakers, 
+                        custom_vocabulary=custom_vocabulary, progress_callback=stt_cb
+                    )
+                
+                segments = []
+                raw_words = []
+                full_text = ""
+                chunk_docs = frappe.get_all("Voice Meeting Chunk", filters={"meeting": meeting_name}, fields=["status", "raw_segments", "error_message"], order_by="chunk_index asc")
+                
+                has_error = False
+                for c in chunk_docs:
+                    if c.status != "Completed":
+                        has_error = True
+                        err = f"Lỗi ở chunk: {c.error_message}" if not err else err
+                        break
+                    if c.raw_segments:
+                        try:
+                            data = json.loads(c.raw_segments)
+                            if data.get("segments"): segments.extend(data["segments"])
+                            if data.get("raw_words"): raw_words.extend(data["raw_words"])
+                        except: pass
+                
+                if has_error:
+                    # Update status to Partial Error so it can be resumed
+                    if segments:
+                        frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Partial Error", "error_message": err, "raw_results": json.dumps(segments, ensure_ascii=False)})
+                    else:
+                        frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err})
+                    frappe.db.commit()
+                    return
+                
+                segments.sort(key=lambda x: x.get('start', 0))
+                full_text = " ".join(s.get("text", "") for s in segments)
+                
+                # STT Hoàn tất thành công, dọn dẹp file chunk
+                cleanup_chunk_files(meeting_name)
             else:
                 segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
-            if err:
-                frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
+                if err:
+                    frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
             stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
             el_speakers = set(s["speaker_id"] for s in segments)
@@ -1598,8 +1680,11 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
 def resume_transcription(meeting_name):
     try:
         meeting_doc = frappe.get_doc("Voice Meeting", meeting_name)
-        if meeting_doc.status != "Partial Error":
-            return {"status": "error", "message": "Chỉ có thể tiếp tục với meeting có trạng thái Lỗi một phần."}
+        if meeting_doc.status not in ["Error", "Partial Error"]:
+            return {"status": "error", "message": "Chỉ có thể tiếp tục với meeting có trạng thái Lỗi hoặc Lỗi một phần."}
+        
+        frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Processing", "error_message": ""})
+        frappe.db.commit()
         
         # Get attached audio
         files = frappe.get_all("File", filters={"attached_to_doctype": "Voice Meeting", "attached_to_name": meeting_name}, fields=["file_url"])

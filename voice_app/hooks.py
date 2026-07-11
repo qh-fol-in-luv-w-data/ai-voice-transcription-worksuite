@@ -148,23 +148,11 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"voice_app.tasks.all"
-# 	],
-# 	"daily": [
-# 		"voice_app.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"voice_app.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"voice_app.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"voice_app.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"daily": [
+		"voice_app.api.cleanup_old_chunks"
+	]
+}
 
 # Testing
 # -------
