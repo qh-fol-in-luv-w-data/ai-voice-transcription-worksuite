@@ -47,15 +47,18 @@ def concat_speaker_segments(wav_path: str, segs: list,
                             max_total_sec: float = 25.0,
                             min_seg_sec: float = 1.0) -> str:
     """
-    Ghép nhiều đoạn của cùng 1 speaker thành 1 file WAV liên tục.
+    Ghép nhiều đoạn của cùng 1 speaker thành 1 file WAV liên tục bằng FFmpeg filter_complex (1 lần gọi).
 
     Chiến lược:
     - Sắp xếp segments theo độ dài (dài trước)
     - Chọn các đoạn >= min_seg_sec cho đến khi đủ max_total_sec
-    - Ghép bằng ffmpeg concat → 1 file WAV để extract embedding tốt hơn
-
-    Returns: path WAV tạm, hoặc None nếu không có đoạn nào đủ dài.
+    - Gọt mép 0.2s 2 đầu mỗi đoạn
+    - Tạo filter_complex cắt và nối trong 1 tiến trình ffmpeg
     """
+    import tempfile
+    import subprocess
+    import os
+
     duration = get_duration(wav_path)
 
     # Lọc & sắp xếp: ưu tiên đoạn dài, bỏ đoạn quá ngắn
@@ -67,15 +70,14 @@ def concat_speaker_segments(wav_path: str, segs: list,
     if not candidates:
         return None
 
-    # Cắt từng segment thành file tạm, gom đủ max_total_sec
-    tmp_files = []
+    filters = []
+    inputs = []
     total = 0.0
-    for seg in candidates:
-        # Gọt mép 0.2s ở 2 đầu để tránh tạp âm và tiếng người khác xen ngang
+
+    for i, seg in enumerate(candidates):
         seg_start = seg["start"] + 0.2
         seg_end   = seg["end"] - 0.2
         
-        # Nếu gọt xong bị âm (đoạn quá ngắn), thì bỏ qua đoạn này
         if seg_end <= seg_start:
             continue
             
@@ -83,52 +85,27 @@ def concat_speaker_segments(wav_path: str, segs: list,
         if take <= 0:
             break
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            tmp = f.name
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", f"{seg_start:.3f}", "-i", wav_path,
-            "-t", f"{take:.3f}",
-            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-            tmp,
-        ]
-        r = subprocess.run(cmd, capture_output=True)
-        if r.returncode == 0:
-            tmp_files.append(tmp)
-            total += take
-        if total >= max_total_sec:
-            break
+        filters.append(f"[0]atrim=start={seg_start:.3f}:duration={take:.3f},asetpts=PTS-STARTPTS[s{i}]")
+        inputs.append(f"[s{i}]")
+        total += take
 
-    if not tmp_files:
+    if not inputs:
         return None
 
-    # Nếu chỉ có 1 đoạn → trả thẳng luôn
-    if len(tmp_files) == 1:
-        return tmp_files[0]
-
-    # Ghép nhiều đoạn bằng ffmpeg concat
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as lf:
-        list_file = lf.name
-        for p in tmp_files:
-            lf.write(f"file '{p}'\n")
+    concat_filter = "".join(inputs) + f"concat=n={len(inputs)}:v=0:a=1[out]"
+    full_filter = ";".join(filters) + ";" + concat_filter
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         out = f.name
 
     cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", list_file,
-        "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-        out,
+        "ffmpeg", "-y", "-i", wav_path, 
+        "-filter_complex", full_filter,
+        "-map", "[out]", 
+        "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", 
+        out
     ]
     r = subprocess.run(cmd, capture_output=True)
-
-    # Dọn tmp files
-    for p in tmp_files:
-        try: os.remove(p)
-        except: pass
-    try: os.remove(list_file)
-    except: pass
 
     if r.returncode != 0:
         try: os.remove(out)

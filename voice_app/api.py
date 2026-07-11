@@ -64,32 +64,42 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
 
     return {"status": "processing", "meeting_name": meeting_doc.name}
 
+def get_cached_employees(ttl=300):
+    cache_key = "cterp_employees_cache"
+    cached = frappe.cache().get_value(cache_key)
+    if cached:
+        return cached
+
+    from voice_app.constants import get_worksuite_url, get_worksuite_token
+    import requests
+    try:
+        token = get_worksuite_token()
+        session = requests.Session()
+        base_url = get_worksuite_url()
+        session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+        emp_resp = session.get(
+            f"{base_url}/api/resource/Employee",
+            params={
+                "fields": '["name","employee_name","user_id","designation","department"]',
+                "filters": '[["status","=","Active"]]',
+                "limit_page_length": 5000,
+            },
+            timeout=10,
+        )
+        if emp_resp.status_code == 200:
+            employees = emp_resp.json().get("data", [])
+            frappe.cache().set_value(cache_key, employees, expires_in_sec=ttl)
+            return employees
+    except Exception:
+        pass
+    return []
+
 @frappe.whitelist(allow_guest=False)
 def check_meeting_status(meeting_name):
     meeting = frappe.get_doc("Voice Meeting", meeting_name)
     if meeting.status == "Completed":
-        from voice_app.constants import get_worksuite_url, get_worksuite_token
-        import requests
-        employees = []
-        try:
-            token = get_worksuite_token()
-            session = requests.Session()
-            base_url = get_worksuite_url()
-            session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
-            if True:
-                emp_resp = session.get(
-                    f"{base_url}/api/resource/Employee",
-                    params={
-                        "fields": '["name","employee_name","user_id"]',
-                        "filters": '[["status","=","Active"]]',
-                        "limit_page_length": 5000,
-                    },
-                    timeout=10,
-                )
-                if emp_resp.status_code == 200:
-                    employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
-        except Exception:
-            pass
+        raw_employees = get_cached_employees()
+        employees = [e for e in raw_employees if e.get("user_id")]
 
         raw_results = []
         try:
@@ -122,10 +132,18 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
     
         try:
             def update_progress(stt_percent, stt_msg, spk_percent, spk_msg):
-                frappe.cache().set_value(f"transcribe_progress_{meeting_name}", {
+                progress_data = {
                     "stt": {"progress": stt_percent, "msg": stt_msg},
                     "speaker": {"progress": spk_percent, "msg": spk_msg}
-                })
+                }
+                frappe.cache().set_value(f"transcribe_progress_{meeting_name}", progress_data)
+                
+                # Publish event to all users connected to this site (or specific user if we pass user filter)
+                frappe.publish_realtime(
+                    "transcribe_progress",
+                    {"meeting_name": meeting_name, "progress_info": progress_data},
+                    after_commit=False
+                )
 
             update_progress(5, "Đang chuẩn bị file âm thanh...", 0, "Chờ dịch văn bản...")
 
@@ -291,39 +309,44 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             total_spk = len(unique_speakers)
             completed_spk = 0
 
-            for spk, segs in unique_speakers.items():
-                # Ghép nhiều đoạn của speaker để embedding đại diện hơn 1 đoạn đơn lẻ
-                # Tăng min_seg_sec lên 1.5s để chỉ lấy những đoạn đủ an toàn
-                concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.5)
+            def _extract_one_speaker(spk, segs, audio_wav):
+                concat_wav = concat_speaker_segments(audio_wav, segs, max_total_sec=25.0, min_seg_sec=1.5)
                 if concat_wav is None:
                     segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
                     sample = segs_sorted[0]
-                    
-                    # Gọt mép (shrink) nhẹ 0.1s nếu đoạn đủ dài, để tránh nhiễu
                     shrink = 0.1 if (sample["end"] - sample["start"] > 0.5) else 0.0
                     start = sample["start"] + shrink
                     end = sample["end"] - shrink
-                    
                     if end <= start:
-                        # Rút cuộc quá ngắn thì đành lấy nguyên gốc
                         start = sample["start"]
                         end = sample["end"]
-                        
-                    # Lấy embedding, tối đa 5 giây
-                    emb = get_segment_embedding(wav, start, min(end, start + 5.0))
+                    emb = get_segment_embedding(audio_wav, start, min(end, start + 5.0))
                 else:
                     from voice_app.audio_utils import get_duration
                     dur = get_duration(concat_wav)
                     emb = get_segment_embedding(concat_wav, 0.0, dur)
                     try: os.remove(concat_wav)
                     except: pass
-    
-                if emb is not None:
-                    spk_embeddings[spk] = emb
-                
-                completed_spk += 1
-                spk_prog = 10 + int((completed_spk / total_spk) * 80) # reserve 10% for final assignment
-                update_progress(100, "Đã dịch xong văn bản!", spk_prog, f"Đang nhận diện giọng {completed_spk}/{total_spk}...")
+                return spk, emb
+
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_spk = {
+                    executor.submit(_extract_one_speaker, spk, segs, wav): spk
+                    for spk, segs in unique_speakers.items()
+                }
+                for future in concurrent.futures.as_completed(future_to_spk):
+                    spk = future_to_spk[future]
+                    try:
+                        emb = future.result()
+                        if emb[1] is not None:
+                            spk_embeddings[spk] = emb[1]
+                    except Exception as e:
+                        print(f"Lỗi extract embedding cho {spk}: {e}")
+                    
+                    completed_spk += 1
+                    spk_prog = 10 + int((completed_spk / total_spk) * 80)
+                    update_progress(100, "Đã dịch xong văn bản!", spk_prog, f"Đang nhận diện giọng {completed_spk}/{total_spk}...")
     
             update_progress(100, "Đã dịch xong văn bản!", 95, "Đang đối chiếu dữ liệu nhân sự...")
             # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
@@ -526,30 +549,9 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
             # Cleanup temp wav
             if os.path.exists(wav): os.remove(wav)
     
-            from voice_app.constants import get_worksuite_url, get_worksuite_token
-            import requests
-            
-            employees = []
-            try:
-                token = get_worksuite_token()
-                session = requests.Session()
-                base_url = get_worksuite_url()
-                session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
-                if True:
-                    emp_resp = session.get(
-                        f"{base_url}/api/resource/Employee",
-                        params={
-                            "fields": '["name","employee_name","user_id"]',
-                            "filters": '[["status","=","Active"]]',
-                            "limit_page_length": 5000,
-                        },
-                        timeout=10,
-                    )
-                    if emp_resp.status_code == 200:
-                        employees = [e for e in emp_resp.json().get("data", []) if e.get("user_id")]
-            except Exception as ex:
-                frappe.log_error(str(ex), "Fetch Employees Error in Transcribe")
-    
+            raw_employees = get_cached_employees()
+            employees = [e for e in raw_employees if e.get("user_id")]
+
             # Update Voice Meeting
             frappe.db.set_value("Voice Meeting", meeting_name, {
                 "status": "Completed",
@@ -582,20 +584,25 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 frappe.db.rollback()
                 frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
     
-            return {
+            result_data = {
                 "status": "success",
                 "results": results,
                 "final_text": final_output_text.strip(),
                 "employees": employees,
                 "meeting_name": meeting_name
             }
+            frappe.publish_realtime("transcribe_result", result_data, after_commit=False)
+            return result_data
     
         except Exception as e:
             if getattr(frappe.db, "_cursor", None):
                 frappe.db._cursor.execute("ROLLBACK")
             frappe.db.rollback()
             frappe.log_error(traceback.format_exc(), "Audio Transcription Error")
-            frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": str(e)}); frappe.db.commit(); return
+            frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": str(e)})
+            frappe.db.commit()
+            frappe.publish_realtime("transcribe_result", {"status": "error", "message": str(e), "meeting_name": meeting_name}, after_commit=False)
+            return
     
     
     
@@ -695,16 +702,9 @@ def _extract_tasks_async(payload, user, session_id_header):
             )
             spk_email_map = {s["speaker_name"]: s["email"] for s in voice_speakers if s.get("email")}
 
-            sess = requests.Session()
-            base_url = get_worksuite_url()
-            token = get_worksuite_token()
-            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
             if True:
-                er = sess.get(f"{base_url}/api/resource/Employee",
-                    params={"fields": '["user_id","designation","employee_name"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
-                    timeout=8)
-                if er.status_code == 200:
-                    data = er.json().get("data", [])
+                data = get_cached_employees()
+                if data:
                     email_desg_map = {
                         e["user_id"]: e["designation"]
                         for e in data
@@ -1233,16 +1233,10 @@ def map_and_enroll_speakers():
     # Lấy danh sách nhân viên từ CTERP để trích xuất email
     employees_dict = {}
     try:
-        session = requests.Session()
-        base_url = get_worksuite_url()
-        token = get_worksuite_token()
-        session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
-        if True:
-            emp_resp = session.get(f"{base_url}/api/resource/Employee", params={"fields": '["name","employee_name","user_id"]', "limit_page_length": 5000}, timeout=10)
-            if emp_resp.status_code == 200:
-                for emp in emp_resp.json().get("data", []):
-                    key = f"{emp.get('employee_name')} ({emp.get('name')})"
-                    employees_dict[key] = emp.get('user_id') or "Chưa cập nhật"
+        raw_employees = get_cached_employees()
+        for emp in raw_employees:
+            key = f"{emp.get('employee_name')} ({emp.get('name')})"
+            employees_dict[key] = emp.get('user_id') or "Chưa cập nhật"
     except Exception as e:
         frappe.log_error(str(e), "Fetch Employees Error in map_and_enroll")
 
@@ -1324,22 +1318,14 @@ def get_enrolled_speakers():
             order_by="speaker_name asc"
         )
         # Enrich với designation từ CTERP nếu có email khớp
-        from voice_app.constants import get_worksuite_url, get_worksuite_token
         try:
-            base_url, token = get_worksuite_url(), get_worksuite_token()
-            sess = requests.Session()
-            sess.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
-            if True:
-                emp_resp = sess.get(f"{base_url}/api/resource/Employee",
-                    params={"fields": '["employee_name","designation","user_id"]', "filters": '[["status","=","Active"]]', "limit_page_length": 5000},
-                    timeout=8)
-                if emp_resp.status_code == 200:
-                    erp_map = {e["user_id"]: e for e in emp_resp.json().get("data", []) if e.get("user_id")}
-                    for spk in speakers:
-                        if spk.get("email") and spk["email"] in erp_map:
-                            spk["designation"] = erp_map[spk["email"]].get("designation", "")
-                        else:
-                            spk["designation"] = ""
+            raw_employees = get_cached_employees()
+            erp_map = {e["user_id"]: e for e in raw_employees if e.get("user_id")}
+            for spk in speakers:
+                if spk.get("email") and spk["email"] in erp_map:
+                    spk["designation"] = erp_map[spk["email"]].get("designation", "")
+                else:
+                    spk["designation"] = ""
         except Exception:
             for spk in speakers:
                 spk["designation"] = ""
@@ -1426,19 +1412,7 @@ def _log_action(session_id: str, action: str, details: dict):
 
 @frappe.whitelist(allow_guest=False)
 def voice_to_task(existing_task=None):
-    """Tạo Task từ giọng nói — ElevenLabs STT → OpenAI GPT parse."""
-    # ── Session & Action Logging ──
-    session_id = frappe.get_request_header("X-App-Session-Id") or ""
-    session_name = _resolve_session(session_id)
-    if not session_name:
-        import uuid as _uuid
-        session_name = _logger.create_session(str(_uuid.uuid4()))
-    action_name = _logger.start_action(
-        session_name,
-        action_type="voice_to_task",
-        input_summary="audio upload",
-    )
-
+    """Tạo Task từ giọng nói — Enqueue để chạy ngầm tránh chặn UI."""
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
         
@@ -1448,15 +1422,53 @@ def voice_to_task(existing_task=None):
     file_doc = save_file(audio_file.filename, audio_file.read(), None, None, is_private=1)
     file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
     
+    import time
+    job_key = f"v2t_{frappe.session.user}_{int(time.time())}"
+    
+    frappe.enqueue(
+        'voice_app.api._voice_to_task_async',
+        queue='short',
+        timeout=120,
+        job_key=job_key,
+        file_path=file_path,
+        existing_task=existing_task,
+        user=frappe.session.user,
+        session_id=frappe.get_request_header("X-App-Session-Id") or ""
+    )
+    return {"status": "processing", "job_key": job_key}
+
+
+def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""):
+    frappe.set_user(user)
+    
+    # ── Session & Action Logging ──
+    session_name = _resolve_session(session_id)
+    if not session_name:
+        import uuid as _uuid
+        session_name = _logger.create_session(str(_uuid.uuid4()))
+    action_name = _logger.start_action(
+        session_name,
+        action_type="voice_to_task",
+        input_summary="audio upload",
+    )
+    
+    def send_progress(pct, msg):
+        frappe.publish_realtime("v2t_progress", {"progress": pct, "msg": msg, "job_key": getattr(frappe.local, 'task_id', '')}, user=user, after_commit=False)
+    
+    send_progress(10, "Đang chuẩn bị file âm thanh...")
+    
     try:
         # Chuyển đổi sang WAV
         wav, err = convert_to_wav(file_path)
         if err:
+            frappe.publish_realtime("v2t_result", {"status": "error", "message": err}, user=user, after_commit=False)
             return {"status": "error", "message": err}
 
+        send_progress(30, "Đang trích xuất văn bản (STT)...")
         # Gọi ElevenLabs Speech-to-Text
         segments, _raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
         if err:
+            frappe.publish_realtime("v2t_result", {"status": "error", "message": err}, user=user, after_commit=False)
             return {"status": "error", "message": err}
             
         # Xóa file wav tạm
@@ -1513,25 +1525,8 @@ def voice_to_task(existing_task=None):
                 if proj_resp.status_code == 200:
                     projects = proj_resp.json().get("data", [])
 
-                # Lấy danh sách Employees active
-                emp_resp = session.get(
-                    f"{BASE_URL}/api/resource/User",
-                    params={
-                        "fields": '["name","full_name","email","enabled"]',
-                        "filters": '[["enabled","=",1]]',
-                        "limit_page_length": 5000,
-                    },
-                    timeout=10,
-                )
-                if emp_resp.status_code == 200:
-                    employees = []
-                    for u in emp_resp.json().get("data", []):
-                        if u.get("email") or u.get("name"):
-                            employees.append({
-                                "name": u.get("name"),
-                                "employee_name": u.get("full_name"),
-                                "user_id": u.get("email") or u.get("name")
-                            })
+                # Lấy danh sách Employees active từ cache thay vì gọi API User
+                employees = get_cached_employees()
         except Exception as ex:
             frappe.log_error(str(ex), "Fetch Projects/Employees Error in Voice to Task")
 
@@ -1633,6 +1628,7 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
   "clarification_question": "..."
 }}
 """
+        send_progress(60, "Đang phân tích ý định (AI)...")
         with Timer() as t:
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -1640,7 +1636,7 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
                 temperature=0.2,
                 response_format={"type": "json_object"}
             )
-        
+        send_progress(90, "Hoàn thiện dữ liệu...")
         parsed_data = json.loads(response.choices[0].message.content.strip())
         if "task_type" in parsed_data and parsed_data["task_type"]:
             loai_raw = str(parsed_data["task_type"]).lower()
@@ -1664,17 +1660,20 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
             duration_seconds=t.elapsed,
         )
 
-        return {
+        result_data = {
             "status": "success",
             "transcript": full_text,
             "task": parsed_data,
             "projects": projects,
             "employees": employees
         }
+        frappe.publish_realtime("v2t_result", result_data, user=user, after_commit=False)
+        return result_data
 
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Voice to Task Error")
         _logger.finish_action(action_name, status="failed", error_message=str(e)[:500])
+        frappe.publish_realtime("v2t_result", {"status": "error", "message": str(e)}, user=user, after_commit=False)
         return {"status": "error", "message": str(e)}
     finally:
         # ── Cleanup temp files ──

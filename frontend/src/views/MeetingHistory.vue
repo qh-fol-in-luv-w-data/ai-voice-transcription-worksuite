@@ -219,6 +219,8 @@ const enrollMapped = async () => {
   }
 }
 
+import { onSocketEvent, offSocketEvent } from '../utils/socket.js'
+
 // --- EXTRACT TASKS LOGIC ---
 const startExtractTasks = async () => {
   if (localSegments.value.length === 0) {
@@ -227,34 +229,42 @@ const startExtractTasks = async () => {
   }
   isExtracting.value = true
   extractStatus.value = props.t('status_extract_wait')
+
+  const handleProgress = (data) => {
+    if (data.msg) extractStatus.value = `${data.progress}% - ${data.msg}`;
+  };
+
+  const handleResult = (data) => {
+    offSocketEvent("v2t_progress", handleProgress);
+    offSocketEvent("v2t_result", handleResult);
+    
+    if (data.status === 'success') {
+      extractStatus.value = props.t('status_extract_ok')
+      tasks.value = data.items || []
+      hrProjectsMap.value = data.hr_projects_map || {}
+      dbEmployees.value = data.employees || []
+      docxUrl.value = data.docx_url
+      excelUrl.value = data.excel_url
+      loadHistory()
+      isExtracting.value = false
+      isTaskModalOpen.value = true
+    } else {
+      extractStatus.value = '❌ Error: ' + data.message
+      isExtracting.value = false
+    }
+  };
+
+  onSocketEvent("v2t_progress", handleProgress);
+  onSocketEvent("v2t_result", handleResult);
   
   try {
     const res = await extractTasks(localSegments.value, modelType.value, props.meeting.name)
     if (res.status === 'processing') {
-      const pollTimer = setInterval(async () => {
-        try {
-          const pollRes = await checkExtractStatus(props.meeting.name)
-          if (pollRes.status === 'success') {
-            clearInterval(pollTimer)
-            extractStatus.value = props.t('status_extract_ok')
-            tasks.value = pollRes.items || []
-            hrProjectsMap.value = pollRes.hr_projects_map || {}
-            dbEmployees.value = pollRes.employees || []
-            docxUrl.value = pollRes.docx_url
-            excelUrl.value = pollRes.excel_url
-            loadHistory()
-            isExtracting.value = false
-            isTaskModalOpen.value = true
-          } else if (pollRes.status === 'error') {
-            clearInterval(pollTimer)
-            extractStatus.value = '❌ Error: ' + pollRes.message
-            isExtracting.value = false
-          }
-        } catch(err) {
-          console.error("Polling extract error", err)
-        }
-      }, 5000)
+      extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
+      // Socket events will handle the rest
     } else if (res.status === 'success') {
+      offSocketEvent("v2t_progress", handleProgress);
+      offSocketEvent("v2t_result", handleResult);
       extractStatus.value = props.t('status_extract_ok')
       tasks.value = res.items || []
       hrProjectsMap.value = res.hr_projects_map || {}
@@ -265,13 +275,18 @@ const startExtractTasks = async () => {
       isExtracting.value = false
       isTaskModalOpen.value = true
     } else {
+      offSocketEvent("v2t_progress", handleProgress);
+      offSocketEvent("v2t_result", handleResult);
       extractStatus.value = '❌ Error: ' + res.message
       isExtracting.value = false
     }
   } catch (e) {
+    offSocketEvent("v2t_progress", handleProgress);
+    offSocketEvent("v2t_result", handleResult);
     extractStatus.value = props.t('error_connect')
     isExtracting.value = false
   }
+}
 }
 
 const openTaskModal = () => {
