@@ -136,7 +136,7 @@ def concat_speaker_segments(wav_path: str, segs: list,
         return None
     return out
 
-def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_chunk_sec: float = 1500.0) -> list:
+def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 2400.0, max_chunk_sec: float = 2700.0) -> list:
     """
     VAD "nhẹ nhẹ" theo yêu cầu: Chỉ cắt bỏ những đoạn im lặng chết chóc > 15 giây.
     Mọi tiếng ngập ngừng, lật giấy, nói thầm đều được giữ lại 100%.
