@@ -12,6 +12,23 @@ import { currentMeetingName, originalTranscriptResults, loadHistory } from '../c
 
 const t = (key) => dict[uiLang.value][key] || key
 const transcribeProgress = ref(0)
+const undoStack = ref([])
+
+const saveState = () => {
+  undoStack.value.push(JSON.parse(JSON.stringify(transcriptResults.value)))
+  if (undoStack.value.length > 50) undoStack.value.shift()
+}
+
+const undoAction = async () => {
+  if (undoStack.value.length === 0) return
+  const prevState = undoStack.value.pop()
+  transcriptResults.value = prevState
+  originalTranscriptResults.value = JSON.parse(JSON.stringify(prevState))
+  if (currentMeetingName.value) {
+    await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+  }
+}
+
 
 const numAttendees = ref(0)
 const vocabulary = ref('')
@@ -48,6 +65,7 @@ const startEditText = (idx) => {
 
 const saveEditText = async (idx) => {
   if (editingIdx.value !== idx) return
+  saveState()
   transcriptResults.value[idx][3] = editingText.value
   editingIdx.value = null
   if (currentMeetingName.value) {
@@ -65,6 +83,7 @@ const saveEditSpeaker = async (idx) => {
   const finalName = newSpeakerEmployee.value
 
   if (!finalName.trim()) { editingSpeaker.value = null; return }
+  saveState()
   const oldName = transcriptResults.value[idx][2]
   for (const seg of transcriptResults.value) {
     if (seg[2] === oldName) seg[2] = finalName.trim()
@@ -79,6 +98,7 @@ const saveEditSpeaker = async (idx) => {
 }
 
 const addNewSegment = async () => {
+  saveState()
   const newSeg = [0, 0, 'Người lạ (mới)', '']
   transcriptResults.value.push(newSeg)
   originalTranscriptResults.value.push([...newSeg])
@@ -89,6 +109,7 @@ const addNewSegment = async () => {
 }
 
 const insertSegmentAfter = async (idx) => {
+  saveState()
   const time = transcriptResults.value[idx] ? transcriptResults.value[idx][0] : 0
   const newSeg = [time, time, 'Người lạ (mới)', '']
   transcriptResults.value.splice(idx + 1, 0, newSeg)
@@ -101,8 +122,21 @@ const insertSegmentAfter = async (idx) => {
 
 const deleteSegment = async (idx) => {
   if (!confirm("Bạn có chắc chắn muốn xóa đoạn hội thoại này?")) return
+  saveState()
   transcriptResults.value.splice(idx, 1)
   originalTranscriptResults.value.splice(idx, 1)
+  if (currentMeetingName.value) {
+    await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+  }
+}
+
+const deleteSpeaker = async (spk) => {
+  if (!confirm(`Bạn có chắc chắn muốn xóa tên "${spk}" khỏi các đoạn hội thoại?`)) return
+  saveState()
+  for (const seg of transcriptResults.value) {
+    if (seg[2] === spk) seg[2] = ''
+  }
+  originalTranscriptResults.value = JSON.parse(JSON.stringify(transcriptResults.value))
   if (currentMeetingName.value) {
     await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
   }
@@ -179,6 +213,7 @@ const assignStrangerNames = async () => {
     if (name) validMappings[spk] = name
   }
   if (Object.keys(validMappings).length === 0) { alert('Chưa chọn tên cho người lạ nào!'); return }
+  saveState()
   for (const seg of transcriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
   for (const seg of originalTranscriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
   if (currentMeetingName.value) await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
@@ -204,6 +239,7 @@ const enrollMapped = async () => {
       if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
       alert(msg)
     }
+    saveState()
     for (const seg of transcriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
     for (const seg of originalTranscriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
     if (currentMeetingName.value) await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
@@ -271,13 +307,17 @@ const startTranscribe = async () => {
 }
 
 const startCleanTranscript = async () => {
-  if (isCleaned.value) { transcriptResults.value = [...originalTranscriptResults.value]; isCleaned.value = false; return }
+  if (isCleaned.value) {
+    saveState()
+    transcriptResults.value = [...originalTranscriptResults.value]; isCleaned.value = false; return 
+  }
   if (transcriptResults.value.length === 0) return
   isCleaning.value = true
   try {
     const res = await cleanTranscript(transcriptResults.value, modelType.value, currentMeetingName.value)
     if (res.status === 'success') {
       if (originalTranscriptResults.value.length === 0) originalTranscriptResults.value = [...transcriptResults.value]
+      saveState()
       transcriptResults.value = res.cleaned_results; isCleaned.value = true
     } else { alert('❌ Lỗi lọc: ' + res.message) }
   } catch (e) { alert(t('error_connect')) }
@@ -475,8 +515,14 @@ const startExtractTasks = async () => {
             <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
           </el-option>
         </el-select>
+        <button @click="deleteSpeaker(spk)" class="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200" title="Xóa tên người này khỏi các đoạn hội thoại">
+          <span class="material-symbols-outlined text-[18px] block">person_remove</span>
+        </button>
       </div>
-      <div class="flex justify-end gap-2 mt-1">
+      <div class="flex justify-end gap-2 mt-1 flex-wrap">
+        <button @click="addNewSegment" class="font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 text-sm bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 border-dashed hover:border-primary/60 mr-auto">
+          <span class="material-symbols-outlined text-[18px]">person_add</span> Thêm người lạ
+        </button>
         <!-- Ai cũng thấy: chỉ gán tên, không enroll giọng -->
         <button :disabled="!hasSelectedMapping" @click="assignStrangerNames"
           class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm"
@@ -506,9 +552,13 @@ const startExtractTasks = async () => {
         </p>
       </div>
       <div class="flex flex-wrap gap-sm">
+         <button @click="undoAction" :disabled="undoStack.length === 0" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="undoStack.length === 0 ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-gray-900 dark:text-on-surface'">
+           <span class="material-symbols-outlined text-[18px]">undo</span>
+           Hoàn tác
+         </button>
          <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-gray-900 dark:text-on-surface'">
-           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'undo' : 'auto_fix_high') }}</span>
-           {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Hoàn tác" : "Chuẩn hoá hội thoại") }}
+           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'history' : 'auto_fix_high') }}</span>
+           {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Bản gốc" : "Chuẩn hoá hội thoại") }}
          </button>
          <button @click="openTaskModal" class="px-4 py-2 bg-primary text-white hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
            <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
@@ -543,7 +593,7 @@ const startExtractTasks = async () => {
             <template v-else>
               <span class="font-bold text-[12px] cursor-pointer hover:underline hover:opacity-80 transition-all"
                 :class="seg[2] && seg[2].includes('Người lạ') ? 'text-orange-500' : 'text-primary'"
-                @click="startEditSpeaker(idx)" title="Click để đổi tên">{{ seg[2] }}</span>
+                @click="startEditSpeaker(idx)" title="Click để đổi tên">{{ seg[2] || 'Không tên' }}</span>
               <span class="text-[11px] text-gray-500 dark:text-on-surface-variant/60 bg-gray-100 dark:bg-surface px-1.5 py-0.5 rounded border border-gray-200 dark:border-outline-variant/30">{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s</span>
               <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-primary ml-0.5" @click="startEditSpeaker(idx)" title="Đổi tên">edit</span>
               <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-green-500 ml-1" @click="insertSegmentAfter(idx)" title="Chèn đoạn hội thoại mới xuống dưới">add_circle</span>
@@ -568,12 +618,9 @@ const startExtractTasks = async () => {
             </template>
          </div>
       </div>
-      
-      <!-- Nút thêm người / thêm hội thoại (đã xóa theo yêu cầu) -->
+      </div>
     </div>
   </div>
-
-</div>
 </template>
 
 <style>

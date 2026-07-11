@@ -552,7 +552,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                             except: pass
 
                 if not gemini_segments:
-                    return idx, None, None, None, chunk_usage, "Gemini trả về rỗng (safety filter hoặc file nhiễu)."
+                    return idx, [], [], "", chunk_usage, None
 
                 # Lọc ảo giác lặp
                 clean_segments = []
@@ -576,7 +576,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                         clean_segments.append(seg)
 
                 if not clean_segments:
-                    return idx, None, None, None, chunk_usage, "Sau khi lọc rác, chunk trống."
+                    return idx, [], [], "", chunk_usage, None
 
                 raw_words = _segments_to_raw_words(clean_segments, file_duration=chunk_duration)
                 

@@ -62,12 +62,40 @@ const editingSpeaker = ref(null)
 const editingSpeakerName = ref('')
 const newSpeakerEmployee = ref('')
 
+const undoStack = ref([])
+
+const saveState = () => {
+  undoStack.value.push(JSON.parse(JSON.stringify(localSegments.value)))
+  if (undoStack.value.length > 50) undoStack.value.shift()
+}
+
+const undoAction = async () => {
+  if (undoStack.value.length === 0) return
+  const prevState = undoStack.value.pop()
+  localSegments.value = prevState
+  if (props.meeting?.name) {
+    await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
+}
+
+const deleteSpeaker = async (spk) => {
+  if (!confirm(`Bạn có chắc chắn muốn xóa tên "${spk}" khỏi các đoạn hội thoại?`)) return
+  saveState()
+  for (const seg of localSegments.value) {
+    if (seg[2] === spk) seg[2] = ''
+  }
+  if (props.meeting?.name) {
+    await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
+}
+
 const startEditText = (idx) => {
   editingIdx.value = idx
   editingText.value = localSegments.value[idx][3]
 }
 const saveEditText = async (idx) => {
   if (editingIdx.value !== idx) return
+  saveState()
   localSegments.value[idx][3] = editingText.value
   editingIdx.value = null
   if (props.meeting?.name) {
@@ -83,6 +111,7 @@ const saveEditSpeaker = async (idx) => {
   const finalName = newSpeakerEmployee.value
   if (!finalName.trim()) { editingSpeaker.value = null; return }
   const oldName = localSegments.value[idx][2]
+  saveState()
   for (const seg of localSegments.value) {
     if (seg[2] === oldName) seg[2] = finalName.trim()
   }
@@ -92,6 +121,7 @@ const saveEditSpeaker = async (idx) => {
   }
 }
 const addNewSegment = async () => {
+  saveState()
   const newSeg = [0, 0, 'Người lạ (mới)', '']
   localSegments.value.push(newSeg)
   editingIdx.value = localSegments.value.length - 1
@@ -100,6 +130,7 @@ const addNewSegment = async () => {
   }
 }
 const insertSegmentAfter = async (idx) => {
+  saveState()
   const time = localSegments.value[idx] ? localSegments.value[idx][0] : 0
   const newSeg = [time, time, 'Người lạ (mới)', '']
   localSegments.value.splice(idx + 1, 0, newSeg)
@@ -110,6 +141,7 @@ const insertSegmentAfter = async (idx) => {
 }
 const deleteSegment = async (idx) => {
   if (!confirm("Bạn có chắc chắn muốn xóa đoạn hội thoại này?")) return
+  saveState()
   localSegments.value.splice(idx, 1)
   if (props.meeting?.name) {
     await updateMeetingResults(props.meeting.name, localSegments.value)
@@ -145,6 +177,7 @@ const assignStrangerNames = async () => {
     if (name) validMappings[spk] = name
   }
   if (Object.keys(validMappings).length === 0) { alert('Chưa chọn tên cho người lạ nào!'); return }
+  saveState()
   for (const seg of localSegments.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
   if (props.meeting?.name) await updateMeetingResults(props.meeting.name, localSegments.value)
   speakerMapping.value = {}
@@ -172,6 +205,7 @@ const enrollMapped = async () => {
     if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
     alert(msg)
     
+    saveState()
     for (const seg of localSegments.value) {
       if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
     }
@@ -316,8 +350,14 @@ const openTaskModal = () => {
               <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
             </el-option>
           </el-select>
+          <button @click="deleteSpeaker(spk)" class="p-1.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200" title="Xóa tên người này khỏi các đoạn hội thoại">
+            <span class="material-symbols-outlined text-[18px] block">person_remove</span>
+          </button>
         </div>
-        <div class="flex justify-end gap-2 mt-sm">
+        <div class="flex justify-end gap-2 mt-sm flex-wrap">
+          <button @click="addNewSegment" class="font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 text-sm bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 border-dashed hover:border-primary/60 mr-auto">
+            <span class="material-symbols-outlined text-[18px]">person_add</span> Thêm người lạ
+          </button>
           <!-- Ai cũng thấy: chỉ gán tên -->
           <button :disabled="!hasSelectedMapping" @click="assignStrangerNames"
             class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm"
@@ -337,12 +377,17 @@ const openTaskModal = () => {
 
     <!-- Transcript Section (Adapted from the box style) -->
     <section v-if="localSegments.length > 0" class="bg-white dark:bg-surface-container rounded-xl border border-gray-200 dark:border-outline-variant overflow-hidden shadow-sm">
-      <div class="p-lg border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low flex justify-between items-center">
+      <div class="p-lg border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low flex justify-between items-center flex-wrap gap-4">
         <div>
           <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
             <span class="material-symbols-outlined">forum</span> NỘI DUNG HỘI THOẠI
           </h3>
           <p class="text-body-sm text-gray-500 dark:text-on-surface-variant mt-1">{{ t('transcript_desc') }}</p>
+        </div>
+        <div>
+          <button @click="undoAction" :disabled="undoStack.length === 0" class="px-4 py-2 rounded-md font-medium flex items-center gap-2 border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-sm" :class="undoStack.length === 0 ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-gray-900 dark:text-on-surface'">
+            <span class="material-symbols-outlined text-[18px]">undo</span> Hoàn tác
+          </button>
         </div>
       </div>
       <div class="p-lg bg-white dark:bg-surface">
@@ -361,7 +406,7 @@ const openTaskModal = () => {
                 <button @click="editingSpeaker = null" class="text-xs text-gray-400 hover:text-gray-600">Hủy</button>
               </template>
               <template v-else>
-                <span class="font-bold text-sm tracking-wide cursor-pointer hover:underline" @click="startEditSpeaker(idx)" :class="seg[2] && seg[2].includes('Người lạ') ? 'text-red-600' : ''" :style="seg[2] && !seg[2].includes('Người lạ') ? { color: stringToColor(seg[2]) } : {}">{{ seg[2] }}</span>
+                <span class="font-bold text-sm tracking-wide cursor-pointer hover:underline" @click="startEditSpeaker(idx)" :class="seg[2] && seg[2].includes('Người lạ') ? 'text-red-600' : ''" :style="seg[2] && !seg[2].includes('Người lạ') ? { color: stringToColor(seg[2]) } : {}">{{ seg[2] || 'Không tên' }}</span>
                 <span class="text-xs text-gray-500 dark:text-on-surface-variant font-label-caps">[{{ formatTime(seg[0]) }}]</span>
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-primary ml-0.5" @click="startEditSpeaker(idx)" title="Đổi tên">edit</span>
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-green-500 ml-1" @click="insertSegmentAfter(idx)" title="Chèn đoạn hội thoại mới xuống dưới">add_circle</span>
@@ -381,8 +426,6 @@ const openTaskModal = () => {
             </template>
           </div>
         </div>
-
-        <!-- Nút thêm người / thêm hội thoại (đã xóa theo yêu cầu) -->
       </div>
     </section>
     
