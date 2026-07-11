@@ -507,15 +507,19 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     except: pass
 
         import threading
-        _upload_lock = threading.Lock()
+        _upload_lock = threading.Semaphore(4)
 
-        def _process_single_chunk(idx, current_wav, chunk_tuple, is_subchunk=False, dense_subchunk_offset=0.0):
+        def _process_single_chunk(chunk_dict, is_subchunk=False, dense_subchunk_offset=0.0):
+            idx = chunk_dict.get("idx", 0)
+            original_chunk_wav = chunk_dict.get("wav")
+            current_wav = original_chunk_wav
+            offset = chunk_dict.get("offset", 0.0)
+            mappings = chunk_dict.get("mappings", [])
+            chunk_name = chunk_dict.get("name", f"CHUNK_{idx}")
+
             try:
-                if len(chunk_tuple) == 3:
-                    original_chunk_wav, offset, mappings = chunk_tuple
-                else:
-                    original_chunk_wav, offset = chunk_tuple
-                    mappings = []
+                if chunk_update_cb and not is_subchunk:
+                    chunk_update_cb(chunk_name, "Processing", None, None, None, 0)
 
                 if not is_subchunk and idx in completed_chunks:
                     print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks)} vì đã hoàn thành.")
@@ -528,9 +532,8 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
 
                 chunk_duration = get_duration(current_wav)
 
-                # Upload qua lock để tránh 429 Too Many Requests từ File API
+                # Upload với Semaphore 4
                 with _upload_lock:
-                    import time; time.sleep(1.5)  # Delay nhẹ để chống 429
                     file_uri, file_name = _upload_file(current_wav, api_key)
 
                 chunk_error = None
@@ -624,7 +627,8 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                         resume_audio.export(resume_wav, format="wav")
 
                         _, r_segs, r_words, r_txt, r_use, r_err = _process_single_chunk(
-                            f"{idx}_resume", resume_wav, chunk_tuple, is_subchunk=True, dense_subchunk_offset=last_valid_ts
+                            {"idx": f"{idx}_resume", "wav": resume_wav, "offset": offset, "mappings": mappings, "name": chunk_name}, 
+                            is_subchunk=True, dense_subchunk_offset=last_valid_ts
                         )
 
                         try: os.remove(resume_wav)
@@ -638,11 +642,16 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                         if r_words: raw_words.extend(r_words)
                         if r_txt:   chunk_text += " " + r_txt
 
+                if chunk_update_cb and not is_subchunk:
+                    chunk_update_cb(chunk_name, "Completed", segments, raw_words, None, chunk_usage.get("tokens_used", 0))
+
                 return idx, segments, raw_words, chunk_text, chunk_usage, None
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
+                if chunk_update_cb and not is_subchunk:
+                    chunk_update_cb(chunk_dict.get("name", ""), "Error", None, None, str(e), 0)
                 return idx, None, None, None, None, str(e)
 
         # Chạy tất cả chunk song song
@@ -654,10 +663,10 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         total_tok_all   = 0
         chunk_errors    = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             future_to_idx = {
-                executor.submit(_process_single_chunk, idx, chunk_tuple[0], chunk_tuple): idx
-                for idx, chunk_tuple in enumerate(chunks)
+                executor.submit(_process_single_chunk, chunk_dict): chunk_dict.get("idx", i)
+                for i, chunk_dict in enumerate(chunks)
             }
 
             for future in concurrent.futures.as_completed(future_to_idx):
