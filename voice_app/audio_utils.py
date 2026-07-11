@@ -148,8 +148,8 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
 
     duration = get_duration(wav_path)
     
-    # Mức 0: Nhạy nhất với tiếng ồn/tiếng người. Gần như có âm thanh là nó tính là Speech.
-    vad = webrtcvad.Vad(0) 
+    # Mức 3: Nhạy và khắt khe nhất. Bỏ qua hầu hết tiếng ồn, chỉ bắt tiếng người.
+    vad = webrtcvad.Vad(3) 
     frame_duration_ms = 30
     
     with wave.open(wav_path, 'rb') as wf:
@@ -168,8 +168,8 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
         else:
             is_speech_flags.append(False)
             
-    # Đệm 1.8 giây (60 frames) trước và sau mỗi điểm nói, đảm bảo 100% không lẹm chữ
-    ring_buffer_size = 60 
+    # Đệm 0.45 giây (15 frames) trước và sau mỗi điểm nói để tránh lẹm chữ, giảm thu tạp âm
+    ring_buffer_size = 15 
     smoothed_flags = [False] * len(is_speech_flags)
     
     for i, flag in enumerate(is_speech_flags):
@@ -193,14 +193,14 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_
     if in_speech:
         segments.append((start_frame, len(smoothed_flags)))
         
-    # GỘP NHẸ NHÀNG: Khoảng cách < 15 giây (500 frames) thì gộp luôn không cắt!
+    # GỘP NHẸ NHÀNG: Khoảng cách < 1.8 giây (60 frames) thì gộp luôn không cắt!
     merged_segments = []
     for seg in segments:
         if not merged_segments:
             merged_segments.append(seg)
         else:
             prev_start, prev_end = merged_segments[-1]
-            if seg[0] - prev_end < 500:
+            if seg[0] - prev_end < 60:
                 merged_segments[-1] = (prev_start, seg[1])
             else:
                 merged_segments.append(seg)
