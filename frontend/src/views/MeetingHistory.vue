@@ -287,7 +287,6 @@ const startExtractTasks = async () => {
     isExtracting.value = false
   }
 }
-}
 
 const openTaskModal = () => {
     if (tasks.value.length === 0 && localSegments.value.length > 0) {
