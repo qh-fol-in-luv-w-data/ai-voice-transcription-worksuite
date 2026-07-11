@@ -9,6 +9,8 @@
  "field_order": [
   "title",
   "date",
+  "location",
+  "chairperson",
   "status",
   "error_message",
   "audio_file",
@@ -32,6 +34,16 @@
    "fieldtype": "Datetime",
    "in_list_view": 1,
    "label": "Date"
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "label": "Location"
+  },
+  {
+   "fieldname": "chairperson",
+   "fieldtype": "Data",
+   "label": "Chairperson"
   },
   {
    "default": "Pending",
