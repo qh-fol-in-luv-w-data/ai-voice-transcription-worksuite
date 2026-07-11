@@ -136,7 +136,7 @@ def concat_speaker_segments(wav_path: str, segs: list,
         return None
     return out
 
-def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1800.0, max_chunk_sec: float = 2100.0) -> list:
+def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 900.0, max_chunk_sec: float = 1200.0, output_dir: str = None) -> list:
     """
     VAD "nhẹ nhẹ" theo yêu cầu: Chỉ cắt bỏ những đoạn im lặng chết chóc > 15 giây.
     Mọi tiếng ngập ngừng, lật giấy, nói thầm đều được giữ lại 100%.
@@ -217,8 +217,14 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1800.0, max_
     def finalize_chunk():
         nonlocal current_chunk_frames, current_chunk_mappings, current_dense_start, current_chunk_orig_start
         if not current_chunk_frames: return
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            chunk_out = f.name
+        
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            chunk_out = os.path.join(output_dir, f"chunk_{len(chunks)}.wav")
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                chunk_out = f.name
+                
         with wave.open(chunk_out, 'wb') as wf:
             wf.setnchannels(1)
             wf.setsampwidth(sample_width)
