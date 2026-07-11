@@ -487,8 +487,8 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         print(f"[Gemini STT] File {duration:.1f}s, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
 
-        # Cắt thành chunk 40 phút (tối đa 45 phút)
-        chunks = split_audio_by_silence(wav_path, chunk_length_sec=2400.0, max_chunk_sec=2700.0)
+        # Cắt thành chunk 30 phút (tối đa 35 phút)
+        chunks = split_audio_by_silence(wav_path, chunk_length_sec=1800.0, max_chunk_sec=2100.0)
         if progress_callback:
             progress_callback(20, f"Đang xử lý song song {len(chunks)} đoạn âm thanh...")
 
