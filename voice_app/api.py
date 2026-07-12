@@ -1478,7 +1478,7 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
         if not full_text.strip():
             return {"status": "error", "message": "Không thể trích xuất văn bản từ âm thanh."}
 
-        # Lấy danh sách dự án và nhân viên từ ERPNext
+        # Lấy danh sách dự án và nhân viên từ Worksuite
         from voice_app.constants import get_worksuite_url, get_worksuite_token
         BASE_URL = get_worksuite_url()
         

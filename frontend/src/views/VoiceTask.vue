@@ -459,7 +459,7 @@ const syncVoiceTaskToERP = async () => {
            <div class="flex justify-between items-center w-full">
              <span class="text-sm font-semibold font-mono" :class="voiceTaskSyncStatus.includes('✅') ? 'text-primary' : 'text-danger'">{{ voiceTaskSyncStatus }}</span>
              <el-button @click="syncVoiceTaskToERP" type="primary" size="large" :loading="isVoiceTaskSyncing">
-                {{ isVoiceTaskSyncing ? '⏳ Đang đồng bộ...' : 'Tạo & Đồng bộ Task lên ERPNext' }}
+                {{ isVoiceTaskSyncing ? '⏳ Đang đồng bộ...' : 'Tạo & Đồng bộ Task lên Worksuite' }}
              </el-button>
            </div>
         </template>
