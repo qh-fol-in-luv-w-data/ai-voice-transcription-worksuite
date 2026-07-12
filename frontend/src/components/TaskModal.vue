@@ -107,17 +107,19 @@ const onAttendeeSelect = (val) => {
 
           <el-select
             filterable
+            allow-create
+            default-first-option
             placeholder="+ Tìm & thêm người..."
             style="width: 250px"
-            :disabled="voiceDbSpeakers.length === 0"
+            :disabled="employeeOptions.length === 0"
             @change="onAttendeeSelect"
             clearable
           >
             <el-option
-              v-for="spk in voiceDbSpeakers"
-              :key="spk.speaker_name"
-              :label="spk.speaker_name + (spk.email ? ' - ' + spk.email : '')"
-              :value="spk.speaker_name"
+              v-for="emp in employeeOptions"
+              :key="emp.value"
+              :label="emp.label"
+              :value="emp.value"
             />
           </el-select>
         </div>
