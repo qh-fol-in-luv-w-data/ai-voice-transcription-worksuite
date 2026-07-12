@@ -278,11 +278,13 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
 
                 err, el_chars_used, el_chars_remaining = None, 0, 0
                 if chunks_to_process:
+                    frappe.log_error(f"Bat dau chay {len(chunks_to_process)} chunks vao call_gemini_stt", "Transcribe Debug")
                     _segs, _raw, _txt, err, el_chars_used, el_chars_remaining = call_gemini_stt(
                         chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
                         language=language, num_speakers=auto_num_speakers, 
                         custom_vocabulary=custom_vocabulary, progress_callback=stt_cb
                     )
+                    frappe.log_error(f"Goi call_gemini_stt hoan tat. Err={err}", "Transcribe Debug")
                 
                 segments = []
                 raw_words = []
@@ -294,13 +296,16 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                     if c.status != "Completed":
                         has_error = True
                         err = f"Lỗi ở chunk: {c.error_message}" if not err else err
+                        frappe.log_error(f"Phat hien chunk {c.name} (index {c.get('chunk_index', 'N/A')}) chua completed. Status={c.status}, Error={c.error_message}", "Transcribe Debug")
                         break
                     if c.raw_segments:
                         try:
                             data = json.loads(c.raw_segments)
                             if data.get("segments"): segments.extend(data["segments"])
                             if data.get("raw_words"): raw_words.extend(data["raw_words"])
-                        except: pass
+                        except Exception as e:
+                            frappe.log_error(f"Loi json.loads raw_segments chunk {c.name}: {e}", "Transcribe Debug")
+                            pass
                 
                 if has_error:
                     # Update status to Partial Error so it can be resumed
