@@ -107,6 +107,8 @@ const onAttendeeSelect = (val) => {
 
           <el-select
             filterable
+            allow-create
+            default-first-option
             placeholder="+ Tìm & thêm người..."
             style="width: 250px"
             :disabled="employeeOptions.length === 0"
