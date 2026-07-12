@@ -303,6 +303,21 @@ const startTranscribe = async () => {
     if (res.status === 'processing' && res.meeting_name) {
       currentMeetingName.value = res.meeting_name
       transcribeStatus.value = '⏳ Đang phân tích...';
+      
+      // Fallback Polling if socket doesn't work
+      const pollTimer = setInterval(async () => {
+        if (!isTranscribing.value) { clearInterval(pollTimer); return; }
+        try {
+          const statusRes = await callApi('check_meeting_status', { meeting_name: res.meeting_name });
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
+          }
+        } catch(e) {}
+      }, 5000);
+      
     } else if (res.status === 'success') {
       offSocketEvent("transcribe_progress", handleProgress);
       offSocketEvent("transcribe_result", handleResult);
@@ -391,7 +406,21 @@ const startExtractTasks = async () => {
     const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value, startTime, null, meetingLocation.value, hostName)
     if (res.status === 'processing') {
       extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
-      // Socket events will handle the rest
+      
+      // Fallback Polling if socket doesn't work
+      const pollTimer = setInterval(async () => {
+        if (!isExtracting.value) { clearInterval(pollTimer); return; }
+        try {
+          const statusRes = await callApi('check_extract_status', { meeting_name: currentMeetingName.value });
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
+          }
+        } catch(e) {}
+      }, 5000);
+      
     } else if (res.status === 'success') {
       offSocketEvent("v2t_progress", handleProgress);
       offSocketEvent("v2t_result", handleResult);
