@@ -47,6 +47,35 @@ const employeeOptions = computed(() => {
   }))
 })
 
+const attendeeQuery = ref('')
+const filterAttendee = (query) => {
+  attendeeQuery.value = query
+}
+const filteredAttendeeOptions = computed(() => {
+  const query = attendeeQuery.value
+  if (!query) return employeeOptions.value
+  const q = query.toLowerCase()
+  return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
+})
+const onAttendeeVisibleChange = (visible) => {
+  if (!visible) attendeeQuery.value = ''
+}
+
+const assigneeQueries = ref({})
+const filterAssignee = (idx, query) => {
+  assigneeQueries.value[idx] = query
+}
+const getFilteredAssigneeOptions = (idx) => {
+  const query = assigneeQueries.value[idx]
+  if (!query) return employeeOptions.value
+  const q = query.toLowerCase()
+  return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
+}
+const onAssigneeVisibleChange = (idx, visible) => {
+  if (!visible) assigneeQueries.value[idx] = ''
+}
+
+
 const onAttendeeSelect = (val) => {
   if(val) { 
     emit('toggle-attendee', val);
@@ -114,9 +143,11 @@ const onAttendeeSelect = (val) => {
             :disabled="employeeOptions.length === 0"
             @change="onAttendeeSelect"
             clearable
+            :filter-method="filterAttendee"
+            @visible-change="onAttendeeVisibleChange"
           >
             <el-option
-              v-for="emp in employeeOptions"
+              v-for="emp in filteredAttendeeOptions"
               :key="emp.value"
               :label="emp.label"
               :value="emp.value"
@@ -171,10 +202,12 @@ const onAttendeeSelect = (val) => {
           </el-table-column>
           
           <el-table-column :label="t('col_assignee')" min-width="220">
-            <template #default="{ row }">
-              <el-select v-model="row.assignee_display" filterable placeholder="Tìm người...">
+            <template #default="{ row, $index }">
+              <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..."
+                :filter-method="(q) => filterAssignee($index, q)"
+                @visible-change="(v) => onAssigneeVisibleChange($index, v)">
                 <el-option
-                  v-for="item in employeeOptions"
+                  v-for="item in getFilteredAssigneeOptions($index)"
                   :key="item.value"
                   :label="item.label"
                   :value="item.value"
