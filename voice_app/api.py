@@ -320,7 +320,9 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 full_text = " ".join(s.get("text", "") for s in segments)
                 
                 # STT Hoàn tất thành công, dọn dẹp file chunk
-                cleanup_chunk_files(meeting_name)
+                import shutil
+                try: shutil.rmtree(frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name))
+                except: pass
             else:
                 segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
                 if err:
