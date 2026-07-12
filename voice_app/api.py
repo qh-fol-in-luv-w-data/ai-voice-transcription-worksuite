@@ -22,28 +22,64 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
         frappe.throw("Thiếu file âm thanh")
 
     audio_file = frappe.request.files['file']
-    file_doc = frappe.get_doc({
-        "doctype": "File",
-        "file_name": audio_file.filename,
-        "is_private": 1,
-        "content": audio_file.read()
-    })
-    file_doc.insert(ignore_permissions=True)
     
-    file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
-    file_url = file_doc.file_url
+    # Tính hash để phát hiện upload lại cùng 1 file
+    import hashlib
+    content = audio_file.read()
+    content_hash = hashlib.md5(content).hexdigest()
+    audio_file.seek(0)
     
-    from datetime import datetime
-    meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-    meeting_doc = frappe.get_doc({
-        "doctype": "Voice Meeting",
-        "title": meeting_title,
-        "date": frappe.utils.now(),
-        "status": "Processing",
-        "audio_file": file_url,
-    })
-    meeting_doc.insert(ignore_permissions=True)
-    frappe.db.commit()
+    # Tìm xem file này đã upload chưa
+    existing_file = frappe.db.get_value("File", {"content_hash": content_hash}, "file_url")
+    if existing_file:
+        file_url = existing_file
+        file_path = frappe.get_site_path(file_url.strip('/'))
+        
+        # Tìm meeting history cũ
+        existing_meeting = frappe.get_all("Voice Meeting", filters={"audio_file": file_url}, fields=["name", "status"], order_by="creation desc", limit=1)
+        if existing_meeting:
+            m = existing_meeting[0]
+            if m.status in ("Error", "Partial Error", "Processing", "Pending"):
+                # Resume
+                frappe.db.set_value("Voice Meeting", m.name, "status", "Processing")
+                frappe.db.commit()
+                meeting_doc = frappe.get_doc("Voice Meeting", m.name)
+            else:
+                return {"status": "success", "meeting_name": m.name}
+        else:
+            from datetime import datetime
+            meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            meeting_doc = frappe.get_doc({
+                "doctype": "Voice Meeting",
+                "title": meeting_title,
+                "date": frappe.utils.now(),
+                "status": "Processing",
+                "audio_file": file_url,
+            })
+            meeting_doc.insert(ignore_permissions=True)
+            frappe.db.commit()
+    else:
+        file_doc = frappe.get_doc({
+            "doctype": "File",
+            "file_name": audio_file.filename,
+            "is_private": 1,
+            "content": content
+        })
+        file_doc.insert(ignore_permissions=True)
+        file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
+        file_url = file_doc.file_url
+        
+        from datetime import datetime
+        meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        meeting_doc = frappe.get_doc({
+            "doctype": "Voice Meeting",
+            "title": meeting_title,
+            "date": frappe.utils.now(),
+            "status": "Processing",
+            "audio_file": file_url,
+        })
+        meeting_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
     
     session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
 

@@ -289,7 +289,20 @@ const startExtractTasks = async () => {
     const res = await extractTasks(localSegments.value, modelType.value, props.meeting.name)
     if (res.status === 'processing') {
       extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
-      // Socket events will handle the rest
+      
+      // Fallback Polling if socket doesn't work
+      const pollTimer = setInterval(async () => {
+        if (!isExtracting.value) { clearInterval(pollTimer); return; }
+        try {
+          const statusRes = await callApi('check_extract_status', { meeting_name: props.meeting.name });
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
+          }
+        } catch(e) {}
+      }, 5000);
     } else if (res.status === 'success') {
       offSocketEvent("v2t_progress", handleProgress);
       offSocketEvent("v2t_result", handleResult);
