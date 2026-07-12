@@ -294,7 +294,7 @@ const startExtractTasks = async () => {
       const pollTimer = setInterval(async () => {
         if (!isExtracting.value) { clearInterval(pollTimer); return; }
         try {
-          const statusRes = await callApi('check_extract_status', { meeting_name: props.meeting.name });
+          const statusRes = await checkExtractStatus(props.meeting.name);
           if (statusRes.status === 'success' || statusRes.status === 'error') {
             clearInterval(pollTimer);
             handleResult(statusRes);

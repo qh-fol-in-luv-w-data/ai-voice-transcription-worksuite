@@ -308,7 +308,7 @@ const startTranscribe = async () => {
       const pollTimer = setInterval(async () => {
         if (!isTranscribing.value) { clearInterval(pollTimer); return; }
         try {
-          const statusRes = await callApi('check_meeting_status', { meeting_name: res.meeting_name });
+          const statusRes = await checkMeetingStatus(res.meeting_name);
           if (statusRes.status === 'success' || statusRes.status === 'error') {
             clearInterval(pollTimer);
             handleResult(statusRes);
@@ -411,7 +411,7 @@ const startExtractTasks = async () => {
       const pollTimer = setInterval(async () => {
         if (!isExtracting.value) { clearInterval(pollTimer); return; }
         try {
-          const statusRes = await callApi('check_extract_status', { meeting_name: currentMeetingName.value });
+          const statusRes = await checkExtractStatus(currentMeetingName.value);
           if (statusRes.status === 'success' || statusRes.status === 'error') {
             clearInterval(pollTimer);
             handleResult(statusRes);
