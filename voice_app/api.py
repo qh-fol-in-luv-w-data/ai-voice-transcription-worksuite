@@ -1695,7 +1695,7 @@ def resume_transcription(meeting_name):
         
         frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Processing", "error_message": ""})
         frappe.db.commit()
-        
+       
         # Get attached audio
         files = frappe.get_all("File", filters={"attached_to_doctype": "Voice Meeting", "attached_to_name": meeting_name}, fields=["file_url"])
         if not files:
