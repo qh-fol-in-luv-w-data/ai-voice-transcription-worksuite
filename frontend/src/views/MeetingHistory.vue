@@ -166,7 +166,7 @@ const uniqueSpeakers = computed(() => {
 
 const employeeOptions = computed(() =>
   dbEmployees.value.map(emp => ({
-    value: emp.employee_name,
+    value: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - '),
     label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
   }))
 )

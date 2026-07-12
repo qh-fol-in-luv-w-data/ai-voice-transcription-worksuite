@@ -73,7 +73,7 @@ export const dict = {
     transcript_desc: "Nội dung cuộc họp và danh tính người nói.",
     empty_audio: "Chưa có dữ liệu âm thanh nào được tải lên...",
     task_list: "Danh sách Nhiệm vụ",
-    task_desc: "Kiểm tra và hiệu chỉnh trước khi đồng bộ lên hệ thống ERPNext.",
+    task_desc: "Kiểm tra và hiệu chỉnh trước khi đồng bộ lên hệ thống Worksuite.",
     export_xlsx: "Xuất Task",
     export_docx: "Xuất Biên bản họp",
     add_task: "Thêm Task",
@@ -84,12 +84,12 @@ export const dict = {
     col_due: "Hạn chót",
     col_desc: "Mô tả chi tiết",
     col_del: "Xóa",
-    btn_sync: "Đồng bộ lên ERPNext",
+    btn_sync: "Đồng bộ lên Worksuite",
     status_transcribe_wait: "⏳ Đang khởi tạo máy chủ phân tích...",
     status_transcribe_ok: "✅ Dịch và nhận diện thành công!",
     status_extract_wait: "⏳ Đang trích xuất nhiệm vụ qua AI...",
     status_extract_ok: "✅ Trích xuất nhiệm vụ thành công!",
-    status_sync_wait: "⏳ Đang đồng bộ dữ liệu lên ERPNext...",
+    status_sync_wait: "⏳ Đang đồng bộ dữ liệu lên Worksuite...",
     status_sync_ok: (c, e) => `✅ Đã đồng bộ: ${c} nhiệm vụ. Lỗi: ${e}`,
     status_sync_fail: "❌ Đồng bộ thất bại: ",
     alert_no_file: "Vui lòng chọn file âm thanh!",
@@ -129,7 +129,7 @@ export const dict = {
     transcript_desc: "Meeting content and speaker identities.",
     empty_audio: "No audio data uploaded yet...",
     task_list: "Task List",
-    task_desc: "Review and edit before syncing to ERPNext system.",
+    task_desc: "Review and edit before syncing to Worksuite system.",
     export_xlsx: "Export Task",
     export_docx: "Export Minutes",
     add_task: "Add Task",
@@ -140,12 +140,12 @@ export const dict = {
     col_due: "Due Date",
     col_description: "Description",
     col_del: "Delete",
-    btn_sync: "Sync to ERPNext",
+    btn_sync: "Sync to Worksuite",
     status_transcribe_wait: "⏳ Initializing analysis server...",
     status_transcribe_ok: "✅ Translation and identification successful!",
     status_extract_wait: "⏳ Extracting tasks via AI...",
     status_extract_ok: "✅ Tasks extracted successfully!",
-    status_sync_wait: "⏳ Syncing data to ERPNext...",
+    status_sync_wait: "⏳ Syncing data to Worksuite...",
     status_sync_ok: (c, e) => `✅ Synced: ${c} tasks. Errors: ${e}`,
     status_sync_fail: "❌ Sync failed: ",
     alert_no_file: "Please select an audio file!",
@@ -196,11 +196,11 @@ export const loadHistory = async () => {
 export const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
   activeTab.value = 'view_meeting'
-  
+
   if (meeting.tasks_json) {
     try {
-      tasks.value = typeof meeting.tasks_json === 'string' 
-        ? JSON.parse(meeting.tasks_json) 
+      tasks.value = typeof meeting.tasks_json === 'string'
+        ? JSON.parse(meeting.tasks_json)
         : meeting.tasks_json
     } catch (e) {
       console.error("Failed to parse tasks_json", e)
