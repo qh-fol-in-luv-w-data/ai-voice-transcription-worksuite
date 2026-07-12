@@ -466,7 +466,7 @@ def _words_to_segments(raw_words):
     return segments
 
 
-def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None,
+def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi", num_speakers: int = None,
                     custom_vocabulary: str = "", progress_callback=None, existing_segments=None):
     """
     Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
@@ -483,12 +483,10 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
 
     try:
         from .audio_utils import split_audio_by_silence
-        duration = get_duration(wav_path)
-        print(f"[Gemini STT] File {duration:.1f}s, lang={language}, speakers={num_speakers}")
+        print(f"[Gemini STT] Xử lý {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
 
-        # Cắt thành chunk 30 phút (tối đa 35 phút)
-        chunks = split_audio_by_silence(wav_path, chunk_length_sec=1800.0, max_chunk_sec=2100.0)
+        chunks = chunks_info
         if progress_callback:
             progress_callback(20, f"Đang xử lý song song {len(chunks)} đoạn âm thanh...")
 
@@ -547,12 +545,10 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 finally:
                     if not (chunk_error == "HALLUCINATION_DETECTED" and not is_subchunk):
                         _delete_file(file_name, api_key)
-                        if current_wav != wav_path and current_wav != original_chunk_wav:
+                        if current_wav != original_chunk_wav:
                             try: os.remove(current_wav)
                             except: pass
-                        if not is_subchunk and original_chunk_wav != wav_path:
-                            try: os.remove(original_chunk_wav)
-                            except: pass
+                        # Do NOT remove original_chunk_wav, handled by api.py Voice Meeting Chunk records
 
                 if not gemini_segments:
                     return idx, [], [], "", chunk_usage, None
