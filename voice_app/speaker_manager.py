@@ -182,7 +182,7 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
             args,
             capture_output=True,
             text=True,
-            timeout=180,  # 3 phút timeout cho lần đầu load model
+            timeout=60,
         )
     except subprocess.TimeoutExpired as e:
         stderr_log = e.stderr[-2000:] if e.stderr else "None"
