@@ -217,22 +217,31 @@ def _transcribe_audio_async(file_path, file_url, filter_speakers, stt_mode, meet
                 
                 chunks_to_process = [c for c in chunks_info if c["status"] in ("Pending", "Error")]
                 
+                site_name = frappe.local.site
                 def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks):
-                    if c_status == "Processing":
-                        frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
-                    elif c_status == "Completed":
-                        frappe.db.set_value("Voice Meeting Chunk", c_name, {
-                            "status": "Completed",
-                            "raw_segments": json.dumps({"segments": c_segs, "raw_words": c_words}, ensure_ascii=False),
-                            "tokens_used": c_toks,
-                            "error_message": ""
-                        })
-                    elif c_status == "Error":
-                        frappe.db.set_value("Voice Meeting Chunk", c_name, {
-                            "status": "Error",
-                            "error_message": c_err
-                        })
-                    frappe.db.commit()
+                    import frappe
+                    try:
+                        frappe.init(site_name)
+                        frappe.connect()
+                        if c_status == "Processing":
+                            frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
+                        elif c_status == "Completed":
+                            frappe.db.set_value("Voice Meeting Chunk", c_name, {
+                                "status": "Completed",
+                                "raw_segments": json.dumps({"segments": c_segs, "raw_words": c_words}, ensure_ascii=False),
+                                "tokens_used": c_toks,
+                                "error_message": ""
+                            })
+                        elif c_status == "Error":
+                            frappe.db.set_value("Voice Meeting Chunk", c_name, {
+                                "status": "Error",
+                                "error_message": c_err
+                            })
+                        frappe.db.commit()
+                    except Exception as e:
+                        print(f"Error in chunk_update_cb: {e}")
+                    finally:
+                        frappe.destroy()
 
                 err, el_chars_used, el_chars_remaining = None, 0, 0
                 if chunks_to_process:
