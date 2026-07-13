@@ -1,5 +1,12 @@
 import os
 import frappe
+from dotenv import load_dotenv
+
+# Try to load .env from bench directory
+try:
+    load_dotenv(os.path.join(frappe.utils.get_bench_path(), ".env"))
+except Exception:
+    pass
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 def get_whisper_url():
