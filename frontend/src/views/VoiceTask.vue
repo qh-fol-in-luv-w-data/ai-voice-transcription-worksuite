@@ -5,7 +5,6 @@ import { voiceToTask, syncTasksToERP } from '../api'
 import { useSession } from '../utils/session'
 import { dict, uiLang, dbEmployees } from '../composables/useVoiceApp'
 import { Microphone, VideoPause, Folder, Position, Warning, EditPen, Delete } from '@element-plus/icons-vue'
-import { onSocketEvent, offSocketEvent } from '../utils/socket.js'
 
 const { currentUser } = useSession()
 const t = (key) => dict[uiLang.value][key] || key
@@ -119,44 +118,17 @@ const submitVoiceTask = async () => {
   voiceTaskClarification.value = ''
   voiceTaskMissingFields.value = []
 
-  const handleProgress = (data) => {
-    if (data.msg) voiceTaskStatus.value = `${data.progress || 0}% - ${data.msg}`
-  }
-  const handleResult = (data) => {
-    offSocketEvent('v2t_progress', handleProgress)
-    offSocketEvent('v2t_result', handleResult)
-    isVoiceTaskProcessing.value = false
-    if (data.status === 'success') {
-      applyVoiceTaskResult(data)
-    } else {
-      voiceTaskStatus.value = '❌ Lỗi: ' + (data.message || 'Không rõ lỗi')
-    }
-  }
-
-  onSocketEvent('v2t_progress', handleProgress)
-  onSocketEvent('v2t_result', handleResult)
-
   try {
     const res = await voiceToTask(voiceTaskAudioFile.value)
-    if (res.status === 'processing') {
-      voiceTaskStatus.value = '⏳ Đang xử lý âm thanh...'
-      // kết quả sẽ đến qua socket v2t_result
-    } else if (res.status === 'success') {
-      offSocketEvent('v2t_progress', handleProgress)
-      offSocketEvent('v2t_result', handleResult)
-      isVoiceTaskProcessing.value = false
+    if (res.status === 'success') {
       applyVoiceTaskResult(res)
     } else {
-      offSocketEvent('v2t_progress', handleProgress)
-      offSocketEvent('v2t_result', handleResult)
-      isVoiceTaskProcessing.value = false
       voiceTaskStatus.value = '❌ Lỗi: ' + (res.message || 'Không rõ lỗi')
     }
   } catch(e) {
-    offSocketEvent('v2t_progress', handleProgress)
-    offSocketEvent('v2t_result', handleResult)
-    isVoiceTaskProcessing.value = false
     voiceTaskStatus.value = '❌ Lỗi: ' + t('error_connect')
+  } finally {
+    isVoiceTaskProcessing.value = false
   }
 }
 
@@ -206,51 +178,20 @@ const submitVoiceTaskRefine = async () => {
   isVoiceTaskProcessing.value = true
   voiceTaskStatus.value = t('voice_task_parsing')
 
-  const prevTranscript = voiceTaskTranscript.value
-
-  const handleProgress = (data) => {
-    if (data.msg) voiceTaskStatus.value = `${data.progress || 0}% - ${data.msg}`
-  }
-  const handleResult = (data) => {
-    offSocketEvent('v2t_progress', handleProgress)
-    offSocketEvent('v2t_result', handleResult)
-    isVoiceTaskProcessing.value = false
-    if (data.status === 'success') {
-      voiceTaskTranscript.value = prevTranscript + (data.transcript ? ` -> ${data.transcript}` : '')
-      applyVoiceTaskResult(data)
-      voiceTaskRefineAudioFile.value = null
-      voiceTaskRefineRecordedUrl.value = ''
-    } else {
-      voiceTaskStatus.value = '❌ Lỗi: ' + (data.message || 'Không rõ lỗi')
-    }
-  }
-
-  onSocketEvent('v2t_progress', handleProgress)
-  onSocketEvent('v2t_result', handleResult)
-
   try {
     const res = await voiceToTask(voiceTaskRefineAudioFile.value, parsedVoiceTask.value)
-    if (res.status === 'processing') {
-      voiceTaskStatus.value = '⏳ Đang xử lý âm thanh...'
-    } else if (res.status === 'success') {
-      offSocketEvent('v2t_progress', handleProgress)
-      offSocketEvent('v2t_result', handleResult)
-      isVoiceTaskProcessing.value = false
-      voiceTaskTranscript.value = prevTranscript + (res.transcript ? ` -> ${res.transcript}` : '')
+    if (res.status === 'success') {
+      voiceTaskTranscript.value += (res.transcript ? ` -> ${res.transcript}` : '')
       applyVoiceTaskResult(res)
       voiceTaskRefineAudioFile.value = null
       voiceTaskRefineRecordedUrl.value = ''
     } else {
-      offSocketEvent('v2t_progress', handleProgress)
-      offSocketEvent('v2t_result', handleResult)
-      isVoiceTaskProcessing.value = false
       voiceTaskStatus.value = '❌ Lỗi: ' + (res.message || 'Không rõ lỗi')
     }
   } catch(e) {
-    offSocketEvent('v2t_progress', handleProgress)
-    offSocketEvent('v2t_result', handleResult)
-    isVoiceTaskProcessing.value = false
     voiceTaskStatus.value = '❌ Lỗi: ' + t('error_connect')
+  } finally {
+    isVoiceTaskProcessing.value = false
   }
 }
 
