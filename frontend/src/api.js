@@ -17,13 +17,10 @@ api.interceptors.request.use(config => {
   return config;
 })
 
-export async function transcribeAudio(file, language, filterSpeakers = null, sttMode = 'google', numSpeakers = null, customVocabulary = '') {
+export async function transcribeAudio(file, filterSpeakers = null, sttMode = 'google') {
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('language', language)
   formData.append('stt_mode', sttMode)
-  if (numSpeakers) formData.append('num_speakers', numSpeakers)
-  if (customVocabulary) formData.append('custom_vocabulary', customVocabulary)
   if (filterSpeakers && filterSpeakers.length > 0) {
     formData.append('filter_speakers', JSON.stringify(filterSpeakers))
   }
@@ -179,6 +176,22 @@ export async function resumeTranscription(meetingName) {
 export async function undoMapping(meetingName) {
   const res = await api.post('/api/method/voice_app.api.undo_mapping', {
     meeting_name: meetingName
+  })
+  return res.data.message
+}
+
+export async function getGlobalVocabulary() {
+  const res = await api.get('/api/method/voice_app.api.get_global_vocabulary')
+  // Frappe whitelist with a dict returns { message: { status: "success", message: "..." } }
+  if (res.data.message && typeof res.data.message === 'object') {
+    return res.data.message.message
+  }
+  return res.data.message
+}
+
+export async function saveGlobalVocabulary(vocabulary) {
+  const res = await api.post('/api/method/voice_app.api.save_global_vocabulary', {
+    vocabulary: vocabulary
   })
   return res.data.message
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   audioFile, language, modelType, isTranscribing, transcribeStatus, transcriptResults,
   isCleaned, transcriptText, isExtracting, extractStatus, isCleaning,
@@ -7,7 +7,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -30,11 +30,36 @@ const undoAction = async () => {
 }
 
 
-const numAttendees = ref(0)
-const vocabulary = ref('')
+const globalVocabulary = ref('')
 const meetingDate = ref(new Date().toLocaleString('vi-VN', { hour12: false }))
 const meetingLocation = ref('')
 const hostId = ref('')
+
+const defaultVocab = `Tập đoàn: CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, Modulex, GASCO, DAIT, VGCT, CCTPA, Carbondo, Airbility
+Dự án/tòa nhà: M1, M2, M3, Metrostar, Simland, Minh Hưng Quảng Trị
+Hệ thống: 2AS, Worksuite, iMaster, ERP, CRM, NDT15, LAE, LAE 1, OSAT, CarbonFly, green bond, carbon credit, eVTOL, LiDAR
+AI/Tech: AI, AGI, LLM, GPT, ChatGPT, Claude, Gemini, ElevenLabs, RAG, vector, embedding, fine-tuning, diarization
+Tài chính: green bond, CCTPA, carbon credit, ESG, IPO, M&A`
+
+onMounted(async () => {
+  try {
+    const vocab = await getGlobalVocabulary()
+    globalVocabulary.value = vocab || defaultVocab
+    if (!vocab) {
+       await saveGlobalVocabulary(defaultVocab)
+    }
+  } catch (e) {
+    console.error('Failed to load global vocabulary', e)
+  }
+})
+
+const handleSaveVocabulary = async () => {
+  try {
+    await saveGlobalVocabulary(globalVocabulary.value)
+  } catch (e) {
+    console.error('Failed to save global vocabulary', e)
+  }
+}
 
 // ── ADMIN CHECK ────────────────────────────────────────────────────────────
 const isAdmin = computed(() => {
@@ -248,12 +273,6 @@ const enrollMapped = async () => {
   finally { isEnrollingMapped.value = false }
 }
 
-const languages = [
-  { val: 'vi', label: 'Tiếng Việt' }, { val: 'en', label: 'English' },
-  { val: 'ja', label: '日本語' }, { val: 'zh', label: '中文' },
-  { val: 'ko', label: '한국어' }, { val: 'auto', label: 'Auto detect' }
-]
-
 const handleFileChange = (e) => { if (e.target.files.length > 0) audioFile.value = e.target.files[0] }
 const audioUrl = computed(() => audioFile.value ? URL.createObjectURL(audioFile.value) : null)
 
@@ -299,7 +318,7 @@ const startTranscribe = async () => {
   onSocketEvent("transcribe_result", handleResult);
 
   try {
-    const res = await transcribeAudio(audioFile.value, language.value)
+    const res = await transcribeAudio(audioFile.value)
     if (res.status === 'processing' && res.meeting_name) {
       currentMeetingName.value = res.meeting_name
       transcribeStatus.value = '⏳ Đang phân tích...';
@@ -420,26 +439,36 @@ const startExtractTasks = async () => {
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
-      <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group flex-1 min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
-        <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-        <div class="relative mb-4">
-          <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
-        </div>
-        <p class="font-body-md text-gray-900 dark:text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
-        <div v-if="audioFile" class="flex items-center gap-2 bg-white dark:bg-surface px-3 py-1.5 rounded-full border border-gray-300 dark:border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
-           <span class="font-body-sm text-gray-900 dark:text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
-           <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-gray-500 cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
-        </div>
-        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 dark:bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
-          <div class="w-full space-y-2">
-            <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
-              <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
-            </div>
-            <div class="flex justify-between items-center text-xs font-medium text-on-surface-variant">
-              <span>{{ transcribeProgress }}%</span>
-              <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px] animate-spin">autorenew</span> {{ transcribeStatus || 'Processing...' }}</span>
+      <div class="flex flex-col gap-4 flex-1">
+        <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
+          <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+          <div class="relative mb-4">
+            <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
+          </div>
+          <p class="font-body-md text-gray-900 dark:text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
+          <div v-if="audioFile" class="flex items-center gap-2 bg-white dark:bg-surface px-3 py-1.5 rounded-full border border-gray-300 dark:border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
+             <span class="font-body-sm text-gray-900 dark:text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
+             <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-gray-500 cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
+          </div>
+          <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 dark:bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
+            <div class="w-full space-y-2">
+              <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
+                <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
+              </div>
+              <div class="flex justify-between items-center text-xs font-medium text-on-surface-variant">
+                <span>{{ transcribeProgress }}%</span>
+                <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px] animate-spin">autorenew</span> {{ transcribeStatus || 'Processing...' }}</span>
+              </div>
             </div>
           </div>
+        </div>
+
+        <div class="flex flex-col flex-1">
+          <div class="flex justify-between items-center mb-1">
+             <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
+             <button @click="handleSaveVocabulary" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20 transition-colors font-bold">Lưu</button>
+          </div>
+          <textarea v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
         </div>
       </div>
 
@@ -485,32 +514,12 @@ const startExtractTasks = async () => {
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md">Meeting Details</h2>
       <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Language</label>
-         <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
-             <el-select v-model="language" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;">
-                <el-option v-for="l in languages" :key="l.val" :label="l.label" :value="l.val" />
-             </el-select>
-         </div>
-      </div>
-      <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Participants</label>
-         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors">
-      </div>
-      <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords</label>
-         <textarea v-model="vocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
-      </div>
-      <div class="space-y-1 mb-4">
          <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Date</label>
          <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
             <el-date-picker v-model="meetingDate" type="datetime" format="DD/MM/YYYY HH:mm" placeholder="08/07/2026 17:51" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;" />
          </div>
       </div>
-      <div class="flex-1 mb-3">
-         <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
-         <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
-      </div>
-      <div class="flex-1">
+      <div class="mb-3">
          <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Host</label>
          <div class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-1 py-1 transition-colors overflow-hidden">
             <el-select v-model="hostId" filterable placeholder="Chọn người chủ trì..." class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;" fit-input-width>
@@ -519,6 +528,10 @@ const startExtractTasks = async () => {
                </el-option>
             </el-select>
          </div>
+      </div>
+      <div class="mb-3">
+         <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
+         <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
       </div>
     </div>
   </div>

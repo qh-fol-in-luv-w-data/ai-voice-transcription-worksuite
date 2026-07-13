@@ -17,7 +17,7 @@ from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 _logger = ActivityLogger("VOICE", "voice_app")
 
 @frappe.whitelist(allow_guest=False)
-def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num_speakers=None, custom_vocabulary=""):
+def transcribe_audio(filter_speakers=None, stt_mode="google"):
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
 
@@ -53,11 +53,8 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
         timeout=3600,
         file_path=file_path,
         file_url=file_url,
-        language=language,
         filter_speakers=filter_speakers,
         stt_mode=stt_mode,
-        num_speakers=num_speakers,
-        custom_vocabulary=custom_vocabulary,
         meeting_name=meeting_doc.name,
         session_id_header=session_id_header
     )
@@ -124,7 +121,7 @@ def check_meeting_status(meeting_name):
         return {"status": "processing", "meeting_name": meeting.name, "progress_info": progress_info}
 
 
-def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_mode, num_speakers, custom_vocabulary, meeting_name, session_id_header):
+def _transcribe_audio_async(file_path, file_url, filter_speakers, stt_mode, meeting_name, session_id_header):
     try:
     
     
@@ -165,20 +162,17 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
 
                 frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
-            # Xác định num_speakers: ưu tiên user nhập → filter_speakers count → None
             auto_num_speakers = None
-            if num_speakers:
-                try:
-                    auto_num_speakers = int(num_speakers)
-                except Exception:
-                    pass
-            if not auto_num_speakers and filter_speakers:
+            if filter_speakers:
                 try:
                     names = json.loads(filter_speakers)
                     if isinstance(names, list) and len(names) >= 2:
                         auto_num_speakers = len(names)
                 except Exception:
                     pass
+                    
+            global_vocabulary = frappe.db.get_single_value("Voice App Settings", "global_vocabulary") or ""
+            language = "vi"
     
             # Call STT theo mode
             def stt_cb(percent, msg):
@@ -245,7 +239,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                     _segs, _raw, _txt, err, el_chars_used, el_chars_remaining = call_gemini_stt(
                         chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
                         language=language, num_speakers=auto_num_speakers, 
-                        custom_vocabulary=custom_vocabulary, progress_callback=stt_cb
+                        custom_vocabulary=global_vocabulary, progress_callback=stt_cb
                     )
                 
                 segments = []
@@ -281,7 +275,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 # STT Hoàn tất thành công, dọn dẹp file chunk
                 cleanup_chunk_files(meeting_name)
             else:
-                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=global_vocabulary)
                 if err:
                     frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
@@ -1733,5 +1727,22 @@ def undo_mapping(meeting_name):
         frappe.db.commit()
         
         return {"status": "success", "results": json.loads(meeting_doc.original_raw_results)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@frappe.whitelist()
+def get_global_vocabulary():
+    try:
+        vocab = frappe.db.get_single_value("Voice App Settings", "global_vocabulary")
+        return {"status": "success", "message": vocab or ""}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@frappe.whitelist()
+def save_global_vocabulary(vocabulary):
+    try:
+        frappe.db.set_value("Voice App Settings", None, "global_vocabulary", vocabulary)
+        frappe.db.commit()
+        return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}

@@ -331,7 +331,7 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
         if num_speakers else
         "Cuộc họp có thể có nhiều người tham dự."
     )
-    custom_vocab_note = f"\nTừ vựng người dùng bổ sung: {custom_vocabulary}" if custom_vocabulary else ""
+    custom_vocab_note = f"\n{custom_vocabulary}" if custom_vocabulary else ""
 
     return f"""Bạn là chuyên gia phiên âm và biên tập biên bản họp. Nhiệm vụ: xử lý file ghi âm cuộc họp nội bộ bằng {lang_note} và trả ra transcript đã được làm sạch hoàn toàn.
 
@@ -359,12 +359,7 @@ Chỉ xoá các từ/âm KHÔNG mang thông tin BÊN TRONG câu, KHÔNG được
 - TUYỆT ĐỐI GIỮ ĐÚNG NGHĨA GỐC — không thêm, không bịa, không suy diễn, không tóm tắt
 - Giữ code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh)
 
-━━━ TỪ VỰNG ĐẶC BIỆT (nhận dạng chính xác) ━━━
-Tập đoàn: CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, Modulex, GASCO, DAIT, VGCT, CCTPA, Carbondo, Airbility
-Dự án/tòa nhà: M1, M2, M3, Metrostar, Simland, Minh Hưng Quảng Trị
-Hệ thống: 2AS, Worksuite, iMaster, ERP, CRM, NDT15, LAE, LAE 1, OSAT, CarbonFly, green bond, carbon credit, eVTOL, LiDAR
-AI/Tech: AI, AGI, LLM, GPT, ChatGPT, Claude, Gemini, ElevenLabs, RAG, vector, embedding, fine-tuning, diarization
-Tài chính: green bond, CCTPA, carbon credit, ESG, IPO, M&A{custom_vocab_note}
+━━━ TỪ VỰNG ĐẶC BIỆT (nhận dạng chính xác) ━━━{custom_vocab_note}
 
 ━━━ OUTPUT FORMAT ━━━
 Trả về JSON array thuần (KHÔNG markdown, KHÔNG giải thích, KHÔNG text ngoài JSON):
