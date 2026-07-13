@@ -349,8 +349,28 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             el_speakers = set(s["speaker_id"] for s in segments)
             print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
     
+            # ── EXTRACT ALL SEGMENT EMBEDDINGS (BATCH) ──
+            update_progress(100, "Đã dịch xong văn bản!", 10, "Đang trích xuất đặc trưng cho từng câu thoại...")
+            from voice_app.speaker_manager import _extract_embeddings_batch_subprocess, SpeakerDB
+            import numpy as np
+
+            try:
+                segments_for_batch = [{"start": seg["start"], "end": seg["end"]} for seg in segments]
+                batch_embeddings = _extract_embeddings_batch_subprocess(wav, segments_for_batch)
+                if batch_embeddings and len(batch_embeddings) == len(segments):
+                    for i, emb in enumerate(batch_embeddings):
+                        if emb is not None:
+                            # Normalize L2 (cosine sim requires normalized vector)
+                            emb_np = np.array(emb)
+                            norm = np.linalg.norm(emb_np)
+                            if norm > 0:
+                                emb_np = emb_np / norm
+                            segments[i]["embedding"] = emb_np.tolist()
+            except Exception as e:
+                print(f"Lỗi extract batch embedding cho segments: {e}")
+
             # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
-            update_progress(100, "Đã dịch xong văn bản!", 10, "Bắt đầu trích xuất đặc trưng giọng nói...")
+            update_progress(100, "Đã dịch xong văn bản!", 20, "Bắt đầu nhận diện người nói...")
             spk_db = SpeakerDB()
             unique_speakers = {}
             for seg in segments:
@@ -1115,9 +1135,105 @@ def update_transcript_text():
         return {"status": "success", "final_text": final_text}
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Update Transcript Error")
+
+@frappe.whitelist(allow_guest=False)
+def reassign_speaker_from_segment():
+    """
+    Endpoint: /api/method/voice_app.api.reassign_speaker_from_segment
+    Lấy embedding có sẵn từ segment tại segment_index, gán làm giọng chuẩn cho new_speaker_name,
+    sau đó tự động quét tất cả các segment khác bằng cách so sánh cosine similarity.
+    """
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    
+    meeting_name = payload.get("meeting_name")
+    segment_index = payload.get("segment_index")
+    new_speaker_name = payload.get("new_speaker_name")
+    
+    if not meeting_name or segment_index is None or not new_speaker_name:
+        return {"status": "error", "message": "Thiếu tham số bắt buộc"}
+        
+    try:
+        # Check by pk or title
+        doc_name = meeting_name
+        if not frappe.db.exists("Voice Meeting", doc_name):
+            title_doc = frappe.db.get_value("Voice Meeting", {"title": meeting_name, "owner": frappe.session.user}, "name")
+            if title_doc:
+                doc_name = title_doc
+            else:
+                return {"status": "error", "message": "Không tìm thấy meeting"}
+                
+        meeting_owner = frappe.db.get_value("Voice Meeting", doc_name, "owner")
+        if meeting_owner != frappe.session.user:
+            return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+            
+        raw_results = frappe.db.get_value("Voice Meeting", doc_name, "raw_results")
+        if not raw_results:
+            return {"status": "error", "message": "Không có dữ liệu hội thoại"}
+            
+        segments = json.loads(raw_results)
+        
+        if segment_index < 0 or segment_index >= len(segments):
+            return {"status": "error", "message": "Vị trí segment không hợp lệ"}
+            
+        target_seg = segments[segment_index]
+        emb_data = target_seg.get("embedding")
+        if not emb_data:
+            return {"status": "error", "message": "Hội thoại này không chứa thông tin đặc trưng giọng nói (chưa được xử lý với phiên bản mới). Hãy thực hiện 'Hủy & Quét lại file gốc'."}
+            
+        import numpy as np
+        from scipy.spatial.distance import cosine as cos_dist
+        from voice_app.speaker_manager import SpeakerDB
+        
+        # Đăng ký mẫu giọng
+        spk_db = SpeakerDB()
+        emb_np = np.array(emb_data)
+        spk_db.add_speaker(new_speaker_name, emb_np)
+        
+        # Quét lại các segments khác
+        SIMILARITY_THRESHOLD = 0.65
+        changed_count = 0
+        
+        for i, seg in enumerate(segments):
+            if i == segment_index:
+                if seg.get("speaker") != new_speaker_name:
+                    seg["speaker"] = new_speaker_name
+                    changed_count += 1
+                continue
+                
+            seg_emb_data = seg.get("embedding")
+            if not seg_emb_data:
+                continue
+                
+            seg_emb_np = np.array(seg_emb_data)
+            try:
+                sim = 1 - cos_dist(emb_np, seg_emb_np)
+                if sim >= SIMILARITY_THRESHOLD:
+                    if seg.get("speaker") != new_speaker_name:
+                        seg["speaker"] = new_speaker_name
+                        changed_count += 1
+            except Exception:
+                pass
+                
+        # Cập nhật lại transcript full_text
+        final_text = " ".join([seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip()])
+        
+        frappe.db.set_value("Voice Meeting", doc_name, {
+            "raw_results": json.dumps(segments, ensure_ascii=False),
+            "transcript": final_text
+        })
+        frappe.db.commit()
+        
+        return {
+            "status": "success", 
+            "message": f"Đã quét xong. Đổi tên {changed_count} đoạn hội thoại thành {new_speaker_name}.",
+            "changed_count": changed_count,
+            "results": segments
+        }
+    except Exception as e:
+        import traceback
+        frappe.log_error(traceback.format_exc(), "Reassign Speaker Error")
         return {"status": "error", "message": str(e)}
-
-
 
 @frappe.whitelist(allow_guest=False)
 def sync_tasks_to_erp():
