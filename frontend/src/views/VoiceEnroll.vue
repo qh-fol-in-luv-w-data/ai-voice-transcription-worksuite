@@ -68,7 +68,11 @@ const localSubmitEnrollment = async () => {
   
   try {
     const msg = await enrollVoice(localEnrollAudioFile.value)
-    localEnrollStatus.value = "✅ " + msg
+    if (msg && msg.message) {
+      localEnrollStatus.value = "✅ " + msg.message
+    } else {
+      localEnrollStatus.value = "✅ " + msg
+    }
   } catch(e) {
     if (e.response?.data?.message) {
       localEnrollStatus.value = "❌ " + e.response.data.message
