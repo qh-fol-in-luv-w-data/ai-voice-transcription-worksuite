@@ -175,17 +175,40 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
 
             num_old_rows = len(attendee_table.rows)
 
+            # Thêm hàng tiêu đề (Header)
+            header_cells = attendee_table.add_row().cells
+            header_cells[0].text = "STT"
+            header_cells[1].text = "Người tham dự"
+            if len(header_cells) > 2:
+                header_cells[2].text = "Chức vụ"
+            for cell in header_cells:
+                apply_font_to_cell(cell, 12)
+                for p in cell.paragraphs:
+                    for r in p.runs:
+                        r.bold = True
+
             # Thêm các hàng mới với font Times New Roman 12
             for i, spk_name in enumerate(unique_speakers):
                 row_cells = attendee_table.add_row().cells
                 row_cells[0].text = f"{i + 1}."
                 
                 spk_display = spk_name
-                designation_display = (
-                    speaker_roles.get(spk_name)
-                    or roles_lower.get(spk_name.lower())
-                    or "Thành viên"
-                )
+                
+                desg = speaker_roles.get(spk_name) or roles_lower.get(spk_name.lower())
+                
+                # Fetch directly from Employee if not in speaker_roles
+                if not desg and not spk_name.lower().startswith("người lạ"):
+                    try:
+                        db_desg = frappe.db.get_value("Employee", {"employee_name": spk_name}, "designation")
+                        if db_desg:
+                            desg = db_desg
+                    except Exception:
+                        pass
+                
+                if spk_name.lower().startswith("người lạ"):
+                    designation_display = desg or "Khách"
+                else:
+                    designation_display = desg or ""
                 
                 parts = spk_name.split(" - ")
                 if len(parts) == 3 and "@" in parts[1]:

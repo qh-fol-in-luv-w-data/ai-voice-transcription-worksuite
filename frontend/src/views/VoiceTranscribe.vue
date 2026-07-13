@@ -529,7 +529,7 @@ const startExtractTasks = async () => {
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
       <div class="flex flex-col gap-4 flex-1">
-        <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
+        <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group min-h-[150px] flex-1 overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
           <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
           <div class="relative mb-4">
             <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
