@@ -286,12 +286,15 @@ const startTranscribe = async () => {
     offSocketEvent("transcribe_result", handleResult);
     
     if (data.status === 'success') {
-      transcribeProgress.value = 100; transcribeStatus.value = t('status_transcribe_ok')
+      transcribeProgress.value = 100;
+      transcribeStatus.value = t('status_transcribe_ok');
       transcriptResults.value = data.results; originalTranscriptResults.value = [...data.results]
       isCleaned.value = false; transcriptText.value = data.final_text
       dbEmployees.value = data.employees || []; loadHistory(); isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 3000);
     } else {
       transcribeStatus.value = '❌ Error: ' + data.message; isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 5000);
     }
   };
 
@@ -321,15 +324,18 @@ const startTranscribe = async () => {
     } else if (res.status === 'success') {
       offSocketEvent("transcribe_progress", handleProgress);
       offSocketEvent("transcribe_result", handleResult);
+      transcribeProgress.value = 100;
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results; originalTranscriptResults.value = [...res.results]
       isCleaned.value = false; transcriptText.value = res.final_text
       dbEmployees.value = res.employees || []; currentMeetingName.value = res.meeting_name || null
       if (res.meeting_name) loadHistory(); isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 3000);
     } else { 
       offSocketEvent("transcribe_progress", handleProgress);
       offSocketEvent("transcribe_result", handleResult);
       transcribeStatus.value = '❌ Error: ' + res.message; isTranscribing.value = false 
+      setTimeout(() => { transcribeStatus.value = '' }, 5000);
     }
   } catch (e) { 
     offSocketEvent("transcribe_progress", handleProgress);
