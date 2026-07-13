@@ -1619,16 +1619,23 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
         # Lấy danh sách dự án và nhân viên từ ERPNext
         from voice_app.constants import get_worksuite_url, get_worksuite_token
         BASE_URL = get_worksuite_url()
-        
-        
+
         from voice_app.constants import get_openai_api_key
         OPENAI_API_KEY = get_openai_api_key()
         from openai import OpenAI
         from datetime import datetime, timedelta
         from voice_app.utils.activity_logger import Timer
-        
+
+        # Load worksuite credentials from Voice App Settings
+        try:
+            _vas = frappe.get_doc("Voice App Settings")
+            WS_EMAIL = _vas.worksuite_email or ""
+            WS_PASSWORD = _vas.get_password("worksuite_password") or ""
+        except Exception:
+            WS_EMAIL = ""
+            WS_PASSWORD = ""
+
         projects = []
-        employees = []
         employees = []
         try:
             session = requests.Session()
