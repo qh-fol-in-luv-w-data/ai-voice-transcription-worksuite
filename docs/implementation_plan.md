@@ -13,16 +13,19 @@ Tính năng này cho phép người dùng khi sửa tên trên một dòng hội
 
 ### Backend (Python API)
 
-#### [MODIFY] [api.py](file:///Users/_qh.fol_/frappe-bench/apps/voice_app/voice_app/api.py)
+#### [MODIFY] [api.py](file:///d:/CTGroup/Mlops/data_center/ct_agent_hub_BE/frappe-bench/apps/2as-worksuite/voice_app/api.py)
+- **Tối ưu bước Transcribe (`_transcribe_audio_async`):**
+  1. Sử dụng hàm `_extract_embeddings_batch_subprocess` để trích xuất nhanh embedding cho **toàn bộ các segments** trong quá trình nhận diện.
+  2. Gắn kèm dữ liệu embedding này vào từng segment và lưu chung vào trường `raw_results` trong Doctype `Voice Meeting` (ví dụ: `segment["embedding"] = [...]`).
+
 - Thêm endpoint mới `@frappe.whitelist()` `reassign_speaker_from_segment`.
 - **Tham số nhận vào:** `meeting_name`, `segment_index`, `new_speaker_name`.
-- **Logic:**
-  1. Lấy dữ liệu `raw_results` hiện tại và lấy ra segment tại vị trí `segment_index`.
-  2. Dùng `_extract_embedding_subprocess` cắt âm thanh từ `start` tới `end` của segment đó để lấy mẫu (embedding).
-  3. Đăng ký mẫu giọng đó vào Database `Voice Speaker` với tên `new_speaker_name`.
-  4. Duyệt qua tất cả các segments còn lại trong cuộc họp. Tính cosine similarity giữa embedding của từng segment với mẫu giọng mới.
-  5. Nếu độ tương đồng (similarity) vượt ngưỡng `SIMILARITY_THRESHOLD` thì đổi tên đoạn đó thành `new_speaker_name`.
-  6. Lưu lại `raw_results` và `transcript`, trả về kết quả mới nhất cho giao diện.
+- **Logic siêu tốc (không cần load lại mô hình AI hay cắt audio):**
+  1. Lấy dữ liệu `raw_results` hiện tại và trích xuất `embedding` (đã lưu sẵn) của segment tại vị trí `segment_index`.
+  2. Đăng ký/cập nhật `embedding` đó vào Database `Voice Speaker` cho người dùng `new_speaker_name` để làm đặc trưng giọng nói chuẩn.
+  3. Duyệt qua toàn bộ các segments còn lại trong `raw_results`. Lấy `embedding` có sẵn của từng đoạn so sánh (cosine similarity) với mẫu giọng mới.
+  4. Nếu độ tương đồng (similarity) vượt ngưỡng `SIMILARITY_THRESHOLD` thì đổi tên đoạn đó thành `new_speaker_name`.
+  5. Lưu lại `raw_results`, `original_raw_results` và `transcript`, trả về kết quả mới nhất cho giao diện. Việc này diễn ra **gần như tức thời**.
 
 ---
 
