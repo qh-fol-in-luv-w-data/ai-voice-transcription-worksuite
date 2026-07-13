@@ -331,7 +331,7 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
         if num_speakers else
         "Cuộc họp có thể có nhiều người tham dự."
     )
-    custom_vocab_note = f"\nTừ vựng người dùng bổ sung: {custom_vocabulary}" if custom_vocabulary else ""
+    custom_vocab_note = f"\n{custom_vocabulary}" if custom_vocabulary else ""
 
     return f"""Bạn là chuyên gia phiên âm và biên tập biên bản họp. Nhiệm vụ: xử lý file ghi âm cuộc họp nội bộ bằng {lang_note} và trả ra transcript đã được làm sạch hoàn toàn.
 
@@ -359,12 +359,7 @@ Chỉ xoá các từ/âm KHÔNG mang thông tin BÊN TRONG câu, KHÔNG được
 - TUYỆT ĐỐI GIỮ ĐÚNG NGHĨA GỐC — không thêm, không bịa, không suy diễn, không tóm tắt
 - Giữ code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh)
 
-━━━ TỪ VỰNG ĐẶC BIỆT (nhận dạng chính xác) ━━━
-Tập đoàn: CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, Modulex, GASCO, DAIT, VGCT, CCTPA, Carbondo, Airbility
-Dự án/tòa nhà: M1, M2, M3, Metrostar, Simland, Minh Hưng Quảng Trị
-Hệ thống: 2AS, Worksuite, iMaster, ERP, CRM, NDT15, LAE, LAE 1, OSAT, CarbonFly, green bond, carbon credit, eVTOL, LiDAR
-AI/Tech: AI, AGI, LLM, GPT, ChatGPT, Claude, Gemini, ElevenLabs, RAG, vector, embedding, fine-tuning, diarization
-Tài chính: green bond, CCTPA, carbon credit, ESG, IPO, M&A{custom_vocab_note}
+━━━ TỪ VỰNG ĐẶC BIỆT (nhận dạng chính xác) ━━━{custom_vocab_note}
 
 ━━━ OUTPUT FORMAT ━━━
 Trả về JSON array thuần (KHÔNG markdown, KHÔNG giải thích, KHÔNG text ngoài JSON):
@@ -494,7 +489,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
 
         chunks = chunks_info
         if progress_callback:
-            progress_callback(20, f"Đang xử lý song song {len(chunks)} đoạn âm thanh...")
+            progress_callback(20, f"Đang xử lý song song {len(chunks_info)} đoạn âm thanh...")
 
         all_segments  = []
         all_raw_words = []
@@ -523,13 +518,13 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
 
             try:
                 if not is_subchunk and idx in completed_chunks:
-                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks)} vì đã hoàn thành.")
+                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks_info)} vì đã hoàn thành.")
                     return idx, None, None, None, None, None
 
                 if is_subchunk:
                     print(f"[Gemini STT]   -> Sub-chunk {idx} - offset: {offset:.1f}s")
                 else:
-                    print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
+                    print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks_info)} - offset: {offset:.1f}s")
 
                 chunk_duration = get_duration(current_wav)
 
@@ -739,15 +734,21 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
         if not all_segments:
             return [], [], "", "Gemini không nhận ra giọng nói trong file (file trống, nhiễu hoặc sai format).", 0, 0
 
-        n_spk = len(set(s.get("speaker_id", "") for s in all_segments))
+        spk_set = set()
+        for s in all_segments:
+            s_spk = s.get("speaker_id", "")
+            if s_spk and s_spk not in spk_set:
+                spk_set.add(s_spk)
+        n_spk = len(spk_set)
+        
         PRICE_IN  = 1.50 / 1_000_000
         PRICE_OUT = 9.00 / 1_000_000
         total_cost = total_in_all * PRICE_IN + total_out_all * PRICE_OUT
         print(
-            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks)} chunks\n"
+            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks_info)} chunks\n"
             f"💰 [Gemini STT] TỔNG CHI PHÍ FILE: "
             f"in={total_in_all:,} + out={total_out_all:,} = {total_tok_all:,} tokens | "
-            f"cost=~${total_cost:.4f} USD ({len(chunks)} chunks)"
+            f"cost=~${total_cost:.4f} USD ({len(chunks_info)} chunks)"
         )
         try:
             frappe.log_error(f"call_gemini_stt hoan thanh. Segments: {len(all_segments)}, Loi: {chunk_errors}", "Gemini STT Debug")

@@ -17,7 +17,7 @@ from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 _logger = ActivityLogger("VOICE", "voice_app")
 
 @frappe.whitelist(allow_guest=False)
-def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num_speakers=None, custom_vocabulary=""):
+def transcribe_audio(filter_speakers=None, stt_mode="google"):
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
 
@@ -89,11 +89,8 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
         timeout=3600,
         file_path=file_path,
         file_url=file_url,
-        language=language,
         filter_speakers=filter_speakers,
         stt_mode=stt_mode,
-        num_speakers=num_speakers,
-        custom_vocabulary=custom_vocabulary,
         meeting_name=meeting_doc.name,
         session_id_header=session_id_header
     )
@@ -161,7 +158,7 @@ def check_meeting_status(meeting_name):
         return {"status": "processing", "meeting_name": meeting.name, "progress_info": progress_info}
 
 
-def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_mode, num_speakers, custom_vocabulary, meeting_name, session_id_header):
+def _transcribe_audio_async(file_path, file_url, filter_speakers, stt_mode, meeting_name, session_id_header):
     try:
     
     
@@ -202,20 +199,17 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
 
                 frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
-            # Xác định num_speakers: ưu tiên user nhập → filter_speakers count → None
             auto_num_speakers = None
-            if num_speakers:
-                try:
-                    auto_num_speakers = int(num_speakers)
-                except Exception:
-                    pass
-            if not auto_num_speakers and filter_speakers:
+            if filter_speakers:
                 try:
                     names = json.loads(filter_speakers)
                     if isinstance(names, list) and len(names) >= 2:
                         auto_num_speakers = len(names)
                 except Exception:
                     pass
+                    
+            global_vocabulary = frappe.db.get_single_value("Voice App Settings", "global_vocabulary") or ""
+            language = "vi"
     
             # Call STT theo mode
             def stt_cb(percent, msg):
@@ -260,22 +254,31 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 
                 chunks_to_process = [c for c in chunks_info if c["status"] in ("Pending", "Error", "Processing")]
                 
+                site_name = frappe.local.site
                 def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks):
-                    if c_status == "Processing":
-                        frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
-                    elif c_status == "Completed":
-                        frappe.db.set_value("Voice Meeting Chunk", c_name, {
-                            "status": "Completed",
-                            "raw_segments": json.dumps({"segments": c_segs, "raw_words": c_words}, ensure_ascii=False),
-                            "tokens_used": c_toks,
-                            "error_message": ""
-                        })
-                    elif c_status == "Error":
-                        frappe.db.set_value("Voice Meeting Chunk", c_name, {
-                            "status": "Error",
-                            "error_message": c_err
-                        })
-                    frappe.db.commit()
+                    import frappe
+                    try:
+                        frappe.init(site_name)
+                        frappe.connect()
+                        if c_status == "Processing":
+                            frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
+                        elif c_status == "Completed":
+                            frappe.db.set_value("Voice Meeting Chunk", c_name, {
+                                "status": "Completed",
+                                "raw_segments": json.dumps({"segments": c_segs, "raw_words": c_words}, ensure_ascii=False),
+                                "tokens_used": c_toks,
+                                "error_message": ""
+                            })
+                        elif c_status == "Error":
+                            frappe.db.set_value("Voice Meeting Chunk", c_name, {
+                                "status": "Error",
+                                "error_message": c_err
+                            })
+                        frappe.db.commit()
+                    except Exception as e:
+                        print(f"Error in chunk_update_cb: {e}")
+                    finally:
+                        frappe.destroy()
 
                 err, el_chars_used, el_chars_remaining = None, 0, 0
                 if chunks_to_process:
@@ -283,7 +286,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                     _segs, _raw, _txt, err, el_chars_used, el_chars_remaining = call_gemini_stt(
                         chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
                         language=language, num_speakers=auto_num_speakers, 
-                        custom_vocabulary=custom_vocabulary, progress_callback=stt_cb
+                        custom_vocabulary=global_vocabulary, progress_callback=stt_cb
                     )
                     frappe.log_error(f"Goi call_gemini_stt hoan tat. Err={err}", "Transcribe Debug")
                 
@@ -325,7 +328,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                 try: shutil.rmtree(frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name))
                 except: pass
             else:
-                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=custom_vocabulary)
+                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=global_vocabulary)
                 if err:
                     frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
@@ -1347,6 +1350,141 @@ def map_and_enroll_speakers():
         "errors": errors
     }
 
+
+@frappe.whitelist(allow_guest=False)
+def reassign_speaker_from_segment():
+    """
+    Học giọng từ một đoạn hội thoại cụ thể và quét lại toàn bộ transcript
+    để gán lại tên cho những đoạn có giọng tương tự.
+
+    Payload (JSON body):
+        meeting_name    : tên Voice Meeting
+        segment_index   : index của đoạn hội thoại dùng làm mẫu
+        new_speaker_name: tên người nói mới
+    """
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+    segment_index = int(payload.get("segment_index", -1))
+    new_speaker_name = (payload.get("new_speaker_name") or "").strip()
+
+    if not meeting_name or segment_index < 0 or not new_speaker_name:
+        return {"status": "error", "message": "Thiếu meeting_name, segment_index hoặc new_speaker_name"}
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not meeting or not meeting.raw_results:
+        return {"status": "error", "message": "Không tìm thấy meeting hoặc dữ liệu raw_results"}
+
+    if meeting.owner != frappe.session.user:
+        return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+
+    results = json.loads(meeting.raw_results)
+
+    if segment_index >= len(results):
+        return {"status": "error", "message": f"segment_index {segment_index} vượt quá số đoạn hội thoại ({len(results)})"}
+
+    target_seg = results[segment_index]
+    start, end = float(target_seg[0]), float(target_seg[1])
+    duration = end - start
+
+    if duration < 1.0:
+        return {"status": "error", "message": "Đoạn âm thanh quá ngắn (cần ít nhất 1 giây) để trích xuất giọng nói"}
+
+    # Lấy đường dẫn file audio và convert sang WAV
+    audio_path = frappe.get_site_path(meeting.audio_file.strip('/'))
+    wav_path, err = convert_to_wav(audio_path)
+    if err:
+        return {"status": "error", "message": f"Lỗi xử lý file âm thanh: {err}"}
+
+    try:
+        import numpy as np
+        from scipy.spatial.distance import cosine as cosine_dist
+        from .constants import SIMILARITY_THRESHOLD
+        from .speaker_manager import _extract_embeddings_batch_subprocess, SpeakerDB
+
+        # Chuẩn bị danh sách segment để trích xuất batch
+        batch_segments = []
+        seg_indices = [] # lưu lại index gốc của segment
+        for i, seg in enumerate(results):
+            seg_start, seg_end = float(seg[0]), float(seg[1])
+            seg_dur = seg_end - seg_start
+            
+            # Luôn đưa segment mẫu vào, các segment khác thì check duration
+            if i == segment_index or seg_dur >= 0.5:
+                batch_segments.append({"start": seg_start, "end": seg_end})
+                seg_indices.append(i)
+
+        if not batch_segments:
+            return {"status": "error", "message": "Không có đoạn hội thoại hợp lệ"}
+
+        # Trích xuất toàn bộ embedding trong 1 lần gọi subprocess
+        embeddings_list = _extract_embeddings_batch_subprocess(wav_path, batch_segments)
+        
+        # Tìm embedding của đoạn mẫu
+        sample_idx_in_batch = seg_indices.index(segment_index)
+        sample_embedding = embeddings_list[sample_idx_in_batch]
+        
+        if sample_embedding is None:
+            return {"status": "error", "message": "Không thể trích xuất đặc trưng giọng nói từ đoạn này"}
+
+        # Normalize mẫu
+        norm = np.linalg.norm(sample_embedding)
+        if norm > 0:
+            sample_embedding = sample_embedding / norm
+
+        # Bước 2: Đăng ký mẫu giọng vào DB
+        db = SpeakerDB()
+        db.add_speaker(new_speaker_name, sample_embedding, email="", user_info=None)
+
+        # Bước 3: Cập nhật đoạn được chọn
+        results[segment_index][2] = new_speaker_name
+        reassigned_count = 1
+
+        # Bước 4: So sánh với các đoạn còn lại
+        for batch_idx, original_idx in enumerate(seg_indices):
+            if original_idx == segment_index:
+                continue
+                
+            seg_emb = embeddings_list[batch_idx]
+            if seg_emb is None:
+                continue
+
+            # Normalize segment embedding if not already
+            s_norm = np.linalg.norm(seg_emb)
+            if s_norm > 0:
+                seg_emb = seg_emb / s_norm
+
+            similarity = 1.0 - cosine_dist(sample_embedding, seg_emb)
+            if similarity >= SIMILARITY_THRESHOLD:
+                results[original_idx][2] = new_speaker_name
+                reassigned_count += 1
+
+        # Bước 5: Lưu lại kết quả mới
+        final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
+        frappe.db.set_value("Voice Meeting", meeting_name, {
+            "raw_results": json.dumps(results, ensure_ascii=False),
+            "transcript": final_text,
+        })
+        frappe.db.commit()
+
+        return {
+            "status": "success",
+            "results": results,
+            "reassigned_count": reassigned_count,
+            "message": f"Đã gán lại {reassigned_count} đoạn hội thoại thành \"{new_speaker_name}\""
+        }
+
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Reassign Speaker From Segment Error")
+        return {"status": "error", "message": str(e)}
+    finally:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+
+
 @frappe.whitelist(allow_guest=False)
 def get_current_user():
     return frappe.session.user
@@ -1788,5 +1926,22 @@ def undo_mapping(meeting_name):
         frappe.db.commit()
         
         return {"status": "success", "results": json.loads(meeting_doc.original_raw_results)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@frappe.whitelist()
+def get_global_vocabulary():
+    try:
+        vocab = frappe.db.get_single_value("Voice App Settings", "global_vocabulary")
+        return {"status": "success", "message": vocab or ""}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@frappe.whitelist()
+def save_global_vocabulary(vocabulary):
+    try:
+        frappe.db.set_value("Voice App Settings", None, "global_vocabulary", vocabulary)
+        frappe.db.commit()
+        return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
