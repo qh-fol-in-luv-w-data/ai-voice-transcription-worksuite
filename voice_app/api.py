@@ -271,8 +271,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks):
                     import frappe
                     try:
-                        frappe.init(site_name)
-                        frappe.connect()
                         if c_status == "Processing":
                             frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
                         elif c_status == "Completed":
@@ -290,8 +288,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         frappe.db.commit()
                     except Exception as e:
                         print(f"Error in chunk_update_cb: {e}")
-                    finally:
-                        frappe.destroy()
 
                 err, el_chars_used, el_chars_remaining = None, 0, 0
                 if chunks_to_process:
