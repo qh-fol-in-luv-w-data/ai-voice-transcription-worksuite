@@ -594,34 +594,38 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
     
             merged_segments = []
             segments.sort(key=lambda x: x["start"])
-    
+
             for seg in segments:
                 txt = " ".join(seg["text"].split())
                 if not txt or not is_meaningful(txt):
                     continue
                 spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
-    
+                emb = seg.get("embedding")
+
                 if (merged_segments
                         and merged_segments[-1][2] == spk_label
-                        and seg["start"] - merged_segments[-1][1] <= MERGE_GAP):
-                    # Gộp vào segment trước
-                    prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1]
-                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt)
+                        and seg["start"] - merged_segments[-1][1] <= 1.5):
+                    # Gộp vào segment trước, giữ embedding
+                    prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1][:4]
+                    prev_emb = merged_segments[-1][4] if len(merged_segments[-1]) > 4 else emb
+                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb)
                 else:
-                    merged_segments.append((seg["start"], seg["end"], spk_label, txt))
-    
+                    merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb))
+
             # Format results
             results = merged_segments[:]
             final_output_text = ""
             last_spk = None
-    
-            for s, e, spk_label, txt in results:
+
+            for s, e, spk_label, txt, *rest in results:
                 if spk_label != last_spk:
-                    final_output_text += f"\n**{spk_label}** [{s:.1f}s]\n{txt}"
+                    final_output_text += f"
+**{spk_label}** [{s:.1f}s]
+{txt}"
                 else:
                     final_output_text += f" {txt}"
                 last_spk = spk_label
-    
+
             # Cleanup temp wav
             if os.path.exists(wav): os.remove(wav)
     
@@ -1172,7 +1176,12 @@ def reassign_speaker_from_segment():
             return {"status": "error", "message": "Vị trí segment không hợp lệ"}
             
         target_seg = segments[segment_index]
-        emb_data = target_seg.get("embedding")
+        emb_data = target_seg[4] if isinstance(target_seg, list) and len(target_seg) > 4 else None
+        
+        # Fallback for old dict format just in case
+        if not emb_data and isinstance(target_seg, dict):
+            emb_data = target_seg.get("embedding")
+            
         if not emb_data:
             return {"status": "error", "message": "Hội thoại này không chứa thông tin đặc trưng giọng nói (chưa được xử lý với phiên bản mới). Hãy thực hiện 'Hủy & Quét lại file gốc'."}
             
@@ -1190,13 +1199,17 @@ def reassign_speaker_from_segment():
         changed_count = 0
         
         for i, seg in enumerate(segments):
+            is_dict = isinstance(seg, dict)
+            current_spk = seg.get("speaker") if is_dict else (seg[2] if len(seg) > 2 else "")
+            
             if i == segment_index:
-                if seg.get("speaker") != new_speaker_name:
-                    seg["speaker"] = new_speaker_name
+                if current_spk != new_speaker_name:
+                    if is_dict: seg["speaker"] = new_speaker_name
+                    else: seg[2] = new_speaker_name
                     changed_count += 1
                 continue
                 
-            seg_emb_data = seg.get("embedding")
+            seg_emb_data = seg.get("embedding") if is_dict else (seg[4] if len(seg) > 4 else None)
             if not seg_emb_data:
                 continue
                 
@@ -1204,14 +1217,16 @@ def reassign_speaker_from_segment():
             try:
                 sim = 1 - cos_dist(emb_np, seg_emb_np)
                 if sim >= SIMILARITY_THRESHOLD:
-                    if seg.get("speaker") != new_speaker_name:
-                        seg["speaker"] = new_speaker_name
+                    if current_spk != new_speaker_name:
+                        if is_dict: seg["speaker"] = new_speaker_name
+                        else: seg[2] = new_speaker_name
                         changed_count += 1
             except Exception:
                 pass
                 
         # Cập nhật lại transcript full_text
-        final_text = " ".join([seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip()])
+        final_text = " ".join([ (seg.get("text", "") if isinstance(seg, dict) else (seg[3] if len(seg) > 3 else "")).strip() for seg in segments ])
+        final_text = " ".join(final_text.split())
         
         frappe.db.set_value("Voice Meeting", doc_name, {
             "raw_results": json.dumps(segments, ensure_ascii=False),
