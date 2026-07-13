@@ -1347,16 +1347,37 @@ def reassign_speaker_from_segment():
         return {"status": "error", "message": f"Lỗi xử lý file âm thanh: {err}"}
 
     try:
-        # Bước 1: Trích xuất embedding từ đoạn mẫu
-        sample_embedding = _extract_embedding_subprocess(wav_path, start, end)
-        if sample_embedding is None:
-            return {"status": "error", "message": "Không thể trích xuất đặc trưng giọng nói từ đoạn này"}
-
         import numpy as np
         from scipy.spatial.distance import cosine as cosine_dist
         from .constants import SIMILARITY_THRESHOLD
+        from .speaker_manager import _extract_embeddings_batch_subprocess, SpeakerDB
 
-        # Normalize
+        # Chuẩn bị danh sách segment để trích xuất batch
+        batch_segments = []
+        seg_indices = [] # lưu lại index gốc của segment
+        for i, seg in enumerate(results):
+            seg_start, seg_end = float(seg[0]), float(seg[1])
+            seg_dur = seg_end - seg_start
+            
+            # Luôn đưa segment mẫu vào, các segment khác thì check duration
+            if i == segment_index or seg_dur >= 0.5:
+                batch_segments.append({"start": seg_start, "end": seg_end})
+                seg_indices.append(i)
+
+        if not batch_segments:
+            return {"status": "error", "message": "Không có đoạn hội thoại hợp lệ"}
+
+        # Trích xuất toàn bộ embedding trong 1 lần gọi subprocess
+        embeddings_list = _extract_embeddings_batch_subprocess(wav_path, batch_segments)
+        
+        # Tìm embedding của đoạn mẫu
+        sample_idx_in_batch = seg_indices.index(segment_index)
+        sample_embedding = embeddings_list[sample_idx_in_batch]
+        
+        if sample_embedding is None:
+            return {"status": "error", "message": "Không thể trích xuất đặc trưng giọng nói từ đoạn này"}
+
+        # Normalize mẫu
         norm = np.linalg.norm(sample_embedding)
         if norm > 0:
             sample_embedding = sample_embedding / norm
@@ -1369,28 +1390,24 @@ def reassign_speaker_from_segment():
         results[segment_index][2] = new_speaker_name
         reassigned_count = 1
 
-        # Bước 4: Quét toàn bộ các segment còn lại, trích xuất embedding và so sánh
-        for i, seg in enumerate(results):
-            if i == segment_index:
+        # Bước 4: So sánh với các đoạn còn lại
+        for batch_idx, original_idx in enumerate(seg_indices):
+            if original_idx == segment_index:
+                continue
+                
+            seg_emb = embeddings_list[batch_idx]
+            if seg_emb is None:
                 continue
 
-            seg_start, seg_end = float(seg[0]), float(seg[1])
-            seg_dur = seg_end - seg_start
-            if seg_dur < 0.5:
-                continue  # Bỏ qua đoạn quá ngắn
+            # Normalize segment embedding if not already
+            s_norm = np.linalg.norm(seg_emb)
+            if s_norm > 0:
+                seg_emb = seg_emb / s_norm
 
-            try:
-                seg_emb = get_segment_embedding(wav_path, seg_start, seg_end)
-                if seg_emb is None:
-                    continue
-
-                similarity = 1.0 - cosine_dist(sample_embedding, seg_emb)
-                if similarity >= SIMILARITY_THRESHOLD:
-                    results[i][2] = new_speaker_name
-                    reassigned_count += 1
-            except Exception as ex:
-                frappe.log_error(str(ex), f"reassign_speaker_from_segment: error on seg {i}")
-                continue
+            similarity = 1.0 - cosine_dist(sample_embedding, seg_emb)
+            if similarity >= SIMILARITY_THRESHOLD:
+                results[original_idx][2] = new_speaker_name
+                reassigned_count += 1
 
         # Bước 5: Lưu lại kết quả mới
         final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
@@ -1413,6 +1430,7 @@ def reassign_speaker_from_segment():
     finally:
         if os.path.exists(wav_path):
             os.remove(wav_path)
+
 
 @frappe.whitelist(allow_guest=False)
 def get_current_user():

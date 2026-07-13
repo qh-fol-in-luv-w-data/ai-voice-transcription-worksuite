@@ -97,6 +97,33 @@ def main():
         return torch.tensor(data).unsqueeze(0).unsqueeze(0)  # [1, 1, samples]
 
     print("DEBUG: Loading waveform...", flush=True)
+
+    # ── Batch Processing ──
+    if len(sys.argv) > 3 and sys.argv[3] == "--segments-file":
+        segments_file = sys.argv[4]
+        with open(segments_file, "r") as f:
+            segments = json.load(f)
+        
+        results = []
+        with torch.inference_mode():
+            for idx, seg in enumerate(segments):
+                try:
+                    print(f"DEBUG: Processing segment {idx+1}/{len(segments)}", flush=True)
+                    waveform = load_wav_soundfile(wav_path, seg.get("start"), seg.get("end"))
+                    emb = model(waveform)
+                    if hasattr(emb, 'data'):
+                        emb = emb.data
+                    emb = emb.squeeze().cpu().numpy()
+                    results.append(emb.tolist())
+                except Exception as e:
+                    print(f"DEBUG: Error on segment {idx}: {e}", flush=True)
+                    results.append(None)
+                    
+        print("DEBUG: Batch inference finished", flush=True)
+        print(json.dumps(results))
+        sys.exit(0)
+
+    # ── Single Segment ──
     if start is not None and end is not None:
         waveform = load_wav_soundfile(wav_path, start, end)
     else:
@@ -118,3 +145,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
