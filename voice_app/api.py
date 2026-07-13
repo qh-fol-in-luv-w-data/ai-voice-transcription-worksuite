@@ -45,7 +45,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
                 frappe.db.commit()
                 meeting_doc = frappe.get_doc("Voice Meeting", m.name)
             else:
-                return  (m.name)
+                return check_meeting_status(m.name)
         else:
             from datetime import datetime
             meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
