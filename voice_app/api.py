@@ -1550,7 +1550,7 @@ def _log_action(session_id: str, action: str, details: dict):
 
 @frappe.whitelist(allow_guest=False)
 def voice_to_task(existing_task=None):
-    """Tạo Task từ giọng nói — Enqueue để chạy ngầm tránh chặn UI."""
+    """Tạo Task từ giọng nói — chạy đồng bộ, trả kết quả trực tiếp."""
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
         
@@ -1560,20 +1560,8 @@ def voice_to_task(existing_task=None):
     file_doc = save_file(audio_file.filename, audio_file.read(), None, None, is_private=1)
     file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
     
-    import time
-    job_key = f"v2t_{frappe.session.user}_{int(time.time())}"
-    
-    frappe.enqueue(
-        'voice_app.api._voice_to_task_async',
-        queue='short',
-        timeout=120,
-        job_key=job_key,
-        file_path=file_path,
-        existing_task=existing_task,
-        user=frappe.session.user,
-        session_id=frappe.get_request_header("X-App-Session-Id") or ""
-    )
-    return {"status": "processing", "job_key": job_key}
+    session_id = frappe.get_request_header("X-App-Session-Id") or ""
+    return _voice_to_task_async(file_path=file_path, existing_task=existing_task, user=frappe.session.user, session_id=session_id)
 
 
 def _voice_to_task_async(file_path, existing_task=None, user=None, session_id="", job_key=""):
