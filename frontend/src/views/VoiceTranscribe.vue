@@ -7,7 +7,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -82,6 +82,8 @@ const editingText = ref('')
 const editingSpeaker = ref(null)
 const editingSpeakerName = ref('')
 const newSpeakerEmployee = ref('')
+const isRescanning = ref(false)
+const rescanMessage = ref('')
 
 const startEditText = (idx) => {
   editingIdx.value = idx
@@ -119,6 +121,38 @@ const saveEditSpeaker = async (idx) => {
   editingSpeaker.value = null
   if (currentMeetingName.value) {
     await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+  }
+}
+
+const saveAndRescanSpeaker = async (idx) => {
+  const finalName = newSpeakerEmployee.value
+  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  if (!currentMeetingName.value) {
+    alert('Vui lòng transcribe trước khi dùng tính năng này!')
+    return
+  }
+
+  editingSpeaker.value = null
+  isRescanning.value = true
+  rescanMessage.value = 'Đang trích xuất đặc trưng giọng nói...'
+
+  try {
+    saveState()
+    const res = await reassignSpeakerFromSegment(currentMeetingName.value, idx, finalName.trim())
+    if (res && res.status === 'success') {
+      transcriptResults.value = res.results
+      originalTranscriptResults.value = JSON.parse(JSON.stringify(res.results))
+      rescanMessage.value = res.message || 'Quét lại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 3000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isRescanning.value = false
   }
 }
 
@@ -432,14 +466,34 @@ const startExtractTasks = async () => {
 </script>
 
 <template>
-<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md flex-1 min-h-0 h-full flex flex-col">
+<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md flex-1 min-h-0 h-full flex flex-col relative">
+  <!-- Rescanning overlay -->
+  <transition name="fade">
+    <div v-if="isRescanning" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+      <div class="bg-white dark:bg-surface rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full mx-4">
+        <span class="material-symbols-outlined text-[48px] text-orange-500 animate-spin">manage_search</span>
+        <p class="font-bold text-gray-900 dark:text-on-surface text-center">Đang quét lại giọng nói...</p>
+        <p class="text-sm text-gray-500 dark:text-on-surface-variant text-center">{{ rescanMessage }}</p>
+        <div class="w-full h-1.5 bg-gray-200 dark:bg-surface-container rounded-full overflow-hidden">
+          <div class="h-full bg-orange-500 rounded-full animate-pulse" style="width: 60%"></div>
+        </div>
+      </div>
+    </div>
+  </transition>
+  <!-- Rescan success toast -->
+  <transition name="slide-fade">
+    <div v-if="rescanMessage && !isRescanning" class="fixed bottom-6 right-6 z-50 bg-green-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 font-bold text-sm">
+      <span class="material-symbols-outlined text-[18px]">check_circle</span>
+      {{ rescanMessage }}
+    </div>
+  </transition>
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch flex-1">
     
     <!-- LEFT COLUMN -->
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
-      <div class="flex flex-col gap-4 flex-1">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
         <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
           <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
           <div class="relative mb-4">
@@ -632,13 +686,16 @@ const startExtractTasks = async () => {
               <div class="flex items-center gap-1 flex-wrap">
                 <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option
                   placeholder="Chọn hoặc nhập tên..." size="small"
-                  style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override"
-                  @change="saveEditSpeaker(idx)">
+                  style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override">
                   <el-option v-for="opt in employeeOptions" :key="opt.value" :label="opt.label" :value="opt.value">
                     <span class="text-xs">{{ opt.label }}</span>
                   </el-option>
                 </el-select>
                 <button @click="saveEditSpeaker(idx)" class="text-xs font-bold text-white bg-primary px-2 py-0.5 rounded hover:bg-primary/90 transition-colors ml-1">Lưu</button>
+                <button @click="saveAndRescanSpeaker(idx)" class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded hover:bg-orange-600 transition-colors flex items-center gap-0.5" title="Học giọng từ đoạn này và gán lại tên cho tất cả đoạn giống giọng">
+                  <span class="material-symbols-outlined text-[12px]">manage_search</span>
+                  Quét lại AI
+                </button>
                 <button @click="editingSpeaker = null" class="text-xs text-gray-400 hover:text-gray-600">Hủy</button>
               </div>
             </template>
