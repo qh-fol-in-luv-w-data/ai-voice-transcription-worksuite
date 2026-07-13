@@ -211,6 +211,72 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     embedding_list = json.loads(json_line)
     return np.array(embedding_list)
 
+def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> list:
+    """
+    Trích xuất embedding cho nhiều đoạn (batch) chỉ với 1 lần load model.
+    segments_list: list of dict [{"start": float, "end": float}, ...]
+    Trả về: list các np.ndarray hoặc None
+    """
+    import subprocess
+    import sys
+    import tempfile
+    from voice_app.constants import get_hf_token
+
+    if not segments_list:
+        return []
+
+    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
+    hf_token = get_hf_token() or ""
+    python_exe = sys.executable
+
+    # Ghi segments ra file tạm
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as f:
+        json.dump(segments_list, f)
+        temp_file_path = f.name
+
+    args = [python_exe, script_path, wav_path, hf_token, "--segments-file", temp_file_path]
+
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 phút timeout cho batch
+        )
+    except subprocess.TimeoutExpired as e:
+        if os.path.exists(temp_file_path): os.remove(temp_file_path)
+        raise RuntimeError("Batch subprocess embedding timed out after 300s.")
+    
+    if os.path.exists(temp_file_path):
+        os.remove(temp_file_path)
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Batch subprocess embedding thất bại (exit={result.returncode}):\n{result.stderr[-2000:]}"
+        )
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError(f"Batch subprocess không trả về kết quả. stderr:\n{result.stderr[-2000:]}")
+
+    json_line = None
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('['):
+            json_line = line
+            break
+    if json_line is None:
+        raise RuntimeError(f"Không tìm thấy JSON trong stdout:\n{stdout[:500]}")
+
+    results_list = json.loads(json_line)
+    final_results = []
+    for emb in results_list:
+        if emb is None:
+            final_results.append(None)
+        else:
+            final_results.append(np.array(emb))
+    return final_results
+
 
 def enroll_new_speaker(name, wav_path, email="", user_info=None):
     """
