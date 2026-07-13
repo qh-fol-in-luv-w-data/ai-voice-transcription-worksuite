@@ -642,7 +642,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
     
             # Log AI call (ElevenLabs)
             try:
-                session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
                 session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
                 if session_name:
                     ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
