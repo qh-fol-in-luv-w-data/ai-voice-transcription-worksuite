@@ -187,7 +187,7 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     except subprocess.TimeoutExpired as e:
         stderr_log = e.stderr[-2000:] if e.stderr else "None"
         stdout_log = e.stdout[-2000:] if e.stdout else "None"
-        raise RuntimeError(f"Subprocess embedding timed out after 180s.\nSTDOUT:\n{stdout_log}\nSTDERR:\n{stderr_log}")
+        raise RuntimeError(f"Subprocess embedding timed out after 60s.\nSTDOUT:\n{stdout_log}\nSTDERR:\n{stderr_log}")
 
     if result.returncode != 0:
         raise RuntimeError(
