@@ -619,9 +619,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
 
             for s, e, spk_label, txt, *rest in results:
                 if spk_label != last_spk:
-                    final_output_text += f"
-**{spk_label}** [{s:.1f}s]
-{txt}"
+                    final_output_text += f"**{spk_label}** [{s:.1f}s]{txt}"
                 else:
                     final_output_text += f" {txt}"
                 last_spk = spk_label
