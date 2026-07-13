@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="vi" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>2AS Worksuite</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed": "#ffdcc5",
+                        "error-container": "#93000a",
+                        "on-background": "#dae2fd",
+                        "tertiary-fixed-dim": "#ffb783",
+                        "secondary-fixed": "#c9e6ff",
+                        "surface-container": "#171f33",
+                        "on-primary": "#1000a9",
+                        "surface-variant": "#2d3449",
+                        "primary": "#c0c1ff",
+                        "on-secondary-container": "#00344e",
+                        "surface-dim": "#0b1326",
+                        "on-error-container": "#ffdad6",
+                        "surface-container-low": "#131b2e",
+                        "secondary-fixed-dim": "#89ceff",
+                        "primary-container": "#8083ff",
+                        "on-surface": "#dae2fd",
+                        "outline-variant": "#464554",
+                        "error": "#ffb4ab",
+                        "primary-fixed": "#e1e0ff",
+                        "surface-bright": "#31394d",
+                        "inverse-primary": "#494bd6",
+                        "inverse-on-surface": "#283044",
+                        "on-tertiary-container": "#452000",
+                        "surface": "#0b1326",
+                        "secondary-container": "#00a2e6",
+                        "surface-container-high": "#222a3d",
+                        "surface-container-highest": "#2d3449",
+                        "surface-tint": "#c0c1ff",
+                        "tertiary": "#ffb783",
+                        "secondary": "#89ceff",
+                        "on-tertiary-fixed-variant": "#703700",
+                        "on-surface-variant": "#c7c4d7",
+                        "surface-container-lowest": "#060e20",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "on-error": "#690005",
+                        "on-secondary-fixed": "#001e2f",
+                        "on-primary-container": "#0d0096",
+                        "inverse-surface": "#dae2fd",
+                        "on-secondary": "#00344d",
+                        "background": "#0b1326",
+                        "on-tertiary": "#4f2500",
+                        "tertiary-container": "#d97721",
+                        "on-tertiary-fixed": "#301400",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "on-primary-fixed": "#07006c",
+                        "on-secondary-fixed-variant": "#004c6e",
+                        "outline": "#908fa0"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "48px",
+                        "max-width": "1440px",
+                        "xl": "32px",
+                        "md": "16px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "gutter": "24px",
+                        "margin-mobile": "16px",
+                        "unit": "4px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Hanken Grotesk"],
+                        "display-lg": ["Hanken Grotesk"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "body-sm": ["Inter"],
+                        "label-caps": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }],
+                        "display-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "1.2", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "1.2", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "1.4", "fontWeight": "400" }],
+                        "label-caps": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      /* Light Mode Global Overrides */
+      html:not(.dark) body, html:not(.dark) * {
+        color: #000 !important;
+        font-weight: 600 !important;
+      }
+      html:not(.dark) .bg-background,
+      html:not(.dark) .bg-surface-container-lowest,
+      html:not(.dark) .bg-surface-container,
+      html:not(.dark) .bg-surface-variant,
+      html:not(.dark) .bg-surface,
+      html:not(.dark) body {
+        background-color: #f3f4f6 !important;
+      }
+      html:not(.dark) .bg-white,
+      html:not(.dark) .bg-gray-50,
+      html:not(.dark) .bg-gray-100,
+      html:not(.dark) div.rounded-2xl,
+      html:not(.dark) div.rounded-xl {
+        background-color: #ffffff !important;
+        border-color: rgba(0,0,0,0.1) !important;
+      }
+      /* =====================================================
+       * CT Group Security Pattern - Splash Screen
+       * #app is hidden until JS loads.
+       * ===================================================== */
+      #app { display: none; }
+
+      #ct-splash {
+        position: fixed; inset: 0;
+        background: radial-gradient(ellipse at 30% 20%, #0d1f3c 0%, #050d1a 50%, #0a0a0f 100%);
+        z-index: 9999999;
+        display: flex; align-items: center; justify-content: center;
+        font-family: 'Inter', sans-serif;
+        overflow: hidden;
+      }
+
+      /* Animated grid */
+      #ct-splash::before {
+        content: '';
+        position: absolute; inset: 0;
+        background-image:
+          linear-gradient(rgba(14,165,233,0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(14,165,233,0.05) 1px, transparent 1px);
+        background-size: 48px 48px;
+        animation: ct-grid-fade 4s ease-in-out infinite alternate;
+      }
+      @keyframes ct-grid-fade {
+        from { opacity: 0.5; } to { opacity: 1; }
+      }
+
+      /* Glow orbs */
+      .ct-splash-orb {
+        position: absolute; border-radius: 50%;
+        filter: blur(80px); pointer-events: none;
+        animation: ct-orb-float 10s ease-in-out infinite;
+      }
+      .ct-splash-orb-1 {
+        width: 500px; height: 500px; top: -120px; left: -120px;
+        background: radial-gradient(circle, rgba(14,165,233,0.12) 0%, transparent 70%);
+      }
+      .ct-splash-orb-2 {
+        width: 400px; height: 400px; bottom: -100px; right: -80px;
+        background: radial-gradient(circle, rgba(99,102,241,0.10) 0%, transparent 70%);
+        animation-delay: -5s; animation-duration: 12s;
+      }
+      @keyframes ct-orb-float {
+        0%, 100% { transform: translate(0, 0); }
+        33%  { transform: translate(20px, -15px); }
+        66%  { transform: translate(-10px, 20px); }
+      }
+
+      /* Splash content card */
+      .ct-splash-inner {
+        position: relative; z-index: 1;
+        display: flex; flex-direction: column;
+        align-items: center; gap: 20px;
+        animation: ct-splash-fadein 0.6s ease both;
+      }
+      @keyframes ct-splash-fadein {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Logo ring */
+      .ct-splash-ring {
+        position: relative; width: 72px; height: 72px;
+      }
+      .ct-splash-ring-bg {
+        position: absolute; inset: 0;
+        border-radius: 50%;
+        border: 2px solid rgba(14,165,233,0.15);
+        background: rgba(14,165,233,0.06);
+      }
+      .ct-splash-ring-spin {
+        position: absolute; inset: 0;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        border-top-color: #0ea5e9;
+        border-right-color: rgba(14,165,233,0.3);
+        animation: ct-spin 1s linear infinite;
+      }
+      .ct-splash-ring-spin-slow {
+        position: absolute; inset: 6px;
+        border-radius: 50%;
+        border: 1px solid transparent;
+        border-bottom-color: rgba(99,102,241,0.6);
+        animation: ct-spin 2s linear infinite reverse;
+      }
+      @keyframes ct-spin {
+        to { transform: rotate(360deg); }
+      }
+      /* Icon inside ring */
+      .ct-splash-icon {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        color: rgba(14,165,233,0.7);
+      }
+
+      /* Text */
+      .ct-splash-text {
+        text-align: center;
+      }
+      .ct-splash-title {
+        font-size: 14px; font-weight: 500;
+        color: rgba(226,232,240,0.9);
+        letter-spacing: 0.01em;
+        margin-bottom: 4px;
+      }
+      .ct-splash-sub {
+        font-size: 12px; font-weight: 400;
+        color: rgba(100,116,139,0.7);
+        letter-spacing: 0.02em;
+      }
+
+      /* Dots loader */
+      .ct-dots {
+        display: flex; gap: 6px;
+      }
+      .ct-dots span {
+        width: 5px; height: 5px; border-radius: 50%;
+        background: #0ea5e9;
+        animation: ct-dot-bounce 1.2s ease-in-out infinite;
+      }
+      .ct-dots span:nth-child(2) { animation-delay: 0.2s; background: rgba(14,165,233,0.7); }
+      .ct-dots span:nth-child(3) { animation-delay: 0.4s; background: rgba(14,165,233,0.4); }
+      @keyframes ct-dot-bounce {
+        0%, 80%, 100% { transform: scale(1); opacity: 0.5; }
+        40% { transform: scale(1.4); opacity: 1; }
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/voice_app/frontend/assets/index-D8ekwjb1.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/voice_app/frontend/assets/index-CzT35pt2.css">
+  </head>
+  <body>
+    <div id="ct-splash">
+      <div class="ct-splash-orb ct-splash-orb-1"></div>
+      <div class="ct-splash-orb ct-splash-orb-2"></div>
+
+      <div class="ct-splash-inner">
+        <!-- Spinner ring -->
+        <div class="ct-splash-ring">
+          <div class="ct-splash-ring-bg"></div>
+          <div class="ct-splash-ring-spin"></div>
+          <div class="ct-splash-ring-spin-slow"></div>
+          <div class="ct-splash-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Text -->
+        <div class="ct-splash-text">
+          <p class="ct-splash-title">Đang xác thực quyền truy cập</p>
+          <p class="ct-splash-sub">CT Group &middot; AI Center</p>
+        </div>
+
+        <!-- Dots -->
+        <div class="ct-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="app"></div>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  </body>
+</html>
