@@ -133,6 +133,7 @@ def get_cached_employees(ttl=300):
 @frappe.whitelist(allow_guest=False)
 def check_meeting_status(meeting_name):
     meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    frappe.log_error(f"check_meeting_status called for {meeting_name}, status={meeting.status}", "Meeting Status Debug")
     if meeting.status in ("Completed", "Analyzed", "Synced"):
         raw_employees = get_cached_employees()
         employees = [e for e in raw_employees if e.get("user_id")]
