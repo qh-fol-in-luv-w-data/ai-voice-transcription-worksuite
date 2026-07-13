@@ -536,7 +536,7 @@ def after_extract(state: AgentState) -> str:
     return "report" if not state.get("extracted_data") else "login"
 
 def after_login(state: AgentState) -> str:
-    return "report" if not state.get("session") else "fetch_users"
+    return "report" if not state.get("session") else "fetch_all"
 
 
 # ─────────────────────────────────────────────
