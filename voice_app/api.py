@@ -1576,7 +1576,7 @@ def voice_to_task(existing_task=None):
     return {"status": "processing", "job_key": job_key}
 
 
-def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""):
+def _voice_to_task_async(file_path, existing_task=None, user=None, session_id="", job_key=""):
     frappe.set_user(user)
     
     # ── Session & Action Logging ──
@@ -1591,7 +1591,7 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
     )
     
     def send_progress(pct, msg):
-        frappe.publish_realtime("v2t_progress", {"progress": pct, "msg": msg, "job_key": getattr(frappe.local, 'task_id', '')}, user=user, after_commit=False)
+        frappe.publish_realtime("v2t_progress", {"progress": pct, "msg": msg, "job_key": job_key}, user=user, after_commit=False)
     
     send_progress(10, "Đang chuẩn bị file âm thanh...")
     
