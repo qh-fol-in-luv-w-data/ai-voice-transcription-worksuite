@@ -179,14 +179,25 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
             for i, spk_name in enumerate(unique_speakers):
                 row_cells = attendee_table.add_row().cells
                 row_cells[0].text = f"{i + 1}."
-                row_cells[1].text = spk_name
+                
+                spk_display = spk_name
+                designation_display = (
+                    speaker_roles.get(spk_name)
+                    or roles_lower.get(spk_name.lower())
+                    or "Thành viên"
+                )
+                
+                parts = spk_name.split(" - ")
+                if len(parts) == 3 and "@" in parts[1]:
+                    spk_display = parts[0].strip()
+                    designation_display = parts[2].strip()
+                elif len(parts) > 1 and "@" in parts[1]:
+                    spk_display = parts[0].strip()
+                    
+                row_cells[1].text = spk_display
                 if len(row_cells) > 2:
-                    designation = (
-                        speaker_roles.get(spk_name)
-                        or roles_lower.get(spk_name.lower())
-                        or "Thành viên"
-                    )
-                    row_cells[2].text = designation
+                    row_cells[2].text = designation_display
+                    
                 for cell in row_cells:
                     apply_font_to_cell(cell, 12)
 

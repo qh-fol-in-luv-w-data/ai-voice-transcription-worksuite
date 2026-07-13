@@ -608,7 +608,7 @@ const startExtractTasks = async () => {
            <span class="material-symbols-outlined text-[18px]">undo</span>
            Hoàn tác
          </button>
-         <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-gray-900 dark:text-on-surface'">
+         <button v-if="false" @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-gray-900 dark:text-on-surface'">
            <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'history' : 'auto_fix_high') }}</span>
            {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Bản gốc" : "Chuẩn hoá hội thoại") }}
          </button>

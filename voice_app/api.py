@@ -1170,8 +1170,19 @@ def enroll_voice():
         if err:
             return {"status": "error", "message": err}
             
+        from voice_app.api import get_cached_employees
+        employees = get_cached_employees()
+        designation = ""
+        for emp in employees:
+            if emp.get("user_id") == email:
+                full_name = emp.get("employee_name") or full_name
+                designation = emp.get("designation") or ""
+                break
+                
+        speaker_name = " - ".join([x for x in [full_name, email, designation] if x])
+        
         from voice_app.speaker_manager import enroll_new_speaker
-        success = enroll_new_speaker(full_name, wav, email=email, user_info=user_info)
+        success = enroll_new_speaker(speaker_name, wav, email=email, user_info=user_info)
         
         # Cleanup temp wav
         if os.path.exists(wav): os.remove(wav)
