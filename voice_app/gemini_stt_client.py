@@ -461,7 +461,7 @@ def _words_to_segments(raw_words):
     return segments
 
 
-def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None,
+def call_gemini_stt(chunks_info, chunk_update_cb=None, language: str = "vi", num_speakers: int = None,
                     custom_vocabulary: str = "", progress_callback=None, existing_segments=None):
     """
     Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
@@ -477,15 +477,11 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         return [], [], "", "Chưa cấu hình Gemini Model trong Voice App Settings", 0, 0
 
     try:
-        from .audio_utils import split_audio_by_silence
-        duration = get_duration(wav_path)
-        print(f"[Gemini STT] File {duration:.1f}s, lang={language}, speakers={num_speakers}")
+        print(f"[Gemini STT] Processing {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
 
-        # Cắt thành chunk 30 phút (tối đa 35 phút)
-        chunks = split_audio_by_silence(wav_path, chunk_length_sec=1800.0, max_chunk_sec=2100.0)
         if progress_callback:
-            progress_callback(20, f"Đang xử lý song song {len(chunks)} đoạn âm thanh...")
+            progress_callback(20, f"Đang xử lý song song {len(chunks_info)} đoạn âm thanh...")
 
         all_segments  = []
         all_raw_words = []
@@ -517,13 +513,13 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     chunk_update_cb(chunk_name, "Processing", None, None, None, 0)
 
                 if not is_subchunk and idx in completed_chunks:
-                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks)} vì đã hoàn thành.")
+                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks_info)} vì đã hoàn thành.")
                     return idx, None, None, None, None, None
 
                 if is_subchunk:
                     print(f"[Gemini STT]   -> Sub-chunk {idx} - offset: {offset:.1f}s")
                 else:
-                    print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
+                    print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks_info)} - offset: {offset:.1f}s")
 
                 chunk_duration = get_duration(current_wav)
 
@@ -651,7 +647,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
 
         # Chạy tất cả chunk song song
         completed_count = 0
-        total_chunks    = len(chunks)
+        total_chunks    = len(chunks_info)
         results         = [None] * total_chunks
         total_in_all    = 0
         total_out_all   = 0
@@ -661,7 +657,7 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             future_to_idx = {
                 executor.submit(_process_single_chunk, chunk_dict): chunk_dict.get("idx", i)
-                for i, chunk_dict in enumerate(chunks)
+                for i, chunk_dict in enumerate(chunks_info)
             }
 
             for future in concurrent.futures.as_completed(future_to_idx):
@@ -716,15 +712,21 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         if not all_segments:
             return [], [], "", "Gemini không nhận ra giọng nói trong file (file trống, nhiễu hoặc sai format).", 0, 0
 
-        n_spk = len(set(s.get("speaker_id", "") for s in all_segments))
+        spk_set = set()
+        for s in all_segments:
+            s_spk = s.get("speaker_id", "")
+            if s_spk and s_spk not in spk_set:
+                spk_set.add(s_spk)
+        n_spk = len(spk_set)
+        
         PRICE_IN  = 1.50 / 1_000_000
         PRICE_OUT = 9.00 / 1_000_000
         total_cost = total_in_all * PRICE_IN + total_out_all * PRICE_OUT
         print(
-            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks)} chunks\n"
+            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks_info)} chunks\n"
             f"💰 [Gemini STT] TỔNG CHI PHÍ FILE: "
             f"in={total_in_all:,} + out={total_out_all:,} = {total_tok_all:,} tokens | "
-            f"cost=~${total_cost:.4f} USD ({len(chunks)} chunks)"
+            f"cost=~${total_cost:.4f} USD ({len(chunks_info)} chunks)"
         )
         return all_segments, all_raw_words, all_full_text.strip(), None, total_in_all, total_out_all
 
