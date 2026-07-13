@@ -1561,7 +1561,9 @@ def voice_to_task(existing_task=None):
     file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
     
     session_id = frappe.get_request_header("X-App-Session-Id") or ""
-    return _voice_to_task_async(file_path=file_path, existing_task=existing_task, user=frappe.session.user, session_id=session_id)
+    res = _voice_to_task_async(file_path=file_path, existing_task=existing_task, user=frappe.session.user, session_id=session_id)
+    frappe.log_error(str(res), "V2T Debug Result")
+    return res
 
 
 def _voice_to_task_async(file_path, existing_task=None, user=None, session_id="", job_key=""):
