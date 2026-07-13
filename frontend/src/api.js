@@ -46,15 +46,6 @@ export async function extractTasks(results, modelType, meetingName, startTime = 
   return res.data.message
 }
 
-export async function reassignSpeakerFromSegment(meetingName, segmentIndex, newSpeakerName) {
-  const res = await api.post('/api/method/voice_app.api.reassign_speaker_from_segment', {
-    meeting_name: meetingName,
-    segment_index: segmentIndex,
-    new_speaker_name: newSpeakerName
-  })
-  return res.data.message
-}
-
 export async function getMeetingHistory() {
   const res = await api.get('/api/method/voice_app.api.get_meeting_history')
   return res.data.message
