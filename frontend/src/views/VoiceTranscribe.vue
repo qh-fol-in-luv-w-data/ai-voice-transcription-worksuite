@@ -551,14 +551,6 @@ const startExtractTasks = async () => {
             </div>
           </div>
         </div>
-
-        <div class="flex flex-col flex-1">
-          <div class="flex justify-between items-center mb-1">
-             <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
-             <button @click="handleSaveVocabulary" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20 transition-colors font-bold">Lưu</button>
-          </div>
-          <textarea v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
-        </div>
       </div>
 
       <div v-if="audioUrl" class="mt-4 border-t border-gray-200 dark:border-outline-variant/30 pt-4">
@@ -621,6 +613,13 @@ const startExtractTasks = async () => {
       <div class="mb-3">
          <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
          <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+      </div>
+      <div class="flex flex-col flex-1">
+        <div class="flex justify-between items-center mb-1">
+            <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
+            <button @click="handleSaveVocabulary" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20 transition-colors font-bold">Lưu</button>
+        </div>
+        <textarea v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
       </div>
     </div>
   </div>

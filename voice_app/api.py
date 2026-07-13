@@ -17,7 +17,7 @@ from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 _logger = ActivityLogger("VOICE", "voice_app")
 
 @frappe.whitelist(allow_guest=False)
-def transcribe_audio(filter_speakers=None, stt_mode="google"):
+def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num_speakers=None, custom_vocabulary=""):
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
 
@@ -55,6 +55,11 @@ def transcribe_audio(filter_speakers=None, stt_mode="google"):
                 "date": frappe.utils.now(),
                 "status": "Processing",
                 "audio_file": file_url,
+                "language": language,
+                "stt_mode": stt_mode,
+                "num_speakers": num_speakers,
+                "custom_vocabulary": custom_vocabulary,
+                "filter_speakers": filter_speakers
             })
             meeting_doc.insert(ignore_permissions=True)
             frappe.db.commit()
@@ -77,6 +82,11 @@ def transcribe_audio(filter_speakers=None, stt_mode="google"):
             "date": frappe.utils.now(),
             "status": "Processing",
             "audio_file": file_url,
+            "language": language,
+            "stt_mode": stt_mode,
+            "num_speakers": num_speakers,
+            "custom_vocabulary": custom_vocabulary,
+            "filter_speakers": filter_speakers
         })
         meeting_doc.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -92,7 +102,10 @@ def transcribe_audio(filter_speakers=None, stt_mode="google"):
         filter_speakers=filter_speakers,
         stt_mode=stt_mode,
         meeting_name=meeting_doc.name,
-        session_id_header=session_id_header
+        session_id_header=session_id_header,
+        language=language,
+        num_speakers=num_speakers,
+        custom_vocabulary=custom_vocabulary
     )
 
     return {"status": "processing", "meeting_name": meeting_doc.name}
@@ -158,7 +171,7 @@ def check_meeting_status(meeting_name):
         return {"status": "processing", "meeting_name": meeting.name, "progress_info": progress_info}
 
 
-def _transcribe_audio_async(file_path, file_url, filter_speakers, stt_mode, meeting_name, session_id_header):
+def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None, stt_mode="google", meeting_name=None, session_id_header=None, **kwargs):
     try:
     
     
@@ -199,7 +212,7 @@ def _transcribe_audio_async(file_path, file_url, filter_speakers, stt_mode, meet
 
                 frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
-            auto_num_speakers = None
+            auto_num_speakers = kwargs.get("num_speakers")
             if filter_speakers:
                 try:
                     names = json.loads(filter_speakers)
@@ -208,8 +221,8 @@ def _transcribe_audio_async(file_path, file_url, filter_speakers, stt_mode, meet
                 except Exception:
                     pass
                     
-            global_vocabulary = frappe.db.get_single_value("Voice App Settings", "global_vocabulary") or ""
-            language = "vi"
+            global_vocabulary = kwargs.get("custom_vocabulary") or frappe.db.get_single_value("Voice App Settings", "global_vocabulary") or ""
+            language = kwargs.get("language") or "vi"
     
             # Call STT theo mode
             def stt_cb(percent, msg):
