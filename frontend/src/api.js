@@ -196,4 +196,13 @@ export async function saveGlobalVocabulary(vocabulary) {
   return res.data.message
 }
 
+export async function reassignSpeakerFromSegment(meetingName, segmentIndex, newSpeakerName) {
+  const res = await api.post('/api/method/voice_app.api.reassign_speaker_from_segment', {
+    meeting_name: meetingName,
+    segment_index: segmentIndex,
+    new_speaker_name: newSpeakerName
+  })
+  return res.data.message
+}
+
 export default api

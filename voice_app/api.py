@@ -1297,6 +1297,123 @@ def map_and_enroll_speakers():
         "errors": errors
     }
 
+
+@frappe.whitelist(allow_guest=False)
+def reassign_speaker_from_segment():
+    """
+    Học giọng từ một đoạn hội thoại cụ thể và quét lại toàn bộ transcript
+    để gán lại tên cho những đoạn có giọng tương tự.
+
+    Payload (JSON body):
+        meeting_name    : tên Voice Meeting
+        segment_index   : index của đoạn hội thoại dùng làm mẫu
+        new_speaker_name: tên người nói mới
+    """
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+    segment_index = int(payload.get("segment_index", -1))
+    new_speaker_name = (payload.get("new_speaker_name") or "").strip()
+
+    if not meeting_name or segment_index < 0 or not new_speaker_name:
+        return {"status": "error", "message": "Thiếu meeting_name, segment_index hoặc new_speaker_name"}
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not meeting or not meeting.raw_results:
+        return {"status": "error", "message": "Không tìm thấy meeting hoặc dữ liệu raw_results"}
+
+    if meeting.owner != frappe.session.user:
+        return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+
+    results = json.loads(meeting.raw_results)
+
+    if segment_index >= len(results):
+        return {"status": "error", "message": f"segment_index {segment_index} vượt quá số đoạn hội thoại ({len(results)})"}
+
+    target_seg = results[segment_index]
+    start, end = float(target_seg[0]), float(target_seg[1])
+    duration = end - start
+
+    if duration < 1.0:
+        return {"status": "error", "message": "Đoạn âm thanh quá ngắn (cần ít nhất 1 giây) để trích xuất giọng nói"}
+
+    # Lấy đường dẫn file audio và convert sang WAV
+    audio_path = frappe.get_site_path(meeting.audio_file.strip('/'))
+    wav_path, err = convert_to_wav(audio_path)
+    if err:
+        return {"status": "error", "message": f"Lỗi xử lý file âm thanh: {err}"}
+
+    try:
+        # Bước 1: Trích xuất embedding từ đoạn mẫu
+        sample_embedding = _extract_embedding_subprocess(wav_path, start, end)
+        if sample_embedding is None:
+            return {"status": "error", "message": "Không thể trích xuất đặc trưng giọng nói từ đoạn này"}
+
+        import numpy as np
+        from scipy.spatial.distance import cosine as cosine_dist
+        from .constants import SIMILARITY_THRESHOLD
+
+        # Normalize
+        norm = np.linalg.norm(sample_embedding)
+        if norm > 0:
+            sample_embedding = sample_embedding / norm
+
+        # Bước 2: Đăng ký mẫu giọng vào DB
+        db = SpeakerDB()
+        db.add_speaker(new_speaker_name, sample_embedding, email="", user_info=None)
+
+        # Bước 3: Cập nhật đoạn được chọn
+        results[segment_index][2] = new_speaker_name
+        reassigned_count = 1
+
+        # Bước 4: Quét toàn bộ các segment còn lại, trích xuất embedding và so sánh
+        for i, seg in enumerate(results):
+            if i == segment_index:
+                continue
+
+            seg_start, seg_end = float(seg[0]), float(seg[1])
+            seg_dur = seg_end - seg_start
+            if seg_dur < 0.5:
+                continue  # Bỏ qua đoạn quá ngắn
+
+            try:
+                seg_emb = get_segment_embedding(wav_path, seg_start, seg_end)
+                if seg_emb is None:
+                    continue
+
+                similarity = 1.0 - cosine_dist(sample_embedding, seg_emb)
+                if similarity >= SIMILARITY_THRESHOLD:
+                    results[i][2] = new_speaker_name
+                    reassigned_count += 1
+            except Exception as ex:
+                frappe.log_error(str(ex), f"reassign_speaker_from_segment: error on seg {i}")
+                continue
+
+        # Bước 5: Lưu lại kết quả mới
+        final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
+        frappe.db.set_value("Voice Meeting", meeting_name, {
+            "raw_results": json.dumps(results, ensure_ascii=False),
+            "transcript": final_text,
+        })
+        frappe.db.commit()
+
+        return {
+            "status": "success",
+            "results": results,
+            "reassigned_count": reassigned_count,
+            "message": f"Đã gán lại {reassigned_count} đoạn hội thoại thành \"{new_speaker_name}\""
+        }
+
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Reassign Speaker From Segment Error")
+        return {"status": "error", "message": str(e)}
+    finally:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+
 @frappe.whitelist(allow_guest=False)
 def get_current_user():
     return frappe.session.user
