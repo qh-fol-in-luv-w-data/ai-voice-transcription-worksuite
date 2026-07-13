@@ -4,7 +4,7 @@ import {
   dbEmployees, tasks, isExtracting, extractStatus, isTaskModalOpen, 
   hrProjectsMap, docxUrl, excelUrl, loadHistory, modelType 
 } from '../composables/useVoiceApp'
-import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus } from '../api'
+import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus, reassignSpeakerFromSegment } from '../api'
 
 const props = defineProps({
   meeting: Object,
@@ -61,6 +61,8 @@ const editingText = ref('')
 const editingSpeaker = ref(null)
 const editingSpeakerName = ref('')
 const newSpeakerEmployee = ref('')
+const isRescanning = ref(false)
+const rescanMessage = ref('')
 
 const undoStack = ref([])
 
@@ -118,6 +120,32 @@ const saveEditSpeaker = async (idx) => {
   editingSpeaker.value = null
   if (props.meeting?.name) {
     await updateMeetingResults(props.meeting.name, localSegments.value)
+  }
+}
+const saveAndRescanSpeaker = async (idx) => {
+  const finalName = newSpeakerEmployee.value
+  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  if (!props.meeting?.name) { alert('Không tìm thấy meeting!'); return }
+
+  editingSpeaker.value = null
+  isRescanning.value = true
+  rescanMessage.value = 'Đang trích xuất đặc trưng giọng nói...'
+
+  try {
+    const res = await reassignSpeakerFromSegment(props.meeting.name, idx, finalName.trim())
+    if (res && res.status === 'success') {
+      localSegments.value = res.results
+      rescanMessage.value = res.message || 'Quét lại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 3000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isRescanning.value = false
   }
 }
 const addNewSegment = async () => {
@@ -298,6 +326,26 @@ const openTaskModal = () => {
 </script>
 
 <template>
+  <!-- Rescanning overlay -->
+  <transition name="fade">
+    <div v-if="isRescanning" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+      <div class="bg-white dark:bg-surface rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full mx-4">
+        <span class="material-symbols-outlined text-[48px] text-orange-500 animate-spin">manage_search</span>
+        <p class="font-bold text-gray-900 dark:text-on-surface text-center">Đang quét lại giọng nói...</p>
+        <p class="text-sm text-gray-500 dark:text-on-surface-variant text-center">{{ rescanMessage }}</p>
+        <div class="w-full h-1.5 bg-gray-200 dark:bg-surface-container rounded-full overflow-hidden">
+          <div class="h-full bg-orange-500 rounded-full animate-pulse" style="width: 60%"></div>
+        </div>
+      </div>
+    </div>
+  </transition>
+  <!-- Rescan success toast -->
+  <transition name="slide-fade">
+    <div v-if="rescanMessage && !isRescanning" class="fixed bottom-6 right-6 z-50 bg-green-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 font-bold text-sm">
+      <span class="material-symbols-outlined text-[18px]">check_circle</span>
+      {{ rescanMessage }}
+    </div>
+  </transition>
   <div v-if="meeting" class="flex-1 w-full max-w-5xl mx-auto space-y-xl pb-10 mt-2 fade-in">
     <!-- Header Section -->
     <section class="flex flex-col gap-md">
@@ -411,12 +459,16 @@ const openTaskModal = () => {
             
             <div class="flex items-center gap-2 mb-1 flex-wrap">
               <template v-if="editingSpeaker === idx">
-                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override" @change="saveEditSpeaker(idx)">
+                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override">
                   <el-option v-for="opt in employeeOptions" :key="opt.value" :label="opt.label" :value="opt.value">
                     <span class="text-xs">{{ opt.label }}</span>
                   </el-option>
                 </el-select>
                 <button @click="saveEditSpeaker(idx)" class="text-xs font-bold text-white bg-primary px-2 py-0.5 rounded hover:bg-primary/90 ml-1">Lưu</button>
+                <button @click="saveAndRescanSpeaker(idx)" class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded hover:bg-orange-600 transition-colors flex items-center gap-0.5" title="Học giọng từ đoạn này và gán lại tên cho tất cả đoạn giống giọng">
+                  <span class="material-symbols-outlined text-[12px]">manage_search</span>
+                  Quét lại AI
+                </button>
                 <button @click="editingSpeaker = null" class="text-xs text-gray-400 hover:text-gray-600">Hủy</button>
               </template>
               <template v-else>
