@@ -45,7 +45,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
                 frappe.db.commit()
                 meeting_doc = frappe.get_doc("Voice Meeting", m.name)
             else:
-                return check_meeting_status(m.name)
+                return  (m.name)
         else:
             from datetime import datetime
             meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
@@ -151,7 +151,7 @@ def check_meeting_status(meeting_name):
             "employees": employees,
             "meeting_name": meeting.name
         }
-    elif meeting.status == "Error":
+    elif meeting.status in ("Error", "Partial Error"):
         # Check custom field if exists
         error_msg = meeting.get("error_message") or "Có lỗi xảy ra khi xử lý âm thanh."
         return {"status": "error", "message": error_msg}
@@ -257,7 +257,7 @@ def _transcribe_audio_async(file_path, file_url, language, filter_speakers, stt_
                     })
                 frappe.db.commit()
                 
-                chunks_to_process = [c for c in chunks_info if c["status"] in ("Pending", "Error")]
+                chunks_to_process = [c for c in chunks_info if c["status"] in ("Pending", "Error", "Processing")]
                 
                 def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks):
                     if c_status == "Processing":

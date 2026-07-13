@@ -12,7 +12,12 @@ def convert_to_wav(input_path: str):
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
         out,
     ]
-    r = subprocess.run(cmd, capture_output=True)
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        try: os.remove(out)
+        except: pass
+        return None, "ffmpeg error: timeout"
     if r.returncode != 0:
         try: os.remove(out)
         except: pass
@@ -39,7 +44,10 @@ def extract_segment_ffmpeg(wav_path: str, start: float, end: float, padding: flo
         "-af", "volume=2.5",
         out,
     ]
-    subprocess.run(cmd, capture_output=True)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
     return out
 
 
@@ -105,7 +113,12 @@ def concat_speaker_segments(wav_path: str, segs: list,
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", 
         out
     ]
-    r = subprocess.run(cmd, capture_output=True)
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        try: os.remove(out)
+        except: pass
+        return None
 
     if r.returncode != 0:
         try: os.remove(out)
