@@ -674,7 +674,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
     
             result_data = {
                 "status": "success",
-                "results": results,
+                "results": ui_results,
                 "final_text": final_output_text.strip(),
                 "employees": employees,
                 "meeting_name": meeting_name
