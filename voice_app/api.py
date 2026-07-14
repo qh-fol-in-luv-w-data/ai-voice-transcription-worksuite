@@ -1569,86 +1569,62 @@ def reassign_speaker_from_segment():
     if segment_index >= len(results):
         return {"status": "error", "message": f"segment_index {segment_index} vượt quá số đoạn hội thoại ({len(results)})"}
 
-    target_seg = results[segment_index]
-    start, end = float(target_seg[0]), float(target_seg[1])
-    duration = end - start
+    original_results = json.loads(meeting.original_raw_results) if meeting.original_raw_results else []
+    if not original_results or segment_index >= len(original_results):
+        return {"status": "error", "message": "Không tìm thấy dữ liệu embedding gốc. Vui lòng Quét lại file âm thanh (Transcribe) để hệ thống tạo embedding mới."}
 
-    if duration < 1.0:
-        return {"status": "error", "message": "Đoạn âm thanh quá ngắn (cần ít nhất 1 giây) để trích xuất giọng nói"}
-
-    # Lấy đường dẫn file audio và convert sang WAV
-    audio_path = frappe.get_site_path(meeting.audio_file.strip('/'))
-    wav_path, err = convert_to_wav(audio_path)
-    if err:
-        return {"status": "error", "message": f"Lỗi xử lý file âm thanh: {err}"}
+    target_seg = original_results[segment_index]
+    sample_embedding = target_seg.get("embedding")
+    
+    if not sample_embedding:
+        return {"status": "error", "message": "Đoạn hội thoại này không có dữ liệu giọng nói (embedding)."}
 
     try:
         import numpy as np
         from scipy.spatial.distance import cosine as cosine_dist
         from .constants import SIMILARITY_THRESHOLD
-        from .speaker_manager import _extract_embeddings_batch_subprocess, SpeakerDB
-
-        # Chuẩn bị danh sách segment để trích xuất batch
-        batch_segments = []
-        seg_indices = [] # lưu lại index gốc của segment
-        for i, seg in enumerate(results):
-            seg_start, seg_end = float(seg[0]), float(seg[1])
-            seg_dur = seg_end - seg_start
-            
-            # Luôn đưa segment mẫu vào, các segment khác thì check duration
-            if i == segment_index or seg_dur >= 0.5:
-                batch_segments.append({"start": seg_start, "end": seg_end})
-                seg_indices.append(i)
-
-        if not batch_segments:
-            return {"status": "error", "message": "Không có đoạn hội thoại hợp lệ"}
-
-        # Trích xuất toàn bộ embedding trong 1 lần gọi subprocess
-        embeddings_list = _extract_embeddings_batch_subprocess(wav_path, batch_segments)
-        
-        # Tìm embedding của đoạn mẫu
-        sample_idx_in_batch = seg_indices.index(segment_index)
-        sample_embedding = embeddings_list[sample_idx_in_batch]
-        
-        if sample_embedding is None:
-            return {"status": "error", "message": "Không thể trích xuất đặc trưng giọng nói từ đoạn này"}
+        from .speaker_manager import SpeakerDB
 
         # Normalize mẫu
-        norm = np.linalg.norm(sample_embedding)
+        sample_emb_np = np.array(sample_embedding)
+        norm = np.linalg.norm(sample_emb_np)
         if norm > 0:
-            sample_embedding = sample_embedding / norm
+            sample_emb_np = sample_emb_np / norm
 
         # Bước 2: Đăng ký mẫu giọng vào DB
         db = SpeakerDB()
-        db.add_speaker(new_speaker_name, sample_embedding, email="", user_info=None)
+        db.add_speaker(new_speaker_name, sample_emb_np.tolist(), email="", user_info=None)
 
         # Bước 3: Cập nhật đoạn được chọn
         results[segment_index][2] = new_speaker_name
+        original_results[segment_index]["speaker"] = new_speaker_name
         reassigned_count = 1
 
         # Bước 4: So sánh với các đoạn còn lại
-        for batch_idx, original_idx in enumerate(seg_indices):
-            if original_idx == segment_index:
+        for i, seg in enumerate(original_results):
+            if i == segment_index:
                 continue
                 
-            seg_emb = embeddings_list[batch_idx]
-            if seg_emb is None:
+            seg_emb = seg.get("embedding")
+            if not seg_emb:
                 continue
 
-            # Normalize segment embedding if not already
-            s_norm = np.linalg.norm(seg_emb)
+            seg_emb_np = np.array(seg_emb)
+            s_norm = np.linalg.norm(seg_emb_np)
             if s_norm > 0:
-                seg_emb = seg_emb / s_norm
+                seg_emb_np = seg_emb_np / s_norm
 
-            similarity = 1.0 - cosine_dist(sample_embedding, seg_emb)
+            similarity = 1.0 - cosine_dist(sample_emb_np, seg_emb_np)
             if similarity >= SIMILARITY_THRESHOLD:
-                results[original_idx][2] = new_speaker_name
+                results[i][2] = new_speaker_name
+                original_results[i]["speaker"] = new_speaker_name
                 reassigned_count += 1
 
         # Bước 5: Lưu lại kết quả mới
         final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
         frappe.db.set_value("Voice Meeting", meeting_name, {
             "raw_results": json.dumps(results, ensure_ascii=False),
+            "original_raw_results": json.dumps(original_results, ensure_ascii=False),
             "transcript": final_text,
         })
         frappe.db.commit()
@@ -1663,9 +1639,55 @@ def reassign_speaker_from_segment():
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Reassign Speaker From Segment Error")
         return {"status": "error", "message": str(e)}
-    finally:
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
+
+@frappe.whitelist(allow_guest=False)
+def enroll_speaker_from_segment():
+    """
+    Lưu đặc trưng giọng nói (embedding) của đoạn hội thoại vào hệ thống (Voice Speaker).
+    API này không gán lại tên cho các đoạn khác (không Quét lại AI), chỉ học giọng.
+    """
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+    segment_index = int(payload.get("segment_index", -1))
+    new_speaker_name = (payload.get("new_speaker_name") or "").strip()
+
+    if not meeting_name or segment_index < 0 or not new_speaker_name:
+        return {"status": "error", "message": "Thiếu thông tin để đăng ký giọng nói."}
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not meeting or not meeting.original_raw_results:
+        return {"status": "error", "message": "Không tìm thấy dữ liệu gốc để đăng ký giọng nói."}
+
+    original_results = json.loads(meeting.original_raw_results)
+    if segment_index >= len(original_results):
+        return {"status": "error", "message": "Đoạn hội thoại không hợp lệ."}
+
+    target_seg = original_results[segment_index]
+    sample_embedding = target_seg.get("embedding")
+    
+    if not sample_embedding:
+        return {"status": "error", "message": "Đoạn hội thoại này chưa được trích xuất dữ liệu giọng nói (embedding)."}
+
+    try:
+        import numpy as np
+        from .speaker_manager import SpeakerDB
+
+        sample_emb_np = np.array(sample_embedding)
+        norm = np.linalg.norm(sample_emb_np)
+        if norm > 0:
+            sample_emb_np = sample_emb_np / norm
+
+        db = SpeakerDB()
+        db.add_speaker(new_speaker_name, sample_emb_np.tolist(), email="", user_info=None)
+
+        return {"status": "success", "message": f"Đã học giọng nói của {new_speaker_name} thành công!"}
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Enroll Speaker From Segment Error")
+        return {"status": "error", "message": str(e)}
 
 
 @frappe.whitelist(allow_guest=False)

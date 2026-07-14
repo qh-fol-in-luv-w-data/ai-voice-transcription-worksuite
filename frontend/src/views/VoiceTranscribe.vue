@@ -7,7 +7,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, enrollSpeakerFromSegment } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -111,6 +111,15 @@ const saveEditSpeaker = async (idx) => {
 
   if (!finalName.trim()) { editingSpeaker.value = null; return }
   saveState()
+  
+  if (currentMeetingName.value) {
+    try {
+      await enrollSpeakerFromSegment(currentMeetingName.value, idx, finalName.trim())
+    } catch (e) {
+      console.warn("Failed to enroll speaker:", e)
+    }
+  }
+
   const oldName = transcriptResults.value[idx][2]
   for (const seg of transcriptResults.value) {
     if (seg[2] === oldName) seg[2] = finalName.trim()
