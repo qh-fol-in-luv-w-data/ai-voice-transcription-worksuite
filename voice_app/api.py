@@ -81,7 +81,7 @@ def get_cached_employees(ttl=300):
                 "filters": '[["status","=","Active"]]',
                 "limit_page_length": 5000,
             },
-            timeout=10,
+            timeout=30,
         )
         if emp_resp.status_code == 200:
             employees = emp_resp.json().get("data", [])
@@ -1642,7 +1642,7 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
             login_resp = session.post(
                 f"{BASE_URL}/api/method/login",
                 json={"usr": WS_EMAIL, "pwd": WS_PASSWORD},
-                timeout=10,
+                timeout=30,
             )
             if login_resp.status_code == 200:
                 # Lấy CSRF token
@@ -1665,7 +1665,7 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
                 proj_resp = session.get(
                     f"{BASE_URL}/api/resource/Project",
                     params={"fields": '["name", "project_name"]', "limit_page_length": 5000},
-                    timeout=10,
+                    timeout=30,
                 )
                 if proj_resp.status_code == 200:
                     projects = proj_resp.json().get("data", [])
