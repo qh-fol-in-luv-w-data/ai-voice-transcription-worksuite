@@ -25,6 +25,9 @@ export const isCleaning = ref(false)
 export const docxUrl = ref('')
 export const excelUrl = ref('')
 
+export const meetingSummary = ref('')
+export const meetingConclusion = ref('')
+
 export const tasks = ref([])
 export const hrProjectsMap = ref({})
 export const dbEmployees = ref([])
@@ -48,6 +51,12 @@ export const mediaRecorder = ref(null)
 export const audioChunks = ref([])
 export const recordedAudioUrl = ref('')
 export const isTaskModalOpen = ref(false)
+
+export const voiceTaskHistory = ref(JSON.parse(localStorage.getItem('voiceTaskHistory') || '[]'))
+export const saveVoiceTaskHistory = () => {
+  localStorage.setItem('voiceTaskHistory', JSON.stringify(voiceTaskHistory.value))
+}
+export const selectedVoiceTaskHistoryItem = ref(null)
 
 // Dictionary for i18n
 export const dict = {
@@ -73,7 +82,7 @@ export const dict = {
     transcript_desc: "Nội dung cuộc họp và danh tính người nói.",
     empty_audio: "Chưa có dữ liệu âm thanh nào được tải lên...",
     task_list: "Danh sách Nhiệm vụ",
-    task_desc: "Kiểm tra và hiệu chỉnh trước khi đồng bộ lên hệ thống ERPNext.",
+    task_desc: "Kiểm tra và hiệu chỉnh trước khi đồng bộ lên hệ thống Worksuite.",
     export_xlsx: "Xuất Task",
     export_docx: "Xuất Biên bản họp",
     add_task: "Thêm Task",
@@ -84,12 +93,12 @@ export const dict = {
     col_due: "Hạn chót",
     col_desc: "Mô tả chi tiết",
     col_del: "Xóa",
-    btn_sync: "Đồng bộ lên ERPNext",
+    btn_sync: "Đồng bộ lên Worksuite",
     status_transcribe_wait: "⏳ Đang khởi tạo máy chủ phân tích...",
     status_transcribe_ok: "✅ Dịch và nhận diện thành công!",
     status_extract_wait: "⏳ Đang trích xuất nhiệm vụ qua AI...",
     status_extract_ok: "✅ Trích xuất nhiệm vụ thành công!",
-    status_sync_wait: "⏳ Đang đồng bộ dữ liệu lên ERPNext...",
+    status_sync_wait: "⏳ Đang đồng bộ dữ liệu lên Worksuite...",
     status_sync_ok: (c, e) => `✅ Đã đồng bộ: ${c} nhiệm vụ. Lỗi: ${e}`,
     status_sync_fail: "❌ Đồng bộ thất bại: ",
     alert_no_file: "Vui lòng chọn file âm thanh!",
@@ -98,7 +107,14 @@ export const dict = {
     empty_project: "-- Trống --",
     tab_transcribe: "Phân tích Hội thoại",
     tab_enroll: "Đăng ký Giọng nói",
-    enroll_title: "Đăng ký Giọng nói",
+    tab_history: "Lịch sử Cuộc họp",
+    tab_voicetask: "Giao việc bằng giọng nói",
+    voice_task_title: "Giao việc bằng giọng nói",
+    voice_task_desc: "Tạo nhanh công việc trên Worksuite chỉ bằng cách nói ra yêu cầu.",
+    voice_task_placeholder: "'Tạo task thiết kế giao diện đăng nhập cho dự án A, giao cho Quân, hạn chót thứ 6 tuần này...'",
+    voice_task_success: "✅ Tạo nhiệm vụ thành công!",
+    voice_task_transcribing: "⏳ Đang xử lý âm thanh...",
+    enroll_title: "Đăng ký Nhận diện Giọng nói",
     enroll_desc: "Thu âm hoặc tải lên giọng nói. Hệ thống tự động liên kết với tài khoản đang đăng nhập.",
     btn_record: "Bắt đầu thu âm",
     btn_stop: "Dừng thu âm",
@@ -129,7 +145,7 @@ export const dict = {
     transcript_desc: "Meeting content and speaker identities.",
     empty_audio: "No audio data uploaded yet...",
     task_list: "Task List",
-    task_desc: "Review and edit before syncing to ERPNext system.",
+    task_desc: "Review and edit before syncing to Worksuite system.",
     export_xlsx: "Export Task",
     export_docx: "Export Minutes",
     add_task: "Add Task",
@@ -140,21 +156,28 @@ export const dict = {
     col_due: "Due Date",
     col_description: "Description",
     col_del: "Delete",
-    btn_sync: "Sync to ERPNext",
+    btn_sync: "Sync to Worksuite",
     status_transcribe_wait: "⏳ Initializing analysis server...",
     status_transcribe_ok: "✅ Translation and identification successful!",
     status_extract_wait: "⏳ Extracting tasks via AI...",
     status_extract_ok: "✅ Tasks extracted successfully!",
-    status_sync_wait: "⏳ Syncing data to ERPNext...",
+    status_sync_wait: "⏳ Syncing data to Worksuite...",
     status_sync_ok: (c, e) => `✅ Synced: ${c} tasks. Errors: ${e}`,
     status_sync_fail: "❌ Sync failed: ",
     alert_no_file: "Please select an audio file!",
     alert_no_transcript: "No conversation content available!",
     error_connect: "❌ Connection error",
     empty_project: "-- Empty --",
-    tab_transcribe: "Transcribe Voice",
+    tab_transcribe: "Conversation Analysis",
     tab_enroll: "Voice Enrollment",
-    enroll_title: "Voice Enrollment",
+    tab_history: "Meeting History",
+    tab_voicetask: "Voice to Task",
+    voice_task_title: "Voice to Task",
+    voice_task_desc: "Create Worksuite tasks quickly by speaking out your requirements.",
+    voice_task_placeholder: "'Create a UI design task for Project A, assign to Quan, due this Friday...'",
+    voice_task_success: "✅ Task created successfully!",
+    voice_task_transcribing: "⏳ Processing audio...",
+    enroll_title: "Register Voice ID",
     enroll_desc: "Record or upload your voice. The system will automatically link it to your current account.",
     btn_record: "Start Recording",
     btn_stop: "Stop Recording",
@@ -197,6 +220,9 @@ export const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
   activeTab.value = 'view_meeting'
   
+  meetingSummary.value = meeting.meeting_summary || ''
+  meetingConclusion.value = meeting.conclusion || ''
+  
   if (meeting.tasks_json) {
     try {
       tasks.value = typeof meeting.tasks_json === 'string' 
@@ -218,3 +244,23 @@ export const currentLocalDate = () => {
   const year = d.getFullYear()
   return `${day}-${month}-${year}`
 }
+
+import { saveMeetingDraft } from '../api'
+
+let saveTimeout = null
+watch([meetingSummary, meetingConclusion, tasks], () => {
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(async () => {
+    if (!currentMeetingName.value) return
+    try {
+      await saveMeetingDraft(
+        currentMeetingName.value,
+        meetingSummary.value,
+        meetingConclusion.value,
+        JSON.stringify(tasks.value)
+      )
+    } catch(e) {
+      console.error("Auto-save failed", e)
+    }
+  }, 1500)
+}, { deep: true })

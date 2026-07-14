@@ -38,17 +38,19 @@ def set_font_times(run, size_pt=12):
     rFonts.set(qn('w:cs'),      'Times New Roman')
 
 
-def apply_font_to_cell(cell, size_pt=12):
+def apply_font_to_cell(cell, size_pt=12, bold=False):
     """Áp dụng font Times New Roman lên toàn bộ paragraph/run trong một cell."""
     for p in cell.paragraphs:
         for run in p.runs:
             set_font_times(run, size_pt)
+            if bold: run.bold = True
         # Nếu paragraph chưa có run (text set trực tiếp)
         if not p.runs and p.text:
-            run = p.add_run(p.text)
-            for prev_r in p.runs[:-1]:  # xoá các run cũ
-                prev_r._element.getparent().remove(prev_r._element)
+            text = p.text
+            p.text = ""
+            run = p.add_run(text)
             set_font_times(run, size_pt)
+            if bold: run.bold = True
 
 
 def _clean_speaker(raw):
@@ -65,10 +67,11 @@ def get_template_path():
     return frappe.get_app_path("voice_app", "public", "files", "template_v2.docx")
 
 
-def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_time=None, end_time=None, location=None, chairperson=None):
+def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_time=None, end_time=None, location=None, chairperson=None, meeting_summary=None, conclusion=None, tasks=None):
     """
     results: list of tuples (start, end, speaker_label, text)
-    speaker_roles: dict { speaker_name: designation } lấy từ CTERP
+    speaker_roles: dict { speaker_name: designation }
+    tasks: list of dict representing tasks
     """
     if speaker_roles is None:
         speaker_roles = {}
@@ -214,14 +217,16 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 break
 
         if start_idx != -1 and start_idx + 1 < len(doc.paragraphs):
-            target_p = doc.paragraphs[start_idx + 1]
-
+            heading_p = doc.paragraphs[start_idx]
+            old_transcript_start_p = doc.paragraphs[start_idx + 1]
+            
+            # 1. Insert Transcript AFTER heading_p (BEFORE old_transcript_start_p)
             for start, end, spk, txt in results:
                 txt = normalize_whitespace(txt)
                 txt = clean_xml_text(txt)
                 clean_spk = _clean_speaker(spk)
 
-                p = target_p.insert_paragraph_before("")
+                p = old_transcript_start_p.insert_paragraph_before("")
                 r_spk = p.add_run(f"{clean_spk}: ")
                 r_spk.bold = True
                 set_font_times(r_spk, 12)
@@ -229,11 +234,80 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 r_txt = p.add_run(txt)
                 set_font_times(r_txt, 12)
 
-            # Xóa các đoạn mẫu (slice [:-1] để tránh xóa sectPr)
-            num_inserted = len(results)
-            current_paragraphs = doc.paragraphs
-            for p in current_paragraphs[start_idx + 1 + num_inserted:-1]:
-                p.text = ""
+            old_transcript_start_p.insert_paragraph_before("") # spacing
+            
+            # 2. Summary
+            if meeting_summary:
+                p_sum_head = old_transcript_start_p.insert_paragraph_before("Tóm tắt nội dung chính")
+                if p_sum_head.runs:
+                    p_sum_head.runs[0].bold = True
+                    set_font_times(p_sum_head.runs[0], 12)
+                p_sum = old_transcript_start_p.insert_paragraph_before(meeting_summary)
+                if p_sum.runs: set_font_times(p_sum.runs[0], 12)
+                old_transcript_start_p.insert_paragraph_before("") # spacing
+                
+            # 3. Conclusion
+            if conclusion:
+                p_con_head = old_transcript_start_p.insert_paragraph_before("Kết luận cuộc họp")
+                if p_con_head.runs:
+                    p_con_head.runs[0].bold = True
+                    set_font_times(p_con_head.runs[0], 12)
+                p_con = old_transcript_start_p.insert_paragraph_before(conclusion)
+                if p_con.runs: set_font_times(p_con.runs[0], 12)
+                old_transcript_start_p.insert_paragraph_before("") # spacing
+                
+            # 4. Tasks Table
+            if tasks and len(tasks) > 0:
+                p_task_head = old_transcript_start_p.insert_paragraph_before("Danh sách công việc cần thực hiện (Action Items)")
+                if p_task_head.runs:
+                    p_task_head.runs[0].bold = True
+                    set_font_times(p_task_head.runs[0], 12)
+                    
+                table = old_transcript_start_p.insert_paragraph_before("").insert_paragraph_before("")._parent.add_table(rows=1, cols=5, width=docx.shared.Inches(6.0))
+                table.style = 'Table Grid'
+                table.autofit = False
+                table.allow_autofit = False
+                
+                hdr_cells = table.rows[0].cells
+                headers = ['STT', 'Tên nhiệm vụ', 'Người thực hiện (PIC)', 'Ngày hoàn thành', 'Ghi chú']
+                for j, text in enumerate(headers):
+                    hdr_cells[j].text = text
+                    apply_font_to_cell(hdr_cells[j], 12, bold=True)
+                
+                for j, t in enumerate(tasks):
+                    row_cells = table.add_row().cells
+                    row_cells[0].text = str(j + 1)
+                    row_cells[1].text = t.get("title") or t.get("noi_dung") or ""
+                    row_cells[2].text = t.get("assignee_display") or t.get("nguoi_thuc_hien") or ""
+                    row_cells[3].text = t.get("due_date") or t.get("end_date") or t.get("ngay_ket_thuc") or ""
+                    row_cells[4].text = t.get("description") or t.get("note") or ""
+                    
+                    for cell in row_cells:
+                        apply_font_to_cell(cell, 12)
+                        
+                # Set column widths
+                widths = [docx.shared.Inches(0.4), docx.shared.Inches(2.2), docx.shared.Inches(1.2), docx.shared.Inches(1.0), docx.shared.Inches(1.2)]
+                for row in table.rows:
+                    for idx, width in enumerate(widths):
+                        row.cells[idx].width = width
+                
+                # Di chuyển table lên trước old_transcript_start_p
+                tbl_element = table._element
+                tbl_element.getparent().remove(tbl_element)
+                old_transcript_start_p._element.addprevious(tbl_element)
+                old_transcript_start_p.insert_paragraph_before("") # spacing
+            
+            # 5. Clear old transcript paragraphs safely by comparing underlying XML element
+            current_idx = -1
+            for i, p in enumerate(doc.paragraphs):
+                if p._element is old_transcript_start_p._element:
+                    current_idx = i
+                    break
+            
+            if current_idx != -1:
+                # slice [:-1] to avoid deleting the section properties in the last paragraph
+                for p in doc.paragraphs[current_idx:-1]:
+                    p.text = ""
 
         # ── Thêm chữ ký ở cuối biên bản ──────────────────────────────────────
         doc.add_paragraph("")

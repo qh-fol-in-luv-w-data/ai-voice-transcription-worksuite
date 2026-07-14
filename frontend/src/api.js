@@ -121,11 +121,14 @@ export async function enrollMappedSpeakers(meetingName, mappings) {
   return res.data.message
 }
 
-export async function voiceToTask(file, existingTask = null) {
+export async function voiceToTask(file, existingTask = null, jobKey = null) {
   const formData = new FormData()
   formData.append('file', file)
   if (existingTask) {
     formData.append('existing_task', JSON.stringify(existingTask))
+  }
+  if (jobKey) {
+    formData.append('job_key', jobKey)
   }
 
   const res = await api.post('/api/method/voice_app.api.voice_to_task', formData)
@@ -194,3 +197,20 @@ export async function reassignSpeakerFromSegment(meetingName, segmentIndex, newS
 }
 
 export default api
+
+export async function saveMeetingDraft(meetingName, summary, conclusion, tasksJsonStr) {
+  const res = await api.post('/api/method/voice_app.api.save_meeting_draft', {
+    meeting_name: meetingName,
+    summary: summary,
+    conclusion: conclusion,
+    tasks_json_str: tasksJsonStr
+  })
+  return res.data.message
+}
+
+export async function exportDynamicDocx(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.export_dynamic_docx', {
+    meeting_name: meetingName
+  })
+  return res.data.message
+}

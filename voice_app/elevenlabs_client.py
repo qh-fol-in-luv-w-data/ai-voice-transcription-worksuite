@@ -10,7 +10,7 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi", num_speakers: int =
     """
     api_key = get_elevenlabs_api_key()
     if not api_key:
-        return [], "", "Thiếu ELEVENLABS_API_KEY trong cấu hình", 0, 0
+        return [], [], "", "Thiếu ELEVENLABS_API_KEY trong cấu hình", 0, 0
 
     client = ElevenLabs(api_key=api_key)
     
