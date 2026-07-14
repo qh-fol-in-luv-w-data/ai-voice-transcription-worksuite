@@ -1591,7 +1591,7 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
     )
     
     def send_progress(pct, msg):
-        frappe.publish_realtime("v2t_progress", {"progress": pct, "msg": msg, "job_key": job_key}, user=user, after_commit=False)
+        frappe.publish_realtime("v2t_progress", {"progress": pct, "msg": msg, "job_key": job_key}, after_commit=False)
     
     send_progress(10, "Đang chuẩn bị file âm thanh...")
     
@@ -1807,18 +1807,19 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
 
         result_data = {
             "status": "success",
+            "job_key": job_key,
             "transcript": full_text,
             "task": parsed_data,
             "projects": projects,
             "employees": employees
         }
-        frappe.publish_realtime("v2t_result", result_data, user=user, after_commit=False)
+        frappe.publish_realtime("v2t_result", result_data, after_commit=False)
         return result_data
 
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Voice to Task Error")
         _logger.finish_action(action_name, status="failed", error_message=str(e)[:500])
-        frappe.publish_realtime("v2t_result", {"status": "error", "message": str(e)}, user=user, after_commit=False)
+        frappe.publish_realtime("v2t_result", {"status": "error", "message": str(e), "job_key": job_key}, after_commit=False)
         return {"status": "error", "message": str(e)}
     finally:
         # ── Cleanup temp files ──
