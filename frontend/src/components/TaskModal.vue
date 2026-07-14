@@ -1,5 +1,8 @@
 <script setup>
-import { defineProps, defineEmits, computed } from 'vue'
+import { defineProps, defineEmits, computed, watch } from 'vue'
+import { meetingSummary, meetingConclusion, currentMeetingName, tasks } from '../composables/useVoiceApp'
+import { saveMeetingDraft, exportDynamicDocx } from '../api'
+import { ElMessage } from 'element-plus'
 
 const props = defineProps({
   isOpen: Boolean,
@@ -52,6 +55,48 @@ const onAttendeeSelect = (val) => {
     emit('toggle-attendee', val);
   }
 }
+
+// Auto-save logic
+let saveTimeout = null
+watch([meetingSummary, meetingConclusion, tasks], () => {
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(async () => {
+    if (!currentMeetingName.value) return
+    try {
+      await saveMeetingDraft(
+        currentMeetingName.value,
+        meetingSummary.value,
+        meetingConclusion.value,
+        JSON.stringify(tasks.value)
+      )
+    } catch(e) {
+      console.error("Auto-save failed", e)
+    }
+  }, 1500)
+}, { deep: true })
+
+const downloadDynamicDocx = async () => {
+  if (!currentMeetingName.value) return
+  ElMessage.info("Đang tạo file DOCX...")
+  try {
+    // Force save the current state before exporting
+    await saveMeetingDraft(
+      currentMeetingName.value,
+      meetingSummary.value,
+      meetingConclusion.value,
+      JSON.stringify(tasks.value)
+    )
+    const res = await exportDynamicDocx(currentMeetingName.value)
+    if (res.status === 'success' && res.file_url) {
+      downloadFile(res.file_url, 'Biên bản họp ngày ' + props.currentLocalDate() + '.docx')
+    } else {
+      ElMessage.error(res.message || "Không thể xuất DOCX")
+    }
+  } catch(e) {
+    ElMessage.error("Lỗi xuất DOCX: " + e.toString())
+  }
+}
+
 </script>
 
 <template>
@@ -138,7 +183,7 @@ const onAttendeeSelect = (val) => {
                 <el-icon class="mr-1"><Download /></el-icon>
                 {{ t('export_xlsx') }}
               </el-button>
-              <el-button v-if="docxUrl" plain @click="downloadFile(docxUrl, 'Biên bản họp ngày ' + currentLocalDate() + '.docx')">
+              <el-button plain @click="downloadDynamicDocx">
                 <el-icon class="mr-1"><Document /></el-icon>
                 {{ t('export_docx') }}
               </el-button>
@@ -151,13 +196,37 @@ const onAttendeeSelect = (val) => {
           </div>
         </div>
 
-        <div class="p-5">
-        <el-table :data="tasks" style="width: 100%" size="large" stripe class="custom-task-table">
+        <div class="p-5 flex-col space-y-4">
+          <!-- Summary & Conclusion section -->
+          <div class="flex flex-col space-y-4 mb-4">
+            <div>
+              <h4 class="text-md font-medium mb-2">Tóm tắt nội dung chính</h4>
+              <el-input
+                v-model="meetingSummary"
+                type="textarea"
+                :autosize="{ minRows: 3, maxRows: 10 }"
+                resize="none"
+                placeholder="Nhập tóm tắt cuộc họp..."
+              />
+            </div>
+            <div>
+              <h4 class="text-md font-medium mb-2">Kết luận cuộc họp</h4>
+              <el-input
+                v-model="meetingConclusion"
+                type="textarea"
+                :autosize="{ minRows: 3, maxRows: 10 }"
+                resize="none"
+                placeholder="Nhập kết luận cuộc họp..."
+              />
+            </div>
+          </div>
+
+        <el-table :data="tasks" style="width: 100%" size="large" stripe class="custom-task-table" v-if="tasks && tasks.length > 0">
           <el-table-column type="index" label="#" width="50" align="center" />
           
           <el-table-column :label="t('col_name')" min-width="250">
             <template #default="{ row }">
-              <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" placeholder="Tên nhiệm vụ" />
+              <el-input v-model="row.title" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none" placeholder="Tên nhiệm vụ" />
             </template>
           </el-table-column>
           
@@ -226,7 +295,7 @@ const onAttendeeSelect = (val) => {
 
           <el-table-column :label="t('col_desc')" min-width="250">
             <template #default="{ row }">
-              <el-input v-model="row.description" type="textarea" :rows="2" resize="vertical" placeholder="Mô tả chi tiết" />
+              <el-input v-model="row.description" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none" placeholder="Mô tả chi tiết" />
             </template>
           </el-table-column>
 

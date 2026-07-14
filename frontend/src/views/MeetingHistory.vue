@@ -2,9 +2,10 @@
 import { defineProps, computed, ref } from 'vue'
 import { 
   dbEmployees, tasks, isExtracting, extractStatus, isTaskModalOpen, 
-  hrProjectsMap, docxUrl, excelUrl, loadHistory, modelType 
+  hrProjectsMap, docxUrl, excelUrl, loadHistory, modelType,
+  meetingSummary, meetingConclusion, currentMeetingName
 } from '../composables/useVoiceApp'
-import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus, reassignSpeakerFromSegment } from '../api'
+import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus, reassignSpeakerFromSegment, exportDynamicDocx, saveMeetingDraft } from '../api'
 
 const props = defineProps({
   meeting: Object,
@@ -43,8 +44,14 @@ const formatTime = (seconds) => {
 }
 
 const downloadFile = (url) => {
-  if (!url) return
-  window.open(url, '_blank')
+  if (!url) return;
+  const link = document.createElement('a');
+  link.href = url;
+  const parts = url.split('/');
+  link.download = parts[parts.length - 1] || 'file';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 // ── ADMIN CHECK ────────────────────────────────────────────────────────────
@@ -250,6 +257,33 @@ const enrollMapped = async () => {
 import { onSocketEvent, offSocketEvent } from '../utils/socket.js'
 
 // --- EXTRACT TASKS LOGIC ---
+import { ElMessage } from 'element-plus'
+
+const isExporting = ref(false)
+
+const handleExportDocx = async () => {
+  if (!props.meeting?.name) return
+  isExporting.value = true
+  try {
+    await saveMeetingDraft(
+      props.meeting.name,
+      meetingSummary.value,
+      meetingConclusion.value,
+      JSON.stringify(tasks.value)
+    )
+    const res = await exportDynamicDocx(props.meeting.name)
+    if (res.status === 'success' && res.file_url) {
+      downloadFile(res.file_url)
+    } else {
+      ElMessage.error(res.message || "Không thể xuất DOCX")
+    }
+  } catch (e) {
+    ElMessage.error("Lỗi khi xuất DOCX")
+  } finally {
+    isExporting.value = false
+  }
+}
+
 const startExtractTasks = async () => {
   if (localSegments.value.length === 0) {
     alert(props.t('alert_no_transcript'))
@@ -258,70 +292,87 @@ const startExtractTasks = async () => {
   isExtracting.value = true
   extractStatus.value = props.t('status_extract_wait')
 
-  const handleProgress = (data) => {
-    if (data.msg) extractStatus.value = `${data.progress}% - ${data.msg}`;
-  };
-
-  const handleResult = (data) => {
-    offSocketEvent("v2t_progress", handleProgress);
-    offSocketEvent("v2t_result", handleResult);
-    
-    if (data.status === 'success') {
-      extractStatus.value = props.t('status_extract_ok')
-      tasks.value = data.items || []
-      hrProjectsMap.value = data.hr_projects_map || {}
-      dbEmployees.value = data.employees || []
-      docxUrl.value = data.docx_url
-      excelUrl.value = data.excel_url
-      loadHistory()
-      isExtracting.value = false
-      isTaskModalOpen.value = true
-    } else {
-      extractStatus.value = '❌ Error: ' + data.message
-      isExtracting.value = false
-    }
-  };
-
-  onSocketEvent("v2t_progress", handleProgress);
-  onSocketEvent("v2t_result", handleResult);
-  
   try {
     const res = await extractTasks(localSegments.value, modelType.value, props.meeting.name)
     if (res.status === 'processing') {
       extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
-      // Socket events will handle the rest
+      
+      const pollTimer = setInterval(async () => {
+        try {
+          const statusRes = await checkExtractStatus(props.meeting.name)
+          if (statusRes.status === 'success') {
+            clearInterval(pollTimer)
+            extractStatus.value = props.t('status_extract_ok')
+            tasks.value = statusRes.items || []
+            hrProjectsMap.value = statusRes.hr_projects_map || {}
+            dbEmployees.value = statusRes.employees || []
+            docxUrl.value = statusRes.docx_url
+            excelUrl.value = statusRes.excel_url
+            if (statusRes.meeting_summary) meetingSummary.value = statusRes.meeting_summary
+            if (statusRes.conclusion) meetingConclusion.value = statusRes.conclusion
+            loadHistory()
+            isExtracting.value = false
+          } else if (statusRes.status === 'error') {
+            clearInterval(pollTimer)
+            extractStatus.value = '❌ Lỗi: ' + statusRes.message
+            isExtracting.value = false
+          }
+        } catch (pollErr) {
+          console.error(pollErr)
+        }
+      }, 2000)
+
     } else if (res.status === 'success') {
-      offSocketEvent("v2t_progress", handleProgress);
-      offSocketEvent("v2t_result", handleResult);
       extractStatus.value = props.t('status_extract_ok')
       tasks.value = res.items || []
       hrProjectsMap.value = res.hr_projects_map || {}
       dbEmployees.value = res.employees || []
       docxUrl.value = res.docx_url
       excelUrl.value = res.excel_url
+      if (res.meeting_summary) meetingSummary.value = res.meeting_summary
+      if (res.conclusion) meetingConclusion.value = res.conclusion
       loadHistory()
       isExtracting.value = false
-      isTaskModalOpen.value = true
     } else {
-      offSocketEvent("v2t_progress", handleProgress);
-      offSocketEvent("v2t_result", handleResult);
-      extractStatus.value = '❌ Error: ' + res.message
+      extractStatus.value = '❌ Lỗi: ' + res.message
       isExtracting.value = false
     }
-  } catch (e) {
-    offSocketEvent("v2t_progress", handleProgress);
-    offSocketEvent("v2t_result", handleResult);
+  } catch(e) {
     extractStatus.value = props.t('error_connect')
     isExtracting.value = false
   }
 }
 
 const openTaskModal = () => {
+    currentMeetingName.value = props.meeting?.name
     if (tasks.value.length === 0 && localSegments.value.length > 0) {
         startExtractTasks()
     } else {
         isTaskModalOpen.value = true
     }
+}
+
+const getProjectsForHR = (employeeName) => {
+  if (!employeeName) return []
+  const userId = dbEmployees.value.find(e => e.employee_name === employeeName)?.user_id
+  if (!userId || !hrProjectsMap.value[userId]) return []
+  return hrProjectsMap.value[userId].map(p => [p.project_name, p.name])
+}
+
+const addTask = () => {
+  tasks.value.push({
+    title: '',
+    task_type: 'task',
+    assignee_display: '',
+    project: '',
+    start_date: '',
+    due_date: '',
+    description: ''
+  })
+}
+
+const removeTask = (idx) => {
+  tasks.value.splice(idx, 1)
 }
 </script>
 
@@ -363,12 +414,145 @@ const openTaskModal = () => {
           {{ isExtracting ? 'Đang trích xuất...' : (tasks.length > 0 ? 'Xem Task đã trích xuất' : 'Trích xuất Task') }}
         </button>
 
-        <button v-if="meeting.minute_docx" @click="downloadFile(meeting.minute_docx, meeting.title + '.docx')" class="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-surface-container border border-gray-200 dark:border-outline-variant rounded-lg text-secondary hover:bg-gray-100 dark:hover:bg-surface-container-highest transition-colors font-body-sm text-body-sm">
-          <span class="material-symbols-outlined text-[18px]">description</span> Tải Biên bản (Word)
+        <button @click="handleExportDocx" class="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-surface-container border border-gray-200 dark:border-outline-variant rounded-lg text-secondary hover:bg-gray-100 dark:hover:bg-surface-container-highest transition-colors font-body-sm text-body-sm" :disabled="isExporting">
+          <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExporting }">{{ isExporting ? 'autorenew' : 'description' }}</span> 
+          {{ isExporting ? 'Đang xuất...' : 'Xuất Biên bản họp' }}
         </button>
         <button v-if="meeting.task_xlsx" @click="downloadFile(meeting.task_xlsx, meeting.title + '.xlsx')" class="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-surface-container border border-gray-200 dark:border-outline-variant rounded-lg text-primary hover:bg-gray-100 dark:hover:bg-surface-container-highest transition-colors font-body-sm text-body-sm">
           <span class="material-symbols-outlined text-[18px]">download</span> Tải Tasks (Excel)
         </button>
+      </div>
+    </section>
+
+    <!-- Summary & Conclusion Section -->
+    <section class="bg-white dark:bg-surface-container rounded-xl border border-gray-200 dark:border-outline-variant overflow-hidden shadow-sm">
+      <div class="p-lg border-b border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low">
+        <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+          <span class="material-symbols-outlined">summarize</span> TÓM TẮT & KẾT LUẬN
+        </h3>
+        <p class="text-body-sm text-gray-500 dark:text-on-surface-variant mt-1">Chỉnh sửa tóm tắt và kết luận (Hệ thống sẽ tự động lưu)</p>
+      </div>
+      <div class="p-lg bg-white dark:bg-surface flex flex-col gap-4">
+        <div>
+          <h4 class="text-md font-medium mb-2">Tóm tắt nội dung chính</h4>
+          <el-input
+            v-model="meetingSummary"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 10 }"
+            resize="none"
+            placeholder="Nhập tóm tắt cuộc họp..."
+          />
+        </div>
+        <div>
+          <h4 class="text-md font-medium mb-2">Kết luận cuộc họp</h4>
+          <el-input
+            v-model="meetingConclusion"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 10 }"
+            resize="none"
+            placeholder="Nhập kết luận cuộc họp..."
+          />
+        </div>
+      </div>
+      
+      <!-- TASK LIST IN HISTORY -->
+      <div class="border-t border-gray-200 dark:border-outline-variant bg-gray-50 dark:bg-surface-container-low p-lg flex justify-between items-center">
+        <div>
+          <h4 class="text-md font-medium">Danh sách Task (Action Items)</h4>
+        </div>
+        <el-button type="primary" plain @click="addTask" size="small">
+          <span class="material-symbols-outlined text-[16px] mr-1">add</span> Thêm Task
+        </el-button>
+      </div>
+      
+      <div class="p-lg bg-white dark:bg-surface">
+        <el-table :data="tasks" style="width: 100%" size="large" stripe class="custom-task-table" v-if="tasks && tasks.length > 0">
+          <el-table-column type="index" label="#" width="50" align="center" />
+          
+          <el-table-column label="Tên nhiệm vụ" min-width="250">
+            <template #default="{ row }">
+              <el-input v-model="row.title" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none" placeholder="Tên nhiệm vụ" />
+            </template>
+          </el-table-column>
+          
+          <el-table-column label="Phân loại" min-width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.task_type" placeholder="Phân loại">
+                <el-option label="Task" value="task" />
+                <el-option label="Thông báo" value="noti" />
+              </el-select>
+            </template>
+          </el-table-column>
+          
+          <el-table-column label="Người thực hiện" min-width="220">
+            <template #default="{ row }">
+              <el-select v-model="row.assignee_display" filterable placeholder="Tìm người...">
+                <el-option
+                  v-for="item in employeeOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Dự án" min-width="220">
+            <template #default="{ row }">
+              <el-select v-model="row.project" filterable placeholder="Trống" clearable>
+                <el-option
+                  v-for="p in getProjectsForHR(row.assignee_display)"
+                  :key="p[1]"
+                  :label="p[0]"
+                  :value="p[1]"
+                />
+              </el-select>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Bắt đầu" width="160">
+            <template #default="{ row }">
+              <el-date-picker
+                v-model="row.start_date"
+                type="date"
+                placeholder="Bắt đầu"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Hạn chót" width="160">
+            <template #default="{ row }">
+              <el-date-picker
+                v-model="row.due_date"
+                type="date"
+                placeholder="Hạn chót"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Ghi chú" min-width="250">
+            <template #default="{ row }">
+              <el-input v-model="row.description" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none" placeholder="Mô tả chi tiết" />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Xóa" width="70" align="center" fixed="right">
+            <template #default="{ $index }">
+              <el-button type="danger" circle @click="removeTask($index)">
+                <span class="material-symbols-outlined text-[16px]">delete</span>
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-else class="text-center py-6 text-gray-500 bg-gray-50 rounded-lg mt-4 border border-dashed border-gray-300">
+          Chưa có task nào được trích xuất.
+        </div>
       </div>
     </section>
 
