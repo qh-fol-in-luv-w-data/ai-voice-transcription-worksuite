@@ -11,9 +11,10 @@ function _getSocket() {
 
   // Standalone Vite dev mode — tự kết nối socket.io
   if (!_socket) {
+    // Add site namespace for Frappe
     const origin = import.meta.env.DEV
-      ? 'http://ct-datalake.localhost:9000'
-      : window.location.origin
+      ? 'http://ct-datalake.localhost:9000/ct-datalake.localhost'
+      : window.location.origin + '/' + (window.frappe ? window.frappe.boot.sitename : window.location.hostname)
 
     _socket = io(origin, {
       withCredentials: true,
