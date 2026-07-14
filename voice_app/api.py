@@ -375,7 +375,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             total_spk = len(unique_speakers)
             completed_spk = 0
 
-            from voice_app.speaker_manager import _extract_embeddings_from_files_subprocess
             
             files_list = []
             spk_list = []
