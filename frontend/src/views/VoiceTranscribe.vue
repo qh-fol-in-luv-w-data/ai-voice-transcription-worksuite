@@ -268,10 +268,13 @@ const uniqueSpeakers = computed(() => {
 })
 
 const employeeOptions = computed(() =>
-  dbEmployees.value.map(emp => ({
-    value: emp.employee_name,
-    label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
-  }))
+  dbEmployees.value.map(emp => {
+    const fullString = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
+    return {
+      value: fullString,
+      label: fullString
+    }
+  })
 )
 
 // Gán tên cho người lạ (KHÔNG enroll giọng) — ai cũng dùng được
