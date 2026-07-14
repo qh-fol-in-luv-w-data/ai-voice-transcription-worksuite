@@ -25,11 +25,7 @@ export async function transcribeAudio(file, filterSpeakers = null, sttMode = 'go
     formData.append('filter_speakers', JSON.stringify(filterSpeakers))
   }
 
-  const res = await api.post('/api/method/voice_app.api.transcribe_audio', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+  const res = await api.post('/api/method/voice_app.api.transcribe_audio', formData)
   return res.data.message
 }
 
@@ -80,11 +76,7 @@ export async function enrollVoice(audioBlob) {
   const formData = new FormData()
   formData.append('file', audioBlob, 'voice_record.wav')
 
-  const res = await api.post('/api/method/voice_app.api.enroll_voice', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+  const res = await api.post('/api/method/voice_app.api.enroll_voice', formData)
   return res.data.message
 }
 
@@ -136,11 +128,7 @@ export async function voiceToTask(file, existingTask = null) {
     formData.append('existing_task', JSON.stringify(existingTask))
   }
 
-  const res = await api.post('/api/method/voice_app.api.voice_to_task', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+  const res = await api.post('/api/method/voice_app.api.voice_to_task', formData)
   return res.data.message
 }
 
