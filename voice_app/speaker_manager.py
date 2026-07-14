@@ -211,6 +211,77 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     embedding_list = json.loads(json_line)
     return np.array(embedding_list)
 
+def _extract_embeddings_from_files_subprocess(files_list: list) -> list:
+    """
+    Trích xuất embedding cho danh sách các file (đã concat sẵn) chỉ với 1 lần load model.
+    files_list: list of dict [{"wav_path": str, "start": float, "end": float}, ...]
+    Trả về: list các np.ndarray hoặc None
+    """
+    import subprocess
+    import sys
+    import tempfile
+    from voice_app.constants import get_hf_token
+
+    if not files_list:
+        return []
+
+    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
+    hf_token = get_hf_token() or ""
+    python_exe = sys.executable
+
+    # Ghi files_list ra file tạm
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as f:
+        json.dump(files_list, f)
+        temp_file_path = f.name
+
+    # wav_path dummy arg (vì hf_token ở vị trí arg[2], mode ở arg[3])
+    args = [python_exe, script_path, "dummy.wav", hf_token, "--files-list", temp_file_path]
+
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 phút timeout cho batch
+        )
+    except subprocess.TimeoutExpired as e:
+        if os.path.exists(temp_file_path): os.remove(temp_file_path)
+        raise RuntimeError("Batch subprocess embedding timed out after 300s.")
+    
+    if os.path.exists(temp_file_path):
+        os.remove(temp_file_path)
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Batch subprocess embedding thất bại (exit={result.returncode}):\n{result.stderr[-2000:]}"
+        )
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError(f"Batch subprocess không trả về kết quả. stderr:\n{result.stderr[-2000:]}")
+
+    json_line = None
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith('['):
+            json_line = line
+            break
+            
+    if json_line is None:
+        raise RuntimeError(f"Không tìm thấy JSON trong stdout:\n{stdout[:500]}")
+
+    embedding_list = json.loads(json_line)
+    
+    # Chuyển list thành list of np.ndarray
+    final_results = []
+    for emb in embedding_list:
+        if emb is None:
+            final_results.append(None)
+        else:
+            final_results.append(np.array(emb))
+            
+    return final_results
+
 def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> list:
     """
     Trích xuất embedding cho nhiều đoạn (batch) chỉ với 1 lần load model.
