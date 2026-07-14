@@ -191,24 +191,8 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
             for i, spk_name in enumerate(unique_speakers):
                 row_cells = attendee_table.add_row().cells
                 row_cells[0].text = f"{i + 1}."
-                
                 spk_display = spk_name
-                
-                desg = speaker_roles.get(spk_name) or roles_lower.get(spk_name.lower())
-                
-                # Fetch directly from Employee if not in speaker_roles
-                if not desg and not spk_name.lower().startswith("người lạ"):
-                    try:
-                        db_desg = frappe.db.get_value("Employee", {"employee_name": spk_name}, "designation")
-                        if db_desg:
-                            desg = db_desg
-                    except Exception:
-                        pass
-                
-                if spk_name.lower().startswith("người lạ"):
-                    designation_display = desg or "Khách"
-                else:
-                    designation_display = desg or ""
+                designation_display = ""
                 
                 parts = spk_name.split(" - ")
                 if len(parts) == 3 and "@" in parts[1]:
@@ -217,6 +201,26 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 elif len(parts) > 1 and "@" in parts[1]:
                     spk_display = parts[0].strip()
                     
+                desg = speaker_roles.get(spk_display) or roles_lower.get(spk_display.lower())
+                
+                # Fetch directly from Employee if not in speaker_roles
+                if not desg and not spk_display.lower().startswith("người lạ"):
+                    try:
+                        db_desg = frappe.db.get_value("Employee", {"employee_name": spk_display}, "designation")
+                        if db_desg:
+                            desg = db_desg
+                    except Exception:
+                        pass
+                
+                if spk_display.lower().startswith("người lạ"):
+                    designation_display = desg or "Khách"
+                else:
+                    # Ưu tiên desg thật từ database, nếu không có mới dùng text "thành viên" mặc định
+                    if desg:
+                        designation_display = desg
+                    elif designation_display.lower() == "thành viên":
+                        designation_display = ""
+                        
                 row_cells[1].text = spk_display
                 if len(row_cells) > 2:
                     row_cells[2].text = designation_display
