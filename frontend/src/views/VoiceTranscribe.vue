@@ -381,7 +381,7 @@ const startTranscribe = async () => {
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results; originalTranscriptResults.value = [...res.results]
       isCleaned.value = false; transcriptText.value = res.final_text
-      dbEmployees.value = res.employees || []; currentMeetingName.value = res.meeting_name || null
+      currentMeetingName.value = res.meeting_name || null
       if (res.meeting_name) loadHistory(); isTranscribing.value = false
       setTimeout(() => { transcribeStatus.value = '' }, 3000);
     } else { 
