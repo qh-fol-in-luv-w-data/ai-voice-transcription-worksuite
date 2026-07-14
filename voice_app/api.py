@@ -401,12 +401,13 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             update_progress(100, "Đã dịch xong văn bản!", 25, f"Đang trích xuất đặc trưng giọng nói cho {len(spk_list)} người...")
             
             try:
-                emb_results = _extract_embeddings_from_files_subprocess(files_list)
+                from voice_app.speaker_manager import _extract_embeddings_from_files_remote
+                emb_results = _extract_embeddings_from_files_remote(files_list)
                 for idx, emb in enumerate(emb_results):
                     if emb is not None:
                         spk_embeddings[spk_list[idx]] = emb
             except Exception as e:
-                print(f"Lỗi extract embeddings batch: {e}")
+                print(f"Lỗi extract embeddings remote API: {e}")
                 
             # Cleanup temp wavs
             for item in files_list:

@@ -211,74 +211,56 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     embedding_list = json.loads(json_line)
     return np.array(embedding_list)
 
-def _extract_embeddings_from_files_subprocess(files_list: list) -> list:
+def _extract_embeddings_from_files_remote(files_list: list) -> list:
     """
-    Trích xuất embedding cho danh sách các file (đã concat sẵn) chỉ với 1 lần load model.
+    Trích xuất embedding cho danh sách các file bằng cách gọi API external.
     files_list: list of dict [{"wav_path": str, "start": float, "end": float}, ...]
     Trả về: list các np.ndarray hoặc None
     """
-    import subprocess
-    import sys
-    import tempfile
-    from voice_app.constants import get_hf_token
-
-    if not files_list:
-        return []
-
-    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
-    hf_token = get_hf_token() or ""
-    python_exe = sys.executable
-
-    # Ghi files_list ra file tạm
-    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as f:
-        json.dump(files_list, f)
-        temp_file_path = f.name
-
-    # wav_path dummy arg (vì hf_token ở vị trí arg[2], mode ở arg[3])
-    args = [python_exe, script_path, "dummy.wav", hf_token, "--files-list", temp_file_path]
-
-    try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 phút timeout cho batch
-        )
-    except subprocess.TimeoutExpired as e:
-        if os.path.exists(temp_file_path): os.remove(temp_file_path)
-        raise RuntimeError("Batch subprocess embedding timed out after 300s.")
+    import requests
+    import os
     
-    if os.path.exists(temp_file_path):
-        os.remove(temp_file_path)
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Batch subprocess embedding thất bại (exit={result.returncode}):\n{result.stderr[-2000:]}"
-        )
-
-    stdout = result.stdout.strip()
-    if not stdout:
-        raise RuntimeError(f"Batch subprocess không trả về kết quả. stderr:\n{result.stderr[-2000:]}")
-
-    json_line = None
-    for line in reversed(stdout.splitlines()):
-        line = line.strip()
-        if line.startswith('['):
-            json_line = line
-            break
-            
-    if json_line is None:
-        raise RuntimeError(f"Không tìm thấy JSON trong stdout:\n{stdout[:500]}")
-
-    embedding_list = json.loads(json_line)
-    
-    # Chuyển list thành list of np.ndarray
+    API_URL = "http://103.186.101.200:8004/extract"
     final_results = []
-    for emb in embedding_list:
-        if emb is None:
+    
+    for item in files_list:
+        wav_path = item.get("wav_path")
+        start = item.get("start")
+        end = item.get("end")
+        
+        if not wav_path or not os.path.exists(wav_path):
             final_results.append(None)
-        else:
-            final_results.append(np.array(emb))
+            continue
+            
+        try:
+            with open(wav_path, "rb") as f:
+                files = {
+                    "file": (os.path.basename(wav_path), f, "audio/wav")
+                }
+                data = {}
+                if start is not None:
+                    data["start"] = str(start)
+                if end is not None:
+                    data["end"] = str(end)
+                    
+                response = requests.post(API_URL, files=files, data=data, timeout=120)
+                
+                if response.status_code == 200:
+                    result_json = response.json()
+                    # Tùy thuộc vào cấu trúc trả về của API, giả sử trả về {'embedding': [...] } hoặc [...]
+                    emb_data = result_json.get("embedding") if isinstance(result_json, dict) else result_json
+                    
+                    if isinstance(emb_data, list):
+                        final_results.append(np.array(emb_data))
+                    else:
+                        print(f"API không trả về embedding hợp lệ: {result_json}")
+                        final_results.append(None)
+                else:
+                    print(f"Lỗi API external (status {response.status_code}): {response.text}")
+                    final_results.append(None)
+        except Exception as e:
+            print(f"Lỗi khi gọi API external cho {wav_path}: {e}")
+            final_results.append(None)
             
     return final_results
 
