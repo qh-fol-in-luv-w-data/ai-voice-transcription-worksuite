@@ -375,8 +375,13 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             total_spk = len(unique_speakers)
             completed_spk = 0
 
-            def _extract_one_speaker(spk, segs, audio_wav):
-                concat_wav = concat_speaker_segments(audio_wav, segs, max_total_sec=25.0, min_seg_sec=1.5)
+            from voice_app.speaker_manager import _extract_embeddings_from_files_subprocess
+            
+            files_list = []
+            spk_list = []
+            
+            for spk, segs in unique_speakers.items():
+                concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.5)
                 if concat_wav is None:
                     segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
                     sample = segs_sorted[0]
@@ -386,34 +391,29 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     if end <= start:
                         start = sample["start"]
                         end = sample["end"]
-                    emb = get_segment_embedding(audio_wav, start, min(end, start + 5.0))
+                    files_list.append({"wav_path": wav, "start": start, "end": min(end, start + 5.0)})
                 else:
                     from voice_app.audio_utils import get_duration
                     dur = get_duration(concat_wav)
-                    emb = get_segment_embedding(concat_wav, 0.0, dur)
-                    try: os.remove(concat_wav)
+                    files_list.append({"wav_path": concat_wav, "start": 0.0, "end": dur})
+                spk_list.append(spk)
+                
+            update_progress(100, "Đã dịch xong văn bản!", 25, f"Đang trích xuất đặc trưng giọng nói cho {len(spk_list)} người...")
+            
+            try:
+                emb_results = _extract_embeddings_from_files_subprocess(files_list)
+                for idx, emb in enumerate(emb_results):
+                    if emb is not None:
+                        spk_embeddings[spk_list[idx]] = emb
+            except Exception as e:
+                print(f"Lỗi extract embeddings batch: {e}")
+                
+            # Cleanup temp wavs
+            for item in files_list:
+                if item["wav_path"] != wav and os.path.exists(item["wav_path"]):
+                    try: os.remove(item["wav_path"])
                     except: pass
-                return spk, emb
 
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                future_to_spk = {
-                    executor.submit(_extract_one_speaker, spk, segs, wav): spk
-                    for spk, segs in unique_speakers.items()
-                }
-                for future in concurrent.futures.as_completed(future_to_spk):
-                    spk = future_to_spk[future]
-                    try:
-                        emb = future.result()
-                        if emb[1] is not None:
-                            spk_embeddings[spk] = emb[1]
-                    except Exception as e:
-                        print(f"Lỗi extract embedding cho {spk}: {e}")
-                    
-                    completed_spk += 1
-                    spk_prog = 10 + int((completed_spk / total_spk) * 80)
-                    update_progress(100, "Đã dịch xong văn bản!", spk_prog, f"Đang nhận diện giọng {completed_spk}/{total_spk}...")
-    
             update_progress(100, "Đã dịch xong văn bản!", 95, "Đang đối chiếu dữ liệu nhân sự...")
             # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
             # identify_ranked() đã filter >= SIMILARITY_THRESHOLD (0.65) rồi
