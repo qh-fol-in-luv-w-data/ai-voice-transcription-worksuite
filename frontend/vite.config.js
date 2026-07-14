@@ -23,6 +23,11 @@ export default defineConfig(({ command }) => ({
       '/private': {
         target: 'http://ct-datalake.localhost:8000',
         changeOrigin: true
+      },
+      '/socket.io': {
+        target: 'http://ct-datalake.localhost:9000',
+        changeOrigin: true,
+        ws: true
       }
     }
   }

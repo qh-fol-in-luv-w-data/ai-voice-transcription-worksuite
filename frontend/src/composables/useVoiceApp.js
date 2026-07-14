@@ -25,6 +25,9 @@ export const isCleaning = ref(false)
 export const docxUrl = ref('')
 export const excelUrl = ref('')
 
+export const meetingSummary = ref('')
+export const meetingConclusion = ref('')
+
 export const tasks = ref([])
 export const hrProjectsMap = ref({})
 export const dbEmployees = ref([])
@@ -48,6 +51,12 @@ export const mediaRecorder = ref(null)
 export const audioChunks = ref([])
 export const recordedAudioUrl = ref('')
 export const isTaskModalOpen = ref(false)
+
+export const voiceTaskHistory = ref(JSON.parse(localStorage.getItem('voiceTaskHistory') || '[]'))
+export const saveVoiceTaskHistory = () => {
+  localStorage.setItem('voiceTaskHistory', JSON.stringify(voiceTaskHistory.value))
+}
+export const selectedVoiceTaskHistoryItem = ref(null)
 
 // Dictionary for i18n
 export const dict = {
@@ -98,7 +107,14 @@ export const dict = {
     empty_project: "-- Trống --",
     tab_transcribe: "Phân tích Hội thoại",
     tab_enroll: "Đăng ký Giọng nói",
-    enroll_title: "Đăng ký Giọng nói",
+    tab_history: "Lịch sử Cuộc họp",
+    tab_voicetask: "Giao việc bằng giọng nói",
+    voice_task_title: "Giao việc bằng giọng nói",
+    voice_task_desc: "Tạo nhanh công việc trên Worksuite chỉ bằng cách nói ra yêu cầu.",
+    voice_task_placeholder: "'Tạo task thiết kế giao diện đăng nhập cho dự án A, giao cho Quân, hạn chót thứ 6 tuần này...'",
+    voice_task_success: "✅ Tạo nhiệm vụ thành công!",
+    voice_task_transcribing: "⏳ Đang xử lý âm thanh...",
+    enroll_title: "Đăng ký Nhận diện Giọng nói",
     enroll_desc: "Thu âm hoặc tải lên giọng nói. Hệ thống tự động liên kết với tài khoản đang đăng nhập.",
     btn_record: "Bắt đầu thu âm",
     btn_stop: "Dừng thu âm",
@@ -152,9 +168,16 @@ export const dict = {
     alert_no_transcript: "No conversation content available!",
     error_connect: "❌ Connection error",
     empty_project: "-- Empty --",
-    tab_transcribe: "Transcribe Voice",
+    tab_transcribe: "Conversation Analysis",
     tab_enroll: "Voice Enrollment",
-    enroll_title: "Voice Enrollment",
+    tab_history: "Meeting History",
+    tab_voicetask: "Voice to Task",
+    voice_task_title: "Voice to Task",
+    voice_task_desc: "Create Worksuite tasks quickly by speaking out your requirements.",
+    voice_task_placeholder: "'Create a UI design task for Project A, assign to Quan, due this Friday...'",
+    voice_task_success: "✅ Task created successfully!",
+    voice_task_transcribing: "⏳ Processing audio...",
+    enroll_title: "Register Voice ID",
     enroll_desc: "Record or upload your voice. The system will automatically link it to your current account.",
     btn_record: "Start Recording",
     btn_stop: "Stop Recording",
@@ -196,7 +219,8 @@ export const loadHistory = async () => {
 export const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
   activeTab.value = 'view_meeting'
-
+  meetingSummary.value = meeting.meeting_summary || ''
+  meetingConclusion.value = meeting.conclusion || ''
   if (meeting.tasks_json) {
     try {
       tasks.value = typeof meeting.tasks_json === 'string'
@@ -218,3 +242,23 @@ export const currentLocalDate = () => {
   const year = d.getFullYear()
   return `${day}-${month}-${year}`
 }
+
+import { saveMeetingDraft } from '../api'
+
+let saveTimeout = null
+watch([meetingSummary, meetingConclusion, tasks], () => {
+  if (saveTimeout) clearTimeout(saveTimeout)
+  saveTimeout = setTimeout(async () => {
+    if (!currentMeetingName.value) return
+    try {
+      await saveMeetingDraft(
+        currentMeetingName.value,
+        meetingSummary.value,
+        meetingConclusion.value,
+        JSON.stringify(tasks.value)
+      )
+    } catch(e) {
+      console.error("Auto-save failed", e)
+    }
+  }, 1500)
+}, { deep: true })

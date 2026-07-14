@@ -154,11 +154,19 @@ def node_extract_tasks(state: AgentState) -> dict:
     prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất TẤT CẢ các thông báo và công việc cần xử lý.
 
 Nhiệm vụ của bạn:
-- Chỉ trả về các mục công việc (task) và thông báo (noti).
+- Viết "tom_tat_cuoc_hop" (Meeting Summary & Key Takeaways): Tóm tắt ĐẦY ĐỦ VÀ CHI TIẾT các nội dung chính được thảo luận trong cuộc họp. Tuyệt đối không tóm tắt quá ngắn gọn, hãy liệt kê đầy đủ các ý chính, quan điểm và quyết định. ĐẶC BIỆT LƯU Ý: Phải trình bày theo đúng format/template sau (nếu có các nội dung chỉ đạo):
+  "I. Tổng kết nội dung chính
+  Tổng kết [số lượng] nội dung chính theo sự chỉ đạo của [Ban lãnh đạo/Chủ tọa/BOD...],
+  1. [Tiêu đề nội dung 1]
+  [Chi tiết nội dung 1 - viết đầy đủ ý]
+  2. [Tiêu đề nội dung 2]
+  [Chi tiết nội dung 2 - viết đầy đủ ý]
+  ..."
+- Viết "ket_luan_cuoc_hop" (Conclusion): Kết luận cuối cùng, các quyết định được đưa ra.
+- Trích xuất các mục công việc (task) và thông báo (noti) vào mảng "items".
 - ĐẶC BIỆT LƯU Ý: Bắt buộc phải trích xuất ĐẦY ĐỦ, CHI TIẾT từng Task (nhiệm vụ/công việc) và Noti (thông báo) được nhắc đến trong biên bản. TUYỆT ĐỐI KHÔNG ĐƯỢC BỎ SÓT BẤT KỲ MỤC NÀO, dù là nhỏ nhất. Nếu có 10 ý, phải liệt kê đủ 10 ý.
 - Mỗi mục là một đầu việc hoặc thông báo riêng biệt, không được gộp chung các công việc khác nhau vào làm một.
 - Có người thực hiện, người tiếp nhận rõ ràng hoặc là thông báo chung.
-
 
 Điền thông tin:
 - "nguoi_thuc_hien": họ tên ĐẦY ĐỦ chính xác NHƯ TRONG BIÊN BẢN (không rút gọn, không suy diễn, không đảo thứ tự)
@@ -175,6 +183,8 @@ Trả về JSON hợp lệ, KHÔNG có markdown, KHÔNG có giải thích:
 {
   "ten_cuoc_hop": "tên cuộc họp ngắn gọn",
   "ngay_hop": "dd/mm/yyyy",
+  "tom_tat_cuoc_hop": "nội dung tóm tắt chính...",
+  "ket_luan_cuoc_hop": "kết luận cuộc họp...",
   "items": [
     {
       "id": 1,
@@ -644,7 +654,7 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
         "completion_tokens": result.get("completion_tokens", 0)
     }
         
-    return items, hr_projects_map, result.get("errors", []), employees, usage
+    return items, hr_projects_map, result.get("errors", []), employees, usage, data.get("tom_tat_cuoc_hop", ""), data.get("ket_luan_cuoc_hop", "")
 
 
 def create_tasks_to_erp(tasks_list):

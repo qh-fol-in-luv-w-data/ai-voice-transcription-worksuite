@@ -462,8 +462,10 @@ const startExtractTasks = async () => {
     
     if (data.status === 'success') {
       extractStatus.value = t('status_extract_ok')
+      if (data.meeting_name) currentMeetingName.value = data.meeting_name
       tasks.value = data.items || []; hrProjectsMap.value = data.hr_projects_map || {}
       dbEmployees.value = data.employees || []; docxUrl.value = data.docx_url; excelUrl.value = data.excel_url
+      meetingSummary.value = data.meeting_summary || ''; meetingConclusion.value = data.conclusion || ''
       loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
     } else {
       extractStatus.value = '❌ Error: ' + data.message; isExtracting.value = false
@@ -476,6 +478,7 @@ const startExtractTasks = async () => {
   try {
     const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value, startTime, null, meetingLocation.value, hostName)
     if (res.status === 'processing') {
+      if (res.meeting_name) currentMeetingName.value = res.meeting_name
       extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
       
       // Fallback Polling if socket doesn't work
@@ -496,8 +499,10 @@ const startExtractTasks = async () => {
       offSocketEvent("v2t_progress", handleProgress);
       offSocketEvent("v2t_result", handleResult);
       extractStatus.value = t('status_extract_ok')
+      if (res.meeting_name) currentMeetingName.value = res.meeting_name
       tasks.value = res.items || []; hrProjectsMap.value = res.hr_projects_map || {}
       dbEmployees.value = res.employees || []; docxUrl.value = res.docx_url; excelUrl.value = res.excel_url
+      meetingSummary.value = res.meeting_summary || ''; meetingConclusion.value = res.conclusion || ''
       loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
     } else { 
       offSocketEvent("v2t_progress", handleProgress);
@@ -708,10 +713,7 @@ const startExtractTasks = async () => {
            <span class="material-symbols-outlined text-[18px]">undo</span>
            Hoàn tác
          </button>
-         <button v-if="false" @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-gray-900 dark:text-on-surface'">
-           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'history' : 'auto_fix_high') }}</span>
-           {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Bản gốc" : "Chuẩn hoá hội thoại") }}
-         </button>
+
          <button @click="openTaskModal" class="px-4 py-2 bg-primary text-white hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
            <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
            {{ tasks.length > 0 ? "Xem Task đã tạo" : t('extract_task') }}
