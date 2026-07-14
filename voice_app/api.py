@@ -351,17 +351,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             import numpy as np
 
             try:
-                segments_for_batch = [{"start": seg["start"], "end": seg["end"]} for seg in segments]
-                batch_embeddings = _extract_embeddings_batch_subprocess(wav, segments_for_batch)
-                if batch_embeddings and len(batch_embeddings) == len(segments):
-                    for i, emb in enumerate(batch_embeddings):
-                        if emb is not None:
-                            # Normalize L2 (cosine sim requires normalized vector)
-                            emb_np = np.array(emb)
-                            norm = np.linalg.norm(emb_np)
-                            if norm > 0:
-                                emb_np = emb_np / norm
-                            segments[i]["embedding"] = emb_np.tolist()
+                pass # Removed batch extraction for performance. We now use representative cluster embeddings.
             except Exception as e:
                 print(f"Lỗi extract batch embedding cho segments: {e}")
 
@@ -589,6 +579,15 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 return True
     
             # ── GỘP SEGMENT LIỀN KỀ CÙNG SPEAKER ─────────────────────────────────
+            # Gán embedding đại diện của cụm cho từng segment
+            for seg in segments:
+                spk = seg["speaker_id"]
+                if spk in spk_embeddings:
+                    emb_np = spk_embeddings[spk]
+                    norm = np.linalg.norm(emb_np)
+                    if norm > 0: emb_np = emb_np / norm
+                    seg["embedding"] = emb_np.tolist()
+
             # Nếu 2 segment liên tiếp của cùng 1 speaker và khoảng gap < 1.5s → gộp lại
             MERGE_GAP = 1.5  # giây
     
@@ -613,13 +612,24 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb))
 
             # Format results
-            results = merged_segments[:]
+            ui_results = []
+            original_results = []
+            for s, e, spk_label, txt, emb in merged_segments:
+                ui_results.append((s, e, spk_label, txt))
+                original_results.append({
+                    "start": s,
+                    "end": e,
+                    "speaker": spk_label,
+                    "text": txt,
+                    "embedding": emb
+                })
+
             final_output_text = ""
             last_spk = None
 
-            for s, e, spk_label, txt, *rest in results:
+            for s, e, spk_label, txt in ui_results:
                 if spk_label != last_spk:
-                    final_output_text += f"**{spk_label}** [{s:.1f}s]{txt}"
+                    final_output_text += f"\n**{spk_label}** [{s:.1f}s]\n{txt}"
                 else:
                     final_output_text += f" {txt}"
                 last_spk = spk_label
@@ -634,7 +644,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             frappe.db.set_value("Voice Meeting", meeting_name, {
                 "status": "Completed",
                 "transcript": final_output_text.strip(),
-                "raw_results": json.dumps(results, ensure_ascii=False)
+                "raw_results": json.dumps(ui_results, ensure_ascii=False),
+                "original_raw_results": json.dumps(original_results, ensure_ascii=False)
             })
             frappe.db.commit()
     
@@ -1165,21 +1176,36 @@ def reassign_speaker_from_segment():
             return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
             
         raw_results = frappe.db.get_value("Voice Meeting", doc_name, "raw_results")
+        original_raw_results = frappe.db.get_value("Voice Meeting", doc_name, "original_raw_results")
+        
         if not raw_results:
             return {"status": "error", "message": "Không có dữ liệu hội thoại"}
             
         segments = json.loads(raw_results)
+        orig_segments = json.loads(original_raw_results) if original_raw_results else []
         
         if segment_index < 0 or segment_index >= len(segments):
             return {"status": "error", "message": "Vị trí segment không hợp lệ"}
             
         target_seg = segments[segment_index]
-        emb_data = target_seg[4] if isinstance(target_seg, list) and len(target_seg) > 4 else None
         
-        # Fallback for old dict format just in case
-        if not emb_data and isinstance(target_seg, dict):
-            emb_data = target_seg.get("embedding")
-            
+        # Tìm embedding của target_seg
+        emb_data = None
+        target_start = target_seg[0] if isinstance(target_seg, list) else target_seg.get("start", 0)
+        
+        # 1. Tìm trong original_raw_results
+        if orig_segments:
+            closest_orig = min(orig_segments, key=lambda x: abs(x.get("start", -999) - target_start))
+            if abs(closest_orig.get("start", -999) - target_start) < 1.0:
+                emb_data = closest_orig.get("embedding")
+                
+        # 2. Fallback tìm trong target_seg (dữ liệu cũ lưu 5 phần tử)
+        if not emb_data:
+            if isinstance(target_seg, list) and len(target_seg) > 4:
+                emb_data = target_seg[4]
+            elif isinstance(target_seg, dict):
+                emb_data = target_seg.get("embedding")
+                
         if not emb_data:
             return {"status": "error", "message": "Hội thoại này không chứa thông tin đặc trưng giọng nói (chưa được xử lý với phiên bản mới). Hãy thực hiện 'Hủy & Quét lại file gốc'."}
             
@@ -1187,49 +1213,69 @@ def reassign_speaker_from_segment():
         from scipy.spatial.distance import cosine as cos_dist
         from voice_app.speaker_manager import SpeakerDB
         
-        # Đăng ký mẫu giọng
         spk_db = SpeakerDB()
         emb_np = np.array(emb_data)
         spk_db.add_speaker(new_speaker_name, emb_np)
         
-        # Quét lại các segments khác
         SIMILARITY_THRESHOLD = 0.65
         changed_count = 0
+        speakers_to_change = set()
         
-        for i, seg in enumerate(segments):
-            is_dict = isinstance(seg, dict)
-            current_spk = seg.get("speaker") if is_dict else (seg[2] if len(seg) > 2 else "")
+        # Thu thập các speaker cũ có giọng giống embedding này
+        if orig_segments:
+            for orig in orig_segments:
+                seg_emb_data = orig.get("embedding")
+                if not seg_emb_data: continue
+                seg_emb_np = np.array(seg_emb_data)
+                try:
+                    sim = 1 - cos_dist(emb_np, seg_emb_np)
+                    if sim >= SIMILARITY_THRESHOLD:
+                        spk = orig.get("speaker")
+                        if spk and spk != new_speaker_name:
+                            speakers_to_change.add(spk)
+                            orig["speaker"] = new_speaker_name
+                except Exception:
+                    pass
+        else:
+            for seg in segments:
+                is_dict = isinstance(seg, dict)
+                seg_emb_data = seg.get("embedding") if is_dict else (seg[4] if len(seg) > 4 else None)
+                if not seg_emb_data: continue
+                seg_emb_np = np.array(seg_emb_data)
+                try:
+                    sim = 1 - cos_dist(emb_np, seg_emb_np)
+                    if sim >= SIMILARITY_THRESHOLD:
+                        spk = seg.get("speaker") if is_dict else (seg[2] if len(seg) > 2 else "")
+                        if spk and spk != new_speaker_name:
+                            speakers_to_change.add(spk)
+                except Exception:
+                    pass
+                    
+        current_spk = target_seg.get("speaker") if isinstance(target_seg, dict) else (target_seg[2] if len(target_seg) > 2 else "")
+        if current_spk and current_spk != new_speaker_name:
+            speakers_to_change.add(current_spk)
             
-            if i == segment_index:
-                if current_spk != new_speaker_name:
-                    if is_dict: seg["speaker"] = new_speaker_name
-                    else: seg[2] = new_speaker_name
-                    changed_count += 1
-                continue
+        # Cập nhật UI segments (raw_results)
+        for seg in segments:
+            is_dict = isinstance(seg, dict)
+            spk = seg.get("speaker") if is_dict else (seg[2] if len(seg) > 2 else "")
+            if spk in speakers_to_change:
+                if is_dict: seg["speaker"] = new_speaker_name
+                else: seg[2] = new_speaker_name
+                changed_count += 1
                 
-            seg_emb_data = seg.get("embedding") if is_dict else (seg[4] if len(seg) > 4 else None)
-            if not seg_emb_data:
-                continue
-                
-            seg_emb_np = np.array(seg_emb_data)
-            try:
-                sim = 1 - cos_dist(emb_np, seg_emb_np)
-                if sim >= SIMILARITY_THRESHOLD:
-                    if current_spk != new_speaker_name:
-                        if is_dict: seg["speaker"] = new_speaker_name
-                        else: seg[2] = new_speaker_name
-                        changed_count += 1
-            except Exception:
-                pass
-                
-        # Cập nhật lại transcript full_text
+        # Tạo lại transcript full_text
         final_text = " ".join([ (seg.get("text", "") if isinstance(seg, dict) else (seg[3] if len(seg) > 3 else "")).strip() for seg in segments ])
         final_text = " ".join(final_text.split())
         
-        frappe.db.set_value("Voice Meeting", doc_name, {
+        update_data = {
             "raw_results": json.dumps(segments, ensure_ascii=False),
             "transcript": final_text
-        })
+        }
+        if orig_segments:
+            update_data["original_raw_results"] = json.dumps(orig_segments, ensure_ascii=False)
+            
+        frappe.db.set_value("Voice Meeting", doc_name, update_data)
         frappe.db.commit()
         
         return {
