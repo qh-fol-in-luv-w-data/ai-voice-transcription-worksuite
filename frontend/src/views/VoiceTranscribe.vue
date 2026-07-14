@@ -352,7 +352,7 @@ const startTranscribe = async () => {
       transcribeStatus.value = t('status_transcribe_ok');
       transcriptResults.value = data.results; originalTranscriptResults.value = [...data.results]
       isCleaned.value = false; transcriptText.value = data.final_text
-      dbEmployees.value = data.employees || []; loadHistory(); isTranscribing.value = false
+      loadHistory(); isTranscribing.value = false
       setTimeout(() => { transcribeStatus.value = '' }, 3000);
     } else {
       transcribeStatus.value = '❌ Error: ' + data.message; isTranscribing.value = false
