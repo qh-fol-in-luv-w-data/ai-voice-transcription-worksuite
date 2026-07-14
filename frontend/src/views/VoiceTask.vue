@@ -119,10 +119,14 @@ const submitVoiceTask = async () => {
   voiceTaskClarification.value = ''
   voiceTaskMissingFields.value = []
 
+  let currentJobKey = null
+
   const handleProgress = (data) => {
+    if (currentJobKey && data.job_key && data.job_key !== currentJobKey) return
     if (data.msg) voiceTaskStatus.value = `${data.progress || 0}% - ${data.msg}`
   }
   const handleResult = (data) => {
+    if (currentJobKey && data.job_key && data.job_key !== currentJobKey) return
     offSocketEvent('v2t_progress', handleProgress)
     offSocketEvent('v2t_result', handleResult)
     isVoiceTaskProcessing.value = false
@@ -139,6 +143,7 @@ const submitVoiceTask = async () => {
   try {
     const res = await voiceToTask(voiceTaskAudioFile.value)
     if (res.status === 'processing') {
+      currentJobKey = res.job_key
       voiceTaskStatus.value = '⏳ Đang xử lý âm thanh...'
       // kết quả sẽ đến qua socket v2t_result
     } else if (res.status === 'success') {
@@ -207,11 +212,14 @@ const submitVoiceTaskRefine = async () => {
   voiceTaskStatus.value = t('voice_task_parsing')
 
   const prevTranscript = voiceTaskTranscript.value
+  let currentJobKey = null
 
   const handleProgress = (data) => {
+    if (currentJobKey && data.job_key && data.job_key !== currentJobKey) return
     if (data.msg) voiceTaskStatus.value = `${data.progress || 0}% - ${data.msg}`
   }
   const handleResult = (data) => {
+    if (currentJobKey && data.job_key && data.job_key !== currentJobKey) return
     offSocketEvent('v2t_progress', handleProgress)
     offSocketEvent('v2t_result', handleResult)
     isVoiceTaskProcessing.value = false
@@ -231,6 +239,7 @@ const submitVoiceTaskRefine = async () => {
   try {
     const res = await voiceToTask(voiceTaskRefineAudioFile.value, parsedVoiceTask.value)
     if (res.status === 'processing') {
+      currentJobKey = res.job_key
       voiceTaskStatus.value = '⏳ Đang xử lý âm thanh...'
     } else if (res.status === 'success') {
       offSocketEvent('v2t_progress', handleProgress)
