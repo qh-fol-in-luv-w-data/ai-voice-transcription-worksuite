@@ -820,6 +820,7 @@ def _extract_tasks_async(payload, user, session_id_header):
                         speaker_roles[alt_name_2.strip().lower()] = desg
 
         except Exception as re_ex:
+            if hasattr(frappe.db, 'rollback'): frappe.db.rollback()
             frappe.log_error(str(re_ex), "Fetch Designations Error")
 
         docx_filename = save_to_docx(
@@ -910,6 +911,7 @@ def _extract_tasks_async(payload, user, session_id_header):
         }, expires_in_sec=86400)
 
     except Exception as e:
+        if hasattr(frappe.db, 'rollback'): frappe.db.rollback()
         frappe.log_error(traceback.format_exc(), "Task Extraction Error")
         frappe.cache().set_value(cache_key, {"status": "error", "message": str(e)}, expires_in_sec=86400)
 
