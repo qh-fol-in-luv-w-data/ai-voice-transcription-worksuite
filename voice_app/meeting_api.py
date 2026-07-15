@@ -1,6 +1,6 @@
 import frappe
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def rename_meeting(meeting_name, new_title):
     if not meeting_name or not new_title:
         frappe.throw("Thiếu thông tin cuộc họp hoặc tên mới")

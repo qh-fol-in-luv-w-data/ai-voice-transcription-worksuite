@@ -17,22 +17,15 @@ api.interceptors.request.use(config => {
   return config;
 })
 
-export async function transcribeAudio(file, language, filterSpeakers = null, sttMode = 'google', numSpeakers = null, customVocabulary = '') {
+export async function transcribeAudio(file, filterSpeakers = null, sttMode = 'google') {
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('language', language)
   formData.append('stt_mode', sttMode)
-  if (numSpeakers) formData.append('num_speakers', numSpeakers)
-  if (customVocabulary) formData.append('custom_vocabulary', customVocabulary)
   if (filterSpeakers && filterSpeakers.length > 0) {
     formData.append('filter_speakers', JSON.stringify(filterSpeakers))
   }
 
-  const res = await api.post('/api/method/voice_app.api.transcribe_audio', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+  const res = await api.post('/api/method/voice_app.api.transcribe_audio', formData)
   return res.data.message
 }
 
@@ -83,11 +76,7 @@ export async function enrollVoice(audioBlob) {
   const formData = new FormData()
   formData.append('file', audioBlob, 'voice_record.wav')
 
-  const res = await api.post('/api/method/voice_app.api.enroll_voice', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+  const res = await api.post('/api/method/voice_app.api.enroll_voice', formData)
   return res.data.message
 }
 
@@ -132,18 +121,17 @@ export async function enrollMappedSpeakers(meetingName, mappings) {
   return res.data.message
 }
 
-export async function voiceToTask(file, existingTask = null) {
+export async function voiceToTask(file, existingTask = null, jobKey = null) {
   const formData = new FormData()
   formData.append('file', file)
   if (existingTask) {
     formData.append('existing_task', JSON.stringify(existingTask))
   }
+  if (jobKey) {
+    formData.append('job_key', jobKey)
+  }
 
-  const res = await api.post('/api/method/voice_app.api.voice_to_task', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+  const res = await api.post('/api/method/voice_app.api.voice_to_task', formData)
   return res.data.message
 }
 
@@ -183,4 +171,55 @@ export async function undoMapping(meetingName) {
   return res.data.message
 }
 
+export async function getGlobalVocabulary() {
+  const res = await api.get('/api/method/voice_app.api.get_global_vocabulary')
+  // Frappe whitelist with a dict returns { message: { status: "success", message: "..." } }
+  if (res.data.message && typeof res.data.message === 'object') {
+    return res.data.message.message
+  }
+  return res.data.message
+}
+
+export async function saveGlobalVocabulary(vocabulary) {
+  const res = await api.post('/api/method/voice_app.api.save_global_vocabulary', {
+    vocabulary: vocabulary
+  })
+  return res.data.message
+}
+
+export async function reassignSpeakerFromSegment(meetingName, segmentIndex, newSpeakerName) {
+  const res = await api.post('/api/method/voice_app.api.reassign_speaker_from_segment', {
+    meeting_name: meetingName,
+    segment_index: segmentIndex,
+    new_speaker_name: newSpeakerName
+  })
+  return res.data.message
+}
+
+export async function enrollSpeakerFromSegment(meetingName, segmentIndex, newSpeakerName) {
+  const res = await api.post('/api/method/voice_app.api.enroll_speaker_from_segment', {
+    meeting_name: meetingName,
+    segment_index: segmentIndex,
+    new_speaker_name: newSpeakerName
+  })
+  return res.data.message
+}
+
 export default api
+
+export async function saveMeetingDraft(meetingName, summary, conclusion, tasksJsonStr) {
+  const res = await api.post('/api/method/voice_app.api.save_meeting_draft', {
+    meeting_name: meetingName,
+    summary: summary,
+    conclusion: conclusion,
+    tasks_json_str: tasksJsonStr
+  })
+  return res.data.message
+}
+
+export async function exportDynamicDocx(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.export_dynamic_docx', {
+    meeting_name: meetingName
+  })
+  return res.data.message
+}

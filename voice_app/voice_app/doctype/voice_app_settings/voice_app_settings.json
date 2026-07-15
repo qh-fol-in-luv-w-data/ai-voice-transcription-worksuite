@@ -17,7 +17,8 @@
         "worksuite_email",
         "worksuite_password",
         "sync_api_url",
-        "sync_api_token"
+        "sync_api_token",
+        "global_vocabulary"
     ],
     "fields": [
         {
@@ -89,6 +90,12 @@
             "fieldname": "sync_api_token",
             "fieldtype": "Password",
             "label": "Sync API Token"
+        },
+        {
+            "default": "Tập đoàn: CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, Modulex, GASCO, DAIT, VGCT, CCTPA, Carbondo, Airbility\nDự án/tòa nhà: M1, M2, M3, Metrostar, Simland, Minh Hưng Quảng Trị\nHệ thống: 2AS, Worksuite, iMaster, ERP, CRM, NDT15, LAE, LAE 1, OSAT, CarbonFly, green bond, carbon credit, eVTOL, LiDAR\nAI/Tech: AI, AGI, LLM, GPT, ChatGPT, Claude, Gemini, ElevenLabs, RAG, vector, embedding, fine-tuning, diarization\nTài chính: green bond, CCTPA, carbon credit, ESG, IPO, M&A",
+            "fieldname": "global_vocabulary",
+            "fieldtype": "Small Text",
+            "label": "Global Vocabulary"
         }
     ],
     "issingle": 1,

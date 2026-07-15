@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   audioFile, language, modelType, isTranscribing, transcribeStatus, transcriptResults,
   isCleaned, transcriptText, isExtracting, extractStatus, isCleaning,
@@ -7,7 +7,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, enrollSpeakerFromSegment } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -30,11 +30,36 @@ const undoAction = async () => {
 }
 
 
-const numAttendees = ref(0)
-const vocabulary = ref('')
+const globalVocabulary = ref('')
 const meetingDate = ref(new Date().toLocaleString('vi-VN', { hour12: false }))
 const meetingLocation = ref('')
 const hostId = ref('')
+
+const defaultVocab = `Tập đoàn: CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, Modulex, GASCO, DAIT, VGCT, CCTPA, Carbondo, Airbility
+Dự án/tòa nhà: M1, M2, M3, Metrostar, Simland, Minh Hưng Quảng Trị
+Hệ thống: 2AS, Worksuite, iMaster, ERP, CRM, NDT15, LAE, LAE 1, OSAT, CarbonFly, green bond, carbon credit, eVTOL, LiDAR
+AI/Tech: AI, AGI, LLM, GPT, ChatGPT, Claude, Gemini, ElevenLabs, RAG, vector, embedding, fine-tuning, diarization
+Tài chính: green bond, CCTPA, carbon credit, ESG, IPO, M&A`
+
+onMounted(async () => {
+  try {
+    const vocab = await getGlobalVocabulary()
+    globalVocabulary.value = vocab || defaultVocab
+    if (!vocab) {
+       await saveGlobalVocabulary(defaultVocab)
+    }
+  } catch (e) {
+    console.error('Failed to load global vocabulary', e)
+  }
+})
+
+const handleSaveVocabulary = async () => {
+  try {
+    await saveGlobalVocabulary(globalVocabulary.value)
+  } catch (e) {
+    console.error('Failed to save global vocabulary', e)
+  }
+}
 
 // ── ADMIN CHECK ────────────────────────────────────────────────────────────
 const isAdmin = computed(() => {
@@ -57,6 +82,8 @@ const editingText = ref('')
 const editingSpeaker = ref(null)
 const editingSpeakerName = ref('')
 const newSpeakerEmployee = ref('')
+const isRescanning = ref(false)
+const rescanMessage = ref('')
 
 const startEditText = (idx) => {
   editingIdx.value = idx
@@ -84,6 +111,15 @@ const saveEditSpeaker = async (idx) => {
 
   if (!finalName.trim()) { editingSpeaker.value = null; return }
   saveState()
+  
+  if (currentMeetingName.value) {
+    try {
+      await enrollSpeakerFromSegment(currentMeetingName.value, idx, finalName.trim())
+    } catch (e) {
+      console.warn("Failed to enroll speaker:", e)
+    }
+  }
+
   const oldName = transcriptResults.value[idx][2]
   for (const seg of transcriptResults.value) {
     if (seg[2] === oldName) seg[2] = finalName.trim()
@@ -94,6 +130,38 @@ const saveEditSpeaker = async (idx) => {
   editingSpeaker.value = null
   if (currentMeetingName.value) {
     await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+  }
+}
+
+const saveAndRescanSpeaker = async (idx) => {
+  const finalName = newSpeakerEmployee.value
+  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  if (!currentMeetingName.value) {
+    alert('Vui lòng transcribe trước khi dùng tính năng này!')
+    return
+  }
+
+  editingSpeaker.value = null
+  isRescanning.value = true
+  rescanMessage.value = 'Đang trích xuất đặc trưng giọng nói...'
+
+  try {
+    saveState()
+    const res = await reassignSpeakerFromSegment(currentMeetingName.value, idx, finalName.trim())
+    if (res && res.status === 'success') {
+      transcriptResults.value = res.results
+      originalTranscriptResults.value = JSON.parse(JSON.stringify(res.results))
+      rescanMessage.value = res.message || 'Quét lại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 3000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isRescanning.value = false
   }
 }
 
@@ -200,10 +268,13 @@ const uniqueSpeakers = computed(() => {
 })
 
 const employeeOptions = computed(() =>
-  dbEmployees.value.map(emp => ({
-    value: emp.employee_name,
-    label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
-  }))
+  dbEmployees.value.map(emp => {
+    const fullString = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
+    return {
+      value: fullString,
+      label: fullString
+    }
+  })
 )
 
 // Gán tên cho người lạ (KHÔNG enroll giọng) — ai cũng dùng được
@@ -248,12 +319,6 @@ const enrollMapped = async () => {
   finally { isEnrollingMapped.value = false }
 }
 
-const languages = [
-  { val: 'vi', label: 'Tiếng Việt' }, { val: 'en', label: 'English' },
-  { val: 'ja', label: '日本語' }, { val: 'zh', label: '中文' },
-  { val: 'ko', label: '한국어' }, { val: 'auto', label: 'Auto detect' }
-]
-
 const handleFileChange = (e) => { if (e.target.files.length > 0) audioFile.value = e.target.files[0] }
 const audioUrl = computed(() => audioFile.value ? URL.createObjectURL(audioFile.value) : null)
 
@@ -264,46 +329,84 @@ const startTranscribe = async () => {
   transcribeStatus.value = t('status_transcribe_wait')
   transcriptResults.value = []; originalTranscriptResults.value = []
   isCleaned.value = false; transcriptText.value = ''; tasks.value = []; selectedAttendees.value = []
+
+  const handleProgress = (data) => {
+    if (data.progress_info) {
+       if (data.progress_info.stt !== undefined) {
+         const sttProg = data.progress_info.stt.progress || 0
+         const spkProg = data.progress_info.speaker ? data.progress_info.speaker.progress : 0
+         transcribeProgress.value = Math.round((sttProg * 0.5) + (spkProg * 0.5))
+         transcribeStatus.value = sttProg < 100
+           ? (data.progress_info.stt.msg || 'Đang xử lý STT...')
+           : (data.progress_info.speaker ? data.progress_info.speaker.msg : 'Đang xử lý Speaker...')
+       } else {
+         transcribeProgress.value = data.progress_info.progress || 0
+         transcribeStatus.value = data.progress_info.message || 'Đang xử lý...'
+       }
+    }
+  };
+
+  const handleResult = (data) => {
+    offSocketEvent("transcribe_progress", handleProgress);
+    offSocketEvent("transcribe_result", handleResult);
+    
+    if (data.status === 'success') {
+      transcribeProgress.value = 100;
+      transcribeStatus.value = t('status_transcribe_ok');
+      transcriptResults.value = data.results; originalTranscriptResults.value = [...data.results]
+      isCleaned.value = false; transcriptText.value = data.final_text
+      loadHistory(); isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 3000);
+    } else {
+      transcribeStatus.value = '❌ Error: ' + data.message; isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 5000);
+    }
+  };
+
+  onSocketEvent("transcribe_progress", handleProgress);
+  onSocketEvent("transcribe_result", handleResult);
+
   try {
-    const res = await transcribeAudio(audioFile.value, language.value)
+    const res = await transcribeAudio(audioFile.value)
     if (res.status === 'processing' && res.meeting_name) {
       currentMeetingName.value = res.meeting_name
+      transcribeStatus.value = '⏳ Đang phân tích...';
+      
+      // Fallback Polling if socket doesn't work
       const pollTimer = setInterval(async () => {
+        if (!isTranscribing.value) { clearInterval(pollTimer); return; }
         try {
-          const pollRes = await checkMeetingStatus(currentMeetingName.value)
-          if (pollRes.status === 'processing') {
-            if (pollRes.progress_info) {
-               if (pollRes.progress_info.stt !== undefined) {
-                 const sttProg = pollRes.progress_info.stt.progress || 0
-                 const spkProg = pollRes.progress_info.speaker ? pollRes.progress_info.speaker.progress : 0
-                 transcribeProgress.value = Math.round((sttProg * 0.5) + (spkProg * 0.5))
-                 transcribeStatus.value = sttProg < 100
-                   ? (pollRes.progress_info.stt.msg || 'Đang xử lý STT...')
-                   : (pollRes.progress_info.speaker ? pollRes.progress_info.speaker.msg : 'Đang xử lý Speaker...')
-               } else {
-                 transcribeProgress.value = pollRes.progress_info.progress || 0
-                 transcribeStatus.value = pollRes.progress_info.message || 'Đang xử lý...'
-               }
-            }
-          } else if (pollRes.status === 'success') {
-            clearInterval(pollTimer)
-            transcribeProgress.value = 100; transcribeStatus.value = t('status_transcribe_ok')
-            transcriptResults.value = pollRes.results; originalTranscriptResults.value = [...pollRes.results]
-            isCleaned.value = false; transcriptText.value = pollRes.final_text
-            dbEmployees.value = pollRes.employees || []; loadHistory(); isTranscribing.value = false
-          } else if (pollRes.status === 'error') {
-            clearInterval(pollTimer); transcribeStatus.value = '❌ Error: ' + pollRes.message; isTranscribing.value = false
+          const statusRes = await checkMeetingStatus(res.meeting_name);
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
           }
-        } catch (err) { console.error('Polling error', err) }
-      }, 5000)
+        } catch(e) {}
+      }, 5000);
+      
     } else if (res.status === 'success') {
+      offSocketEvent("transcribe_progress", handleProgress);
+      offSocketEvent("transcribe_result", handleResult);
+      transcribeProgress.value = 100;
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results; originalTranscriptResults.value = [...res.results]
       isCleaned.value = false; transcriptText.value = res.final_text
-      dbEmployees.value = res.employees || []; currentMeetingName.value = res.meeting_name || null
+      currentMeetingName.value = res.meeting_name || null
       if (res.meeting_name) loadHistory(); isTranscribing.value = false
-    } else { transcribeStatus.value = '❌ Error: ' + res.message; isTranscribing.value = false }
-  } catch (e) { transcribeStatus.value = t('error_connect'); isTranscribing.value = false }
+      setTimeout(() => { transcribeStatus.value = '' }, 3000);
+    } else { 
+      offSocketEvent("transcribe_progress", handleProgress);
+      offSocketEvent("transcribe_result", handleResult);
+      transcribeStatus.value = '❌ Error: ' + res.message; isTranscribing.value = false 
+      setTimeout(() => { transcribeStatus.value = '' }, 5000);
+    }
+  } catch (e) { 
+    offSocketEvent("transcribe_progress", handleProgress);
+    offSocketEvent("transcribe_result", handleResult);
+    transcribeStatus.value = t('error_connect'); isTranscribing.value = false 
+  }
 }
 
 const startCleanTranscript = async () => {
@@ -329,6 +432,8 @@ const openTaskModal = async () => {
    isTaskModalOpen.value = true
 }
 
+import { onSocketEvent, offSocketEvent } from '../utils/socket.js'
+
 const startExtractTasks = async () => {
   if (transcriptResults.value.length === 0) { alert(t('alert_no_transcript')); return }
   isExtracting.value = true; extractStatus.value = t('status_extract_wait')
@@ -347,58 +452,119 @@ const startExtractTasks = async () => {
     }
   }
 
+  const handleProgress = (data) => {
+    if (data.msg) extractStatus.value = `${data.progress}% - ${data.msg}`;
+  };
+
+  const handleResult = (data) => {
+    offSocketEvent("v2t_progress", handleProgress);
+    offSocketEvent("v2t_result", handleResult);
+    
+    if (data.status === 'success') {
+      extractStatus.value = t('status_extract_ok')
+      if (data.meeting_name) currentMeetingName.value = data.meeting_name
+      tasks.value = data.items || []; hrProjectsMap.value = data.hr_projects_map || {}
+      dbEmployees.value = data.employees || []; docxUrl.value = data.docx_url; excelUrl.value = data.excel_url
+      meetingSummary.value = data.meeting_summary || ''; meetingConclusion.value = data.conclusion || ''
+      loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
+    } else {
+      extractStatus.value = '❌ Error: ' + data.message; isExtracting.value = false
+    }
+  };
+
+  onSocketEvent("v2t_progress", handleProgress);
+  onSocketEvent("v2t_result", handleResult);
+
   try {
     const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value, startTime, null, meetingLocation.value, hostName)
     if (res.status === 'processing') {
+      if (res.meeting_name) currentMeetingName.value = res.meeting_name
+      extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
+      
+      // Fallback Polling if socket doesn't work
       const pollTimer = setInterval(async () => {
+        if (!isExtracting.value) { clearInterval(pollTimer); return; }
         try {
-          const pollRes = await checkExtractStatus(currentMeetingName.value)
-          if (pollRes.status === 'success') {
-            clearInterval(pollTimer); extractStatus.value = t('status_extract_ok')
-            tasks.value = pollRes.items || []; hrProjectsMap.value = pollRes.hr_projects_map || {}
-            dbEmployees.value = pollRes.employees || []; docxUrl.value = pollRes.docx_url; excelUrl.value = pollRes.excel_url
-            loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
-          } else if (pollRes.status === 'error') {
-            clearInterval(pollTimer); extractStatus.value = '❌ Error: ' + pollRes.message; isExtracting.value = false
+          const statusRes = await checkExtractStatus(currentMeetingName.value);
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
           }
-        } catch(err) { console.error('Polling extract error', err) }
-      }, 5000)
+        } catch(e) {}
+      }, 5000);
+      
     } else if (res.status === 'success') {
+      offSocketEvent("v2t_progress", handleProgress);
+      offSocketEvent("v2t_result", handleResult);
       extractStatus.value = t('status_extract_ok')
+      if (res.meeting_name) currentMeetingName.value = res.meeting_name
       tasks.value = res.items || []; hrProjectsMap.value = res.hr_projects_map || {}
       dbEmployees.value = res.employees || []; docxUrl.value = res.docx_url; excelUrl.value = res.excel_url
+      meetingSummary.value = res.meeting_summary || ''; meetingConclusion.value = res.conclusion || ''
       loadHistory(); isExtracting.value = false; isTaskModalOpen.value = true
-    } else { extractStatus.value = '❌ Error: ' + res.message; isExtracting.value = false }
-  } catch (e) { extractStatus.value = t('error_connect'); isExtracting.value = false }
+    } else { 
+      offSocketEvent("v2t_progress", handleProgress);
+      offSocketEvent("v2t_result", handleResult);
+      extractStatus.value = '❌ Error: ' + res.message; isExtracting.value = false 
+    }
+  } catch (e) { 
+    offSocketEvent("v2t_progress", handleProgress);
+    offSocketEvent("v2t_result", handleResult);
+    extractStatus.value = t('error_connect'); isExtracting.value = false 
+  }
 }
 </script>
 
 <template>
-<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md flex-1 min-h-0 h-full flex flex-col">
+<div class="w-full max-w-[1600px] px-4 md:px-8 mx-auto pb-lg pt-md flex-1 min-h-0 h-full flex flex-col relative">
+  <!-- Rescanning overlay -->
+  <transition name="fade">
+    <div v-if="isRescanning" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+      <div class="bg-white dark:bg-surface rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full mx-4">
+        <span class="material-symbols-outlined text-[48px] text-orange-500 animate-spin">manage_search</span>
+        <p class="font-bold text-gray-900 dark:text-on-surface text-center">Đang quét lại giọng nói...</p>
+        <p class="text-sm text-gray-500 dark:text-on-surface-variant text-center">{{ rescanMessage }}</p>
+        <div class="w-full h-1.5 bg-gray-200 dark:bg-surface-container rounded-full overflow-hidden">
+          <div class="h-full bg-orange-500 rounded-full animate-pulse" style="width: 60%"></div>
+        </div>
+      </div>
+    </div>
+  </transition>
+  <!-- Rescan success toast -->
+  <transition name="slide-fade">
+    <div v-if="rescanMessage && !isRescanning" class="fixed bottom-6 right-6 z-50 bg-green-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 font-bold text-sm">
+      <span class="material-symbols-outlined text-[18px]">check_circle</span>
+      {{ rescanMessage }}
+    </div>
+  </transition>
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch flex-1">
     
     <!-- LEFT COLUMN -->
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full">
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
-      <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group flex-1 min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
-        <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-        <div class="relative mb-4">
-          <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
-        </div>
-        <p class="font-body-md text-gray-900 dark:text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
-        <div v-if="audioFile" class="flex items-center gap-2 bg-white dark:bg-surface px-3 py-1.5 rounded-full border border-gray-300 dark:border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
-           <span class="font-body-sm text-gray-900 dark:text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
-           <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-gray-500 cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
-        </div>
-        <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 dark:bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
-          <div class="w-full space-y-2">
-            <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
-              <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
-            </div>
-            <div class="flex justify-between items-center text-xs font-medium text-on-surface-variant">
-              <span>{{ transcribeProgress }}%</span>
-              <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px] animate-spin">autorenew</span> {{ transcribeStatus || 'Processing...' }}</span>
+      <div class="flex flex-col gap-4 flex-1">
+        <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group min-h-[150px] flex-1 overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
+          <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+          <div class="relative mb-4">
+            <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
+          </div>
+          <p class="font-body-md text-gray-900 dark:text-on-surface font-medium mb-2 text-center text-sm">Drag &amp; drop file here, or click to select.</p>
+          <div v-if="audioFile" class="flex items-center gap-2 bg-white dark:bg-surface px-3 py-1.5 rounded-full border border-gray-300 dark:border-outline-variant/50 max-w-[90%] overflow-hidden relative z-20 shadow-sm">
+             <span class="font-body-sm text-gray-900 dark:text-on-surface truncate font-bold text-xs">{{ audioFile.name }}</span>
+             <span v-if="!isTranscribing" class="material-symbols-outlined text-[14px] text-gray-500 cursor-pointer hover:text-error" @click.stop.prevent="audioFile = null">close</span>
+          </div>
+          <div v-if="isTranscribing || transcribeStatus" class="absolute inset-0 bg-white/95 dark:bg-surface/95 backdrop-blur-md z-30 flex flex-col justify-end p-6">
+            <div class="w-full space-y-2">
+              <div class="h-3 bg-outline-variant/20 rounded-full overflow-hidden relative border border-outline-variant/20">
+                <div class="absolute inset-y-0 left-0 bg-primary transition-all duration-1000 rounded-full" :style="{ width: transcribeProgress + '%' }"></div>
+              </div>
+              <div class="flex justify-between items-center text-xs font-medium text-on-surface-variant">
+                <span>{{ transcribeProgress }}%</span>
+                <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px] animate-spin">autorenew</span> {{ transcribeStatus || 'Processing...' }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -446,32 +612,12 @@ const startExtractTasks = async () => {
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md">Meeting Details</h2>
       <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Language</label>
-         <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
-             <el-select v-model="language" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;">
-                <el-option v-for="l in languages" :key="l.val" :label="l.label" :value="l.val" />
-             </el-select>
-         </div>
-      </div>
-      <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Participants</label>
-         <input type="number" v-model="numAttendees" min="0" max="20" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors">
-      </div>
-      <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords</label>
-         <textarea v-model="vocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none min-h-[60px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..." rows="2"></textarea>
-      </div>
-      <div class="space-y-1 mb-4">
          <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Date</label>
          <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
             <el-date-picker v-model="meetingDate" type="datetime" format="DD/MM/YYYY HH:mm" placeholder="08/07/2026 17:51" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;" />
          </div>
       </div>
-      <div class="flex-1 mb-3">
-         <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
-         <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
-      </div>
-      <div class="flex-1">
+      <div class="mb-3">
          <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Host</label>
          <div class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-1 py-1 transition-colors overflow-hidden">
             <el-select v-model="hostId" filterable placeholder="Chọn người chủ trì..." class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;" fit-input-width>
@@ -480,6 +626,17 @@ const startExtractTasks = async () => {
                </el-option>
             </el-select>
          </div>
+      </div>
+      <div class="mb-3">
+         <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
+         <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+      </div>
+      <div class="flex flex-col flex-1">
+        <div class="flex justify-between items-center mb-1">
+            <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
+            <button @click="handleSaveVocabulary" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20 transition-colors font-bold">Lưu</button>
+        </div>
+        <textarea v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
       </div>
     </div>
   </div>
@@ -556,10 +713,7 @@ const startExtractTasks = async () => {
            <span class="material-symbols-outlined text-[18px]">undo</span>
            Hoàn tác
          </button>
-         <button @click="startCleanTranscript" :disabled="isCleaning" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="isCleaned ? 'border-primary text-primary bg-primary/5' : 'text-gray-900 dark:text-on-surface'">
-           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isCleaning }">{{ isCleaning ? 'autorenew' : (isCleaned ? 'history' : 'auto_fix_high') }}</span>
-           {{ isCleaning ? "Đang chuẩn hoá..." : (isCleaned ? "Bản gốc" : "Chuẩn hoá hội thoại") }}
-         </button>
+
          <button @click="openTaskModal" class="px-4 py-2 bg-primary text-white hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
            <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
            {{ tasks.length > 0 ? "Xem Task đã tạo" : t('extract_task') }}
@@ -580,13 +734,16 @@ const startExtractTasks = async () => {
               <div class="flex items-center gap-1 flex-wrap">
                 <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option
                   placeholder="Chọn hoặc nhập tên..." size="small"
-                  style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override"
-                  @change="saveEditSpeaker(idx)">
+                  style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override">
                   <el-option v-for="opt in employeeOptions" :key="opt.value" :label="opt.label" :value="opt.value">
                     <span class="text-xs">{{ opt.label }}</span>
                   </el-option>
                 </el-select>
                 <button @click="saveEditSpeaker(idx)" class="text-xs font-bold text-white bg-primary px-2 py-0.5 rounded hover:bg-primary/90 transition-colors ml-1">Lưu</button>
+                <button @click="saveAndRescanSpeaker(idx)" class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded hover:bg-orange-600 transition-colors flex items-center gap-0.5" title="Học giọng từ đoạn này và gán lại tên cho tất cả đoạn giống giọng">
+                  <span class="material-symbols-outlined text-[12px]">manage_search</span>
+                  Quét lại AI
+                </button>
                 <button @click="editingSpeaker = null" class="text-xs text-gray-400 hover:text-gray-600">Hủy</button>
               </div>
             </template>

@@ -154,11 +154,19 @@ def node_extract_tasks(state: AgentState) -> dict:
     prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất TẤT CẢ các thông báo và công việc cần xử lý.
 
 Nhiệm vụ của bạn:
-- Chỉ trả về các mục công việc (task) và thông báo (noti).
+- Viết "tom_tat_cuoc_hop" (Meeting Summary & Key Takeaways): Tóm tắt ĐẦY ĐỦ VÀ CHI TIẾT các nội dung chính được thảo luận trong cuộc họp. Tuyệt đối không tóm tắt quá ngắn gọn, hãy liệt kê đầy đủ các ý chính, quan điểm và quyết định. ĐẶC BIỆT LƯU Ý: Phải trình bày theo đúng format/template sau (nếu có các nội dung chỉ đạo):
+  "I. Tổng kết nội dung chính
+  Tổng kết [số lượng] nội dung chính theo sự chỉ đạo của [Ban lãnh đạo/Chủ tọa/BOD...],
+  1. [Tiêu đề nội dung 1]
+  [Chi tiết nội dung 1 - viết đầy đủ ý]
+  2. [Tiêu đề nội dung 2]
+  [Chi tiết nội dung 2 - viết đầy đủ ý]
+  ..."
+- Viết "ket_luan_cuoc_hop" (Conclusion): Kết luận cuối cùng, các quyết định được đưa ra.
+- Trích xuất các mục công việc (task) và thông báo (noti) vào mảng "items".
 - ĐẶC BIỆT LƯU Ý: Bắt buộc phải trích xuất ĐẦY ĐỦ, CHI TIẾT từng Task (nhiệm vụ/công việc) và Noti (thông báo) được nhắc đến trong biên bản. TUYỆT ĐỐI KHÔNG ĐƯỢC BỎ SÓT BẤT KỲ MỤC NÀO, dù là nhỏ nhất. Nếu có 10 ý, phải liệt kê đủ 10 ý.
 - Mỗi mục là một đầu việc hoặc thông báo riêng biệt, không được gộp chung các công việc khác nhau vào làm một.
 - Có người thực hiện, người tiếp nhận rõ ràng hoặc là thông báo chung.
-
 
 Điền thông tin:
 - "nguoi_thuc_hien": họ tên ĐẦY ĐỦ chính xác NHƯ TRONG BIÊN BẢN (không rút gọn, không suy diễn, không đảo thứ tự)
@@ -175,6 +183,8 @@ Trả về JSON hợp lệ, KHÔNG có markdown, KHÔNG có giải thích:
 {
   "ten_cuoc_hop": "tên cuộc họp ngắn gọn",
   "ngay_hop": "dd/mm/yyyy",
+  "tom_tat_cuoc_hop": "nội dung tóm tắt chính...",
+  "ket_luan_cuoc_hop": "kết luận cuộc họp...",
   "items": [
     {
       "id": 1,
@@ -231,7 +241,7 @@ Nội dung biên bản họp:
 # ─────────────────────────────────────────────
 
 def node_login_frappe(state: AgentState) -> dict:
-    print("\n🔐 [Node 3] Đăng nhập ERPNext/Frappe...")
+    print("\n🔐 [Node 3] Đăng nhập Worksuite/Frappe...")
 
     base_url = get_worksuite_url()
     token = get_worksuite_token()
@@ -368,7 +378,7 @@ def node_fetch_projects(state: AgentState) -> dict:
     return {"frappe_projects": user_projects}
 
 # ─────────────────────────────────────────────
-# NODE 5: Tạo tasks trên ERPNext (Mới - Tách rời)
+# NODE 5: Tạo tasks trên Worksuite (Mới - Tách rời)
 # ─────────────────────────────────────────────
 
 def _parse_date(date_str: Optional[str]) -> Optional[str]:
@@ -385,7 +395,7 @@ def _parse_date(date_str: Optional[str]) -> Optional[str]:
 
 
 def node_create_tasks(state: AgentState) -> dict:
-    print("\n📝 [Node 5] Tạo tasks lên ERPNext...")
+    print("\n📝 [Node 5] Tạo tasks lên Worksuite...")
 
     session   = state.get("session")
     data      = state.get("extracted_data", {})
@@ -506,7 +516,7 @@ def node_report(state: AgentState) -> dict:
     errors  = state.get("errors", [])
 
     if created:
-        print(f"\n✅ {len(created)} TASKS ĐÃ TẠO TRÊN ERPNEXT:")
+        print(f"\n✅ {len(created)} TASKS ĐÃ TẠO TRÊN Worksuite:")
         for t in created:
             due      = f" | Due: {t['due_date']}" if t.get("due_date") else ""
             desig    = f" [{t['matched_desig']}]"  if t.get("matched_desig") else (
@@ -536,7 +546,7 @@ def after_extract(state: AgentState) -> str:
     return "report" if not state.get("extracted_data") else "login"
 
 def after_login(state: AgentState) -> str:
-    return "report" if not state.get("session") else "fetch_users"
+    return "report" if not state.get("session") else "fetch_all"
 
 
 # ─────────────────────────────────────────────
@@ -547,20 +557,38 @@ def after_login(state: AgentState) -> str:
 # EXPORT FUNCTIONS
 # ─────────────────────────────────────────────
 
+import concurrent.futures
+
+def node_fetch_all(state: AgentState) -> dict:
+    print("\n👥🏢 [Node 4] Lấy danh sách users & projects song song...")
+    session = state.get("session")
+    if not session:
+        return {"frappe_users": [], "frappe_projects": {}}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f_users = executor.submit(node_fetch_users, state)
+        f_projects = executor.submit(node_fetch_projects, state)
+        
+        users_result = f_users.result()
+        projects_result = f_projects.result()
+        
+    return {
+        "frappe_users": users_result.get("frappe_users", []),
+        "frappe_projects": projects_result.get("frappe_projects", {})
+    }
+
 def extract_tasks_only(file_path, model_type="gpt-4o"):
     g = StateGraph(AgentState)
     g.add_node("read_docx",     node_read_docx)
     g.add_node("extract_tasks", node_extract_tasks)
     g.add_node("login",         node_login_frappe)
-    g.add_node("fetch_users",   node_fetch_users)
-    g.add_node("fetch_projects", node_fetch_projects)
+    g.add_node("fetch_all",     node_fetch_all)
 
     g.set_entry_point("read_docx")
     g.add_conditional_edges("read_docx",     after_read,    {"extract": "extract_tasks", "report": END})
     g.add_conditional_edges("extract_tasks", after_extract, {"login": "login",           "report": END})
-    g.add_conditional_edges("login",         after_login,   {"fetch_users": "fetch_users","report": END})
-    g.add_edge("fetch_users", "fetch_projects")
-    g.add_edge("fetch_projects", END)
+    g.add_conditional_edges("login",         after_login,   {"fetch_all": "fetch_all",   "report": END})
+    g.add_edge("fetch_all", END)
 
     app = g.compile()
     
@@ -626,7 +654,7 @@ def extract_tasks_only(file_path, model_type="gpt-4o"):
         "completion_tokens": result.get("completion_tokens", 0)
     }
         
-    return items, hr_projects_map, result.get("errors", []), employees, usage
+    return items, hr_projects_map, result.get("errors", []), employees, usage, data.get("tom_tat_cuoc_hop", ""), data.get("ket_luan_cuoc_hop", "")
 
 
 def create_tasks_to_erp(tasks_list):
@@ -635,7 +663,7 @@ def create_tasks_to_erp(tasks_list):
     tasks_list là list of dict:
     { "title": str, "assignee_hr_code": str, "assignee_email": str, "project": str, "start_date": str, "end_date": str, "description": str }
     """
-    print("\n📝 Bắt đầu tạo Tasks lên ERPNext...")
+    print("\n📝 Bắt đầu tạo Tasks lên Worksuite...")
     
     # Auth bằng token
     base_url = get_worksuite_url()

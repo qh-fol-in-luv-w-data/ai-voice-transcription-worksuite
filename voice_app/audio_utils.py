@@ -12,7 +12,12 @@ def convert_to_wav(input_path: str):
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
         out,
     ]
-    r = subprocess.run(cmd, capture_output=True)
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        try: os.remove(out)
+        except: pass
+        return None, "ffmpeg error: timeout"
     if r.returncode != 0:
         try: os.remove(out)
         except: pass
@@ -39,7 +44,10 @@ def extract_segment_ffmpeg(wav_path: str, start: float, end: float, padding: flo
         "-af", "volume=2.5",
         out,
     ]
-    subprocess.run(cmd, capture_output=True)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
     return out
 
 
@@ -47,15 +55,18 @@ def concat_speaker_segments(wav_path: str, segs: list,
                             max_total_sec: float = 25.0,
                             min_seg_sec: float = 1.0) -> str:
     """
-    Ghép nhiều đoạn của cùng 1 speaker thành 1 file WAV liên tục.
+    Ghép nhiều đoạn của cùng 1 speaker thành 1 file WAV liên tục bằng FFmpeg filter_complex (1 lần gọi).
 
     Chiến lược:
     - Sắp xếp segments theo độ dài (dài trước)
     - Chọn các đoạn >= min_seg_sec cho đến khi đủ max_total_sec
-    - Ghép bằng ffmpeg concat → 1 file WAV để extract embedding tốt hơn
-
-    Returns: path WAV tạm, hoặc None nếu không có đoạn nào đủ dài.
+    - Gọt mép 0.2s 2 đầu mỗi đoạn
+    - Tạo filter_complex cắt và nối trong 1 tiến trình ffmpeg
     """
+    import tempfile
+    import subprocess
+    import os
+
     duration = get_duration(wav_path)
 
     # Lọc & sắp xếp: ưu tiên đoạn dài, bỏ đoạn quá ngắn
@@ -67,15 +78,14 @@ def concat_speaker_segments(wav_path: str, segs: list,
     if not candidates:
         return None
 
-    # Cắt từng segment thành file tạm, gom đủ max_total_sec
-    tmp_files = []
+    filters = []
+    inputs = []
     total = 0.0
-    for seg in candidates:
-        # Gọt mép 0.2s ở 2 đầu để tránh tạp âm và tiếng người khác xen ngang
+
+    for i, seg in enumerate(candidates):
         seg_start = seg["start"] + 0.2
         seg_end   = seg["end"] - 0.2
         
-        # Nếu gọt xong bị âm (đoạn quá ngắn), thì bỏ qua đoạn này
         if seg_end <= seg_start:
             continue
             
@@ -83,52 +93,32 @@ def concat_speaker_segments(wav_path: str, segs: list,
         if take <= 0:
             break
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            tmp = f.name
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", f"{seg_start:.3f}", "-i", wav_path,
-            "-t", f"{take:.3f}",
-            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-            tmp,
-        ]
-        r = subprocess.run(cmd, capture_output=True)
-        if r.returncode == 0:
-            tmp_files.append(tmp)
-            total += take
-        if total >= max_total_sec:
-            break
+        filters.append(f"[0]atrim=start={seg_start:.3f}:duration={take:.3f},asetpts=PTS-STARTPTS[s{i}]")
+        inputs.append(f"[s{i}]")
+        total += take
 
-    if not tmp_files:
+    if not inputs:
         return None
 
-    # Nếu chỉ có 1 đoạn → trả thẳng luôn
-    if len(tmp_files) == 1:
-        return tmp_files[0]
-
-    # Ghép nhiều đoạn bằng ffmpeg concat
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as lf:
-        list_file = lf.name
-        for p in tmp_files:
-            lf.write(f"file '{p}'\n")
+    concat_filter = "".join(inputs) + f"concat=n={len(inputs)}:v=0:a=1[out]"
+    full_filter = ";".join(filters) + ";" + concat_filter
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         out = f.name
 
     cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", list_file,
-        "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-        out,
+        "ffmpeg", "-y", "-i", wav_path, 
+        "-filter_complex", full_filter,
+        "-map", "[out]", 
+        "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", 
+        out
     ]
-    r = subprocess.run(cmd, capture_output=True)
-
-    # Dọn tmp files
-    for p in tmp_files:
-        try: os.remove(p)
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        try: os.remove(out)
         except: pass
-    try: os.remove(list_file)
-    except: pass
+        return None
 
     if r.returncode != 0:
         try: os.remove(out)
@@ -136,21 +126,16 @@ def concat_speaker_segments(wav_path: str, segs: list,
         return None
     return out
 
-def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1800.0, max_chunk_sec: float = 2100.0) -> list:
+def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 900.0, max_chunk_sec: float = 1200.0, output_dir: str = None) -> list:
     """
-    VAD "nhẹ nhẹ" theo yêu cầu: Chỉ cắt bỏ những đoạn im lặng chết chóc > 15 giây.
-    Mọi tiếng ngập ngừng, lật giấy, nói thầm đều được giữ lại 100%.
+    Bỏ VAD theo yêu cầu.
+    Chỉ cắt audio thành các đoạn có độ dài tối đa chunk_length_sec để gửi STT.
     """
-    import webrtcvad
     import wave
     import tempfile
     import os
 
     duration = get_duration(wav_path)
-    
-    # Mức 3: Nhạy và khắt khe nhất. Bỏ qua hầu hết tiếng ồn, chỉ bắt tiếng người.
-    vad = webrtcvad.Vad(3) 
-    frame_duration_ms = 30
     
     with wave.open(wav_path, 'rb') as wf:
         sample_rate = wf.getframerate()
@@ -158,99 +143,42 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1800.0, max_
         n_frames = wf.getnframes()
         raw_data = wf.readframes(n_frames)
         
-    frame_size = int(sample_rate * (frame_duration_ms / 1000.0) * sample_width)
-    frames = [raw_data[i:i+frame_size] for i in range(0, len(raw_data), frame_size)]
-    
-    is_speech_flags = []
-    for f in frames:
-        if len(f) == frame_size:
-            is_speech_flags.append(vad.is_speech(f, sample_rate))
-        else:
-            is_speech_flags.append(False)
-            
-    # Đệm 0.45 giây (15 frames) trước và sau mỗi điểm nói để tránh lẹm chữ, giảm thu tạp âm
-    ring_buffer_size = 15 
-    smoothed_flags = [False] * len(is_speech_flags)
-    
-    for i, flag in enumerate(is_speech_flags):
-        if flag:
-            start = max(0, i - ring_buffer_size)
-            end = min(len(smoothed_flags), i + ring_buffer_size + 1)
-            for j in range(start, end):
-                smoothed_flags[j] = True
-
-    segments = []
-    in_speech = False
-    start_frame = 0
-    for i, flag in enumerate(smoothed_flags):
-        if flag and not in_speech:
-            in_speech = True
-            start_frame = i
-        elif not flag and in_speech:
-            in_speech = False
-            segments.append((start_frame, i))
-            
-    if in_speech:
-        segments.append((start_frame, len(smoothed_flags)))
-        
-    # GỘP NHẸ NHÀNG: Khoảng cách < 1.8 giây (60 frames) thì gộp luôn không cắt!
-    merged_segments = []
-    for seg in segments:
-        if not merged_segments:
-            merged_segments.append(seg)
-        else:
-            prev_start, prev_end = merged_segments[-1]
-            if seg[0] - prev_end < 60:
-                merged_segments[-1] = (prev_start, seg[1])
-            else:
-                merged_segments.append(seg)
-                
-    if not merged_segments:
-        return [(wav_path, 0.0, [])]
-
     chunks = []
-    current_chunk_frames = []
-    current_chunk_mappings = []
-    current_dense_start = 0.0
-    current_chunk_orig_start = merged_segments[0][0] * 30 / 1000.0
+    frames_per_sec = sample_rate * sample_width
+    chunk_bytes = int(chunk_length_sec * frames_per_sec)
     
-    def finalize_chunk():
-        nonlocal current_chunk_frames, current_chunk_mappings, current_dense_start, current_chunk_orig_start
-        if not current_chunk_frames: return
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            chunk_out = f.name
-        with wave.open(chunk_out, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(sample_width)
-            wf.setframerate(sample_rate)
-            wf.writeframes(b''.join(current_chunk_frames))
-        chunks.append((chunk_out, current_chunk_orig_start, current_chunk_mappings))
-        current_chunk_frames = []
-        current_chunk_mappings = []
-        current_dense_start = 0.0
+    # Đảm bảo chunk_bytes là bội số của (sample_width * channels) - ở đây wav luôn 1 channel
+    block_align = sample_width
+    chunk_bytes = (chunk_bytes // block_align) * block_align
 
-    for start, end in merged_segments:
-        seg_duration = (end - start) * 30 / 1000.0
+    for i, start_byte in enumerate(range(0, len(raw_data), chunk_bytes)):
+        end_byte = min(start_byte + chunk_bytes, len(raw_data))
+        chunk_data = raw_data[start_byte:end_byte]
         
-        if current_dense_start + seg_duration > chunk_length_sec and current_dense_start > 0:
-            finalize_chunk()
-            current_chunk_orig_start = start * 30 / 1000.0
-            
-        orig_start = start * 30 / 1000.0
-        orig_end = end * 30 / 1000.0
-        dense_end = current_dense_start + (orig_end - orig_start)
+        orig_start = start_byte / frames_per_sec
+        orig_end = end_byte / frames_per_sec
+        dense_end = orig_end - orig_start
         
-        current_chunk_mappings.append({
+        mappings = [{
             "orig_start": orig_start,
             "orig_end": orig_end,
-            "dense_start": current_dense_start,
+            "dense_start": 0.0,
             "dense_end": dense_end
-        })
+        }]
         
-        for i in range(start, end):
-            current_chunk_frames.append(frames[i])
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            chunk_out = os.path.join(output_dir, f"chunk_{i}.wav")
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                chunk_out = f.name
+                
+        with wave.open(chunk_out, 'wb') as wf_out:
+            wf_out.setnchannels(1)
+            wf_out.setsampwidth(sample_width)
+            wf_out.setframerate(sample_rate)
+            wf_out.writeframes(chunk_data)
             
-        current_dense_start = dense_end
+        chunks.append((chunk_out, orig_start, mappings))
 
-    finalize_chunk()
     return chunks

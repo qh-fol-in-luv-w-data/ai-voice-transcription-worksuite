@@ -1,5 +1,12 @@
 import os
 import frappe
+from dotenv import load_dotenv
+
+# Try to load .env from bench directory
+try:
+    load_dotenv(os.path.join(frappe.utils.get_bench_path(), ".env"))
+except Exception:
+    pass
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 def get_whisper_url():
@@ -24,9 +31,16 @@ AGENT_NAME = "2AS-WORKSUITE"
 def get_openai_api_key(agent_name=AGENT_NAME):
     try:
         if frappe.db:
-            doc = frappe.get_doc("Voice App Settings")
-            val = doc.get_password("openai_api_key")
-            if val: return val
+            doc = frappe.get_single("Voice App Settings")
+            try:
+                val = doc.get_password("openai_api_key")
+                if val: return val
+            except Exception:
+                pass
+        
+        # Fallback to site_config.json
+        if frappe.conf.get("openai_api_key"):
+            return frappe.conf.get("openai_api_key")
     except Exception: pass
     return os.getenv("OPENAI_API_KEY", "")
 
