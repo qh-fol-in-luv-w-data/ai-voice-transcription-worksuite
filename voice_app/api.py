@@ -2247,3 +2247,12 @@ def export_dynamic_docx(meeting_name):
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "export_dynamic_docx Error")
         return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def get_global_vocabulary():
+    try:
+        settings = frappe.get_single("Voice App Settings")
+        return settings.get("custom_vocabulary") or ""
+    except Exception:
+        return ""
