@@ -126,7 +126,7 @@ def concat_speaker_segments(wav_path: str, segs: list,
         return None
     return out
 
-def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 1200.0, max_chunk_sec: float = 2000.0, output_dir: str = None) -> list:
+def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 600.0, max_chunk_sec: float = 2000.0, output_dir: str = None) -> list:
     """
     Bỏ VAD theo yêu cầu.
     Chỉ cắt audio thành các đoạn có độ dài tối đa chunk_length_sec để gửi STT.
