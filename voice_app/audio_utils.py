@@ -126,33 +126,82 @@ def concat_speaker_segments(wav_path: str, segs: list,
         return None
     return out
 
-def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 600.0, max_chunk_sec: float = 2000.0, output_dir: str = None) -> list:
+def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_chunk_sec: float = 600.0, output_dir: str = None) -> list:
     """
-    Bỏ VAD theo yêu cầu.
-    Chỉ cắt audio thành các đoạn có độ dài tối đa chunk_length_sec để gửi STT.
+    Chia audio thành các đoạn ngắn (~5 phút) mà KHÔNG vứt bỏ bất kỳ khoảng lặng nào.
+    Dùng VAD chỉ để tìm điểm ngắt an toàn (chỗ có khoảng lặng) nhằm tránh cắt ngang từ.
     """
     import wave
     import tempfile
     import os
+    import webrtcvad
 
-    duration = get_duration(wav_path)
-    
     with wave.open(wav_path, 'rb') as wf:
         sample_rate = wf.getframerate()
         sample_width = wf.getsampwidth()
         n_frames = wf.getnframes()
         raw_data = wf.readframes(n_frames)
-        
+
+    vad = webrtcvad.Vad(1) # Ít gắt hơn (chỉ cần tìm khoảng lặng tương đối)
+    frame_duration_ms = 30
+    frame_size = int(sample_rate * frame_duration_ms / 1000) * sample_width
+
+    # Phân tích VAD để tìm các frame có tiếng
+    is_speech_list = []
+    for i in range(0, len(raw_data), frame_size):
+        frame = raw_data[i:i+frame_size]
+        if len(frame) == frame_size:
+            try:
+                is_speech_list.append(vad.is_speech(frame, sample_rate))
+            except:
+                is_speech_list.append(True)
+        else:
+            is_speech_list.append(False)
+
     chunks = []
     frames_per_sec = sample_rate * sample_width
-    chunk_bytes = int(chunk_length_sec * frames_per_sec)
+    ideal_chunk_bytes = int(chunk_length_sec * frames_per_sec)
     
-    # Đảm bảo chunk_bytes là bội số của (sample_width * channels) - ở đây wav luôn 1 channel
-    block_align = sample_width
-    chunk_bytes = (chunk_bytes // block_align) * block_align
+    start_byte = 0
+    total_bytes = len(raw_data)
 
-    for i, start_byte in enumerate(range(0, len(raw_data), chunk_bytes)):
-        end_byte = min(start_byte + chunk_bytes, len(raw_data))
+    while start_byte < total_bytes:
+        target_byte = start_byte + ideal_chunk_bytes
+        if target_byte >= total_bytes:
+            end_byte = total_bytes
+        else:
+            # Tìm khoảng lặng trong vùng [-30s, +30s] quanh điểm cắt mục tiêu
+            search_start = max(start_byte + int(ideal_chunk_bytes * 0.5), target_byte - int(30 * frames_per_sec))
+            search_end = min(total_bytes, target_byte + int(30 * frames_per_sec))
+            
+            search_start_idx = search_start // frame_size
+            search_end_idx = search_end // frame_size
+            
+            silence_run = 0
+            best_split_idx = target_byte // frame_size
+            max_silence_run = 0
+            
+            for idx in range(search_start_idx, search_end_idx):
+                if not is_speech_list[idx]:
+                    silence_run += 1
+                else:
+                    if silence_run > max_silence_run:
+                        max_silence_run = silence_run
+                        best_split_idx = idx - (silence_run // 2)
+                    silence_run = 0
+            
+            if silence_run > max_silence_run:
+                max_silence_run = silence_run
+                best_split_idx = search_end_idx - (silence_run // 2)
+                
+            # Nếu tìm được khoảng lặng dài hơn 0.3s (10 frames)
+            if max_silence_run >= 10:
+                end_byte = best_split_idx * frame_size
+            else:
+                # Nếu không có khoảng lặng nào đủ dài, cắt cứng (nhưng đảm bảo byte alignment)
+                block_align = sample_width
+                end_byte = (target_byte // block_align) * block_align
+
         chunk_data = raw_data[start_byte:end_byte]
         
         orig_start = start_byte / frames_per_sec
@@ -168,7 +217,7 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 600.0, max_c
         
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
-            chunk_out = os.path.join(output_dir, f"chunk_{i}.wav")
+            chunk_out = os.path.join(output_dir, f"chunk_{len(chunks)}.wav")
         else:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 chunk_out = f.name
@@ -180,5 +229,6 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 600.0, max_c
             wf_out.writeframes(chunk_data)
             
         chunks.append((chunk_out, orig_start, mappings))
+        start_byte = end_byte
 
     return chunks
