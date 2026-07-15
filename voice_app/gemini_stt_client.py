@@ -340,6 +340,7 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
 - LƯU Ý SỐ LƯỢNG NGƯỜI NÓI: {speaker_note}
 - KHÔNG ĐƯỢC TỰ BỊA ĐẶT LỜI THOẠI. Chỉ ghi chép những gì nghe được.
 - ĐÂY LÀ YÊU CẦU QUAN TRỌNG NHẤT: BẠN PHẢI PHÂN BIỆT ĐƯỢC CÁC GIỌNG NÓI KHÁC NHAU. MỖI LƯỢT ĐỔI NGƯỜI NÓI (dù chỉ là tiếng xen ngang "Đúng rồi", "Ok") = 1 ENTRY JSON RIÊNG BIỆT.
+- CHÚ Ý ĐẶC BIỆT: Tuyệt đối KHÔNG ĐƯỢC BỎ SÓT các từ ở ngay NHỮNG GIÂY ĐẦU TIÊN và NHỮNG GIÂY CUỐI CÙNG của file âm thanh. Hãy lắng nghe thật kỹ ngay từ giây 0.0.
 - NẾU CÓ 2 NGƯỜI NÓI ĐÈ LÊN NHAU (OVERLAP) HOẶC CÃI NHAU: TUYỆT ĐỐI KHÔNG GỘP CHUNG CHỮ VÀO 1 ENTRY. Bắt buộc phải tách lời của người A và người B thành 2 entry nối tiếp nhau. LỖI NGHIÊM TRỌNG NHẤT LÀ NHÉT LỜI CỦA 2 NGƯỜI VÀO CÙNG 1 CÂU NÓI CỦA 1 NGƯỜI.
 - CÂU HỎI và CÂU TRẢ LỜI luôn là 2 entry riêng biệt — người hỏi và người trả lời KHÔNG bao giờ được gộp chung.
 - Nếu một đoạn có nhiều người nói liên tục, HÃY CẮT NHỎ THÀNH NHIỀU ENTRY LIÊN TIẾP.
