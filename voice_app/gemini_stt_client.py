@@ -507,7 +507,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     except: pass
 
         import threading
-        _upload_lock = threading.Semaphore(4)
+        _upload_lock = threading.Semaphore(20)
 
         def _process_single_chunk(chunk_dict, is_subchunk=False, dense_subchunk_offset=0.0):
             idx = chunk_dict.get("idx", 0)
@@ -662,7 +662,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
         total_tok_all   = 0
         chunk_errors    = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks), 20)) as executor:
             future_to_chunk = {
                 executor.submit(_process_single_chunk, chunk_dict): chunk_dict
                 for chunk_dict in chunks

@@ -126,9 +126,9 @@ def concat_speaker_segments(wav_path: str, segs: list,
         return None
     return out
 
-def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 900.0, max_chunk_sec: float = 1200.0, output_dir: str = None) -> list:
+def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_chunk_sec: float = 600.0, output_dir: str = None) -> list:
     """
-    Chia audio thành các đoạn (~15 phút) mà KHÔNG vứt bỏ bất kỳ khoảng lặng nào.
+    Chia audio thành các đoạn (~5 phút) mà KHÔNG vứt bỏ bất kỳ khoảng lặng nào.
     Dùng VAD chỉ để tìm điểm ngắt an toàn (chỗ có khoảng lặng) nhằm tránh cắt ngang từ.
     """
     import wave
