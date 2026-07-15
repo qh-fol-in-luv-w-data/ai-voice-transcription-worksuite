@@ -507,7 +507,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     except: pass
 
         import threading
-        _upload_lock = threading.Semaphore(6)
+        _upload_lock = threading.Semaphore(8)
 
         def _process_single_chunk(chunk_dict, is_subchunk=False, dense_subchunk_offset=0.0):
             idx = chunk_dict.get("idx", 0)
