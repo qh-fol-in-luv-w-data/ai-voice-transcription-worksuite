@@ -241,7 +241,7 @@ Nội dung biên bản họp:
 # ─────────────────────────────────────────────
 
 def node_login_frappe(state: AgentState) -> dict:
-    print("\n🔐 [Node 3] Đăng nhập ERPNext/Frappe...")
+    print("\n🔐 [Node 3] Đăng nhập Worksuite/Frappe...")
 
     base_url = get_worksuite_url()
     token = get_worksuite_token()
@@ -378,7 +378,7 @@ def node_fetch_projects(state: AgentState) -> dict:
     return {"frappe_projects": user_projects}
 
 # ─────────────────────────────────────────────
-# NODE 5: Tạo tasks trên ERPNext (Mới - Tách rời)
+# NODE 5: Tạo tasks trên Worksuite (Mới - Tách rời)
 # ─────────────────────────────────────────────
 
 def _parse_date(date_str: Optional[str]) -> Optional[str]:
@@ -395,7 +395,7 @@ def _parse_date(date_str: Optional[str]) -> Optional[str]:
 
 
 def node_create_tasks(state: AgentState) -> dict:
-    print("\n📝 [Node 5] Tạo tasks lên ERPNext...")
+    print("\n📝 [Node 5] Tạo tasks lên Worksuite...")
 
     session   = state.get("session")
     data      = state.get("extracted_data", {})
@@ -516,7 +516,7 @@ def node_report(state: AgentState) -> dict:
     errors  = state.get("errors", [])
 
     if created:
-        print(f"\n✅ {len(created)} TASKS ĐÃ TẠO TRÊN ERPNEXT:")
+        print(f"\n✅ {len(created)} TASKS ĐÃ TẠO TRÊN Worksuite:")
         for t in created:
             due      = f" | Due: {t['due_date']}" if t.get("due_date") else ""
             desig    = f" [{t['matched_desig']}]"  if t.get("matched_desig") else (
@@ -663,7 +663,7 @@ def create_tasks_to_erp(tasks_list):
     tasks_list là list of dict:
     { "title": str, "assignee_hr_code": str, "assignee_email": str, "project": str, "start_date": str, "end_date": str, "description": str }
     """
-    print("\n📝 Bắt đầu tạo Tasks lên ERPNext...")
+    print("\n📝 Bắt đầu tạo Tasks lên Worksuite...")
     
     # Auth bằng token
     base_url = get_worksuite_url()

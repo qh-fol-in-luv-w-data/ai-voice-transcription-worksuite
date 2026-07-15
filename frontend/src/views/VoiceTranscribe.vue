@@ -7,7 +7,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment } from '../api'
+import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, enrollSpeakerFromSegment } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -111,6 +111,15 @@ const saveEditSpeaker = async (idx) => {
 
   if (!finalName.trim()) { editingSpeaker.value = null; return }
   saveState()
+  
+  if (currentMeetingName.value) {
+    try {
+      await enrollSpeakerFromSegment(currentMeetingName.value, idx, finalName.trim())
+    } catch (e) {
+      console.warn("Failed to enroll speaker:", e)
+    }
+  }
+
   const oldName = transcriptResults.value[idx][2]
   for (const seg of transcriptResults.value) {
     if (seg[2] === oldName) seg[2] = finalName.trim()
@@ -259,10 +268,13 @@ const uniqueSpeakers = computed(() => {
 })
 
 const employeeOptions = computed(() =>
-  dbEmployees.value.map(emp => ({
-    value: emp.employee_name,
-    label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
-  }))
+  dbEmployees.value.map(emp => {
+    const fullString = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
+    return {
+      value: fullString,
+      label: fullString
+    }
+  })
 )
 
 // Gán tên cho người lạ (KHÔNG enroll giọng) — ai cũng dùng được
@@ -339,12 +351,15 @@ const startTranscribe = async () => {
     offSocketEvent("transcribe_result", handleResult);
     
     if (data.status === 'success') {
-      transcribeProgress.value = 100; transcribeStatus.value = t('status_transcribe_ok')
+      transcribeProgress.value = 100;
+      transcribeStatus.value = t('status_transcribe_ok');
       transcriptResults.value = data.results; originalTranscriptResults.value = [...data.results]
       isCleaned.value = false; transcriptText.value = data.final_text
-      dbEmployees.value = data.employees || []; loadHistory(); isTranscribing.value = false
+      loadHistory(); isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 3000);
     } else {
       transcribeStatus.value = '❌ Error: ' + data.message; isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 5000);
     }
   };
 
@@ -356,18 +371,36 @@ const startTranscribe = async () => {
     if (res.status === 'processing' && res.meeting_name) {
       currentMeetingName.value = res.meeting_name
       transcribeStatus.value = '⏳ Đang phân tích...';
+      
+      // Fallback Polling if socket doesn't work
+      const pollTimer = setInterval(async () => {
+        if (!isTranscribing.value) { clearInterval(pollTimer); return; }
+        try {
+          const statusRes = await checkMeetingStatus(res.meeting_name);
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
+          }
+        } catch(e) {}
+      }, 5000);
+      
     } else if (res.status === 'success') {
       offSocketEvent("transcribe_progress", handleProgress);
       offSocketEvent("transcribe_result", handleResult);
+      transcribeProgress.value = 100;
       transcribeStatus.value = t('status_transcribe_ok')
       transcriptResults.value = res.results; originalTranscriptResults.value = [...res.results]
       isCleaned.value = false; transcriptText.value = res.final_text
-      dbEmployees.value = res.employees || []; currentMeetingName.value = res.meeting_name || null
+      currentMeetingName.value = res.meeting_name || null
       if (res.meeting_name) loadHistory(); isTranscribing.value = false
+      setTimeout(() => { transcribeStatus.value = '' }, 3000);
     } else { 
       offSocketEvent("transcribe_progress", handleProgress);
       offSocketEvent("transcribe_result", handleResult);
       transcribeStatus.value = '❌ Error: ' + res.message; isTranscribing.value = false 
+      setTimeout(() => { transcribeStatus.value = '' }, 5000);
     }
   } catch (e) { 
     offSocketEvent("transcribe_progress", handleProgress);
@@ -447,7 +480,21 @@ const startExtractTasks = async () => {
     if (res.status === 'processing') {
       if (res.meeting_name) currentMeetingName.value = res.meeting_name
       extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
-      // Socket events will handle the rest
+      
+      // Fallback Polling if socket doesn't work
+      const pollTimer = setInterval(async () => {
+        if (!isExtracting.value) { clearInterval(pollTimer); return; }
+        try {
+          const statusRes = await checkExtractStatus(currentMeetingName.value);
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
+          }
+        } catch(e) {}
+      }, 5000);
+      
     } else if (res.status === 'success') {
       offSocketEvent("v2t_progress", handleProgress);
       offSocketEvent("v2t_result", handleResult);
@@ -499,7 +546,7 @@ const startExtractTasks = async () => {
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md tracking-tight">Audio Analysis</h2>
       
       <div class="flex flex-col gap-4 flex-1">
-        <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group min-h-[150px] overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
+        <div class="relative border-2 border-dashed border-outline-variant/50 rounded-xl p-6 flex flex-col items-center justify-center transition-all group min-h-[150px] flex-1 overflow-hidden" :class="{ 'border-primary/50 bg-primary/5': audioFile, 'hover:bg-primary/5 hover:border-primary/50 cursor-pointer': !isTranscribing }">
           <input v-if="!isTranscribing" type="file" accept="audio/*" @change="handleFileChange" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
           <div class="relative mb-4">
             <span class="material-symbols-outlined text-[48px] text-primary transition-transform group-hover:scale-110">cloud_upload</span>
@@ -520,14 +567,6 @@ const startExtractTasks = async () => {
               </div>
             </div>
           </div>
-        </div>
-
-        <div class="flex flex-col flex-1">
-          <div class="flex justify-between items-center mb-1">
-             <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
-             <button @click="handleSaveVocabulary" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20 transition-colors font-bold">Lưu</button>
-          </div>
-          <textarea v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
         </div>
       </div>
 
@@ -591,6 +630,13 @@ const startExtractTasks = async () => {
       <div class="mb-3">
          <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
          <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+      </div>
+      <div class="flex flex-col flex-1">
+        <div class="flex justify-between items-center mb-1">
+            <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
+            <button @click="handleSaveVocabulary" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20 transition-colors font-bold">Lưu</button>
+        </div>
+        <textarea v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
       </div>
     </div>
   </div>

@@ -99,24 +99,30 @@ def main():
     print("DEBUG: Loading waveform...", flush=True)
 
     # ── Batch Processing ──
-    if len(sys.argv) > 3 and sys.argv[3] == "--segments-file":
-        segments_file = sys.argv[4]
-        with open(segments_file, "r") as f:
-            segments = json.load(f)
+    if len(sys.argv) > 3 and sys.argv[3] in ("--segments-file", "--files-list"):
+        mode = sys.argv[3]
+        data_file = sys.argv[4]
+        with open(data_file, "r") as f:
+            items = json.load(f)
         
         results = []
         with torch.inference_mode():
-            for idx, seg in enumerate(segments):
+            for idx, item in enumerate(items):
                 try:
-                    print(f"DEBUG: Processing segment {idx+1}/{len(segments)}", flush=True)
-                    waveform = load_wav_soundfile(wav_path, seg.get("start"), seg.get("end"))
+                    print(f"DEBUG: Processing item {idx+1}/{len(items)}", flush=True)
+                    if mode == "--segments-file":
+                        waveform = load_wav_soundfile(wav_path, item.get("start"), item.get("end"))
+                    else:  # --files-list
+                        file_path = item.get("wav_path")
+                        waveform = load_wav_soundfile(file_path, item.get("start"), item.get("end"))
+                        
                     emb = model(waveform)
                     if hasattr(emb, 'data'):
                         emb = emb.data
                     emb = emb.squeeze().cpu().numpy()
                     results.append(emb.tolist())
                 except Exception as e:
-                    print(f"DEBUG: Error on segment {idx}: {e}", flush=True)
+                    print(f"DEBUG: Error on item {idx}: {e}", flush=True)
                     results.append(None)
                     
         print("DEBUG: Batch inference finished", flush=True)
