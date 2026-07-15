@@ -196,6 +196,15 @@ export async function reassignSpeakerFromSegment(meetingName, segmentIndex, newS
   return res.data.message
 }
 
+export async function enrollSpeakerFromSegment(meetingName, segmentIndex, newSpeakerName) {
+  const res = await api.post('/api/method/voice_app.api.enroll_speaker_from_segment', {
+    meeting_name: meetingName,
+    segment_index: segmentIndex,
+    new_speaker_name: newSpeakerName
+  })
+  return res.data.message
+}
+
 export default api
 
 export async function saveMeetingDraft(meetingName, summary, conclusion, tasksJsonStr) {

@@ -201,10 +201,38 @@ const uniqueSpeakers = computed(() => {
 
 const employeeOptions = computed(() =>
   dbEmployees.value.map(emp => ({
-    value: emp.employee_name,
+    value: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - '),
     label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
   }))
 )
+
+const speakerQueries = ref({})
+const filterSpeakerMapping = (spk, query) => {
+  speakerQueries.value[spk] = query
+}
+const getFilteredEmployeeOptions = (spk) => {
+  const query = speakerQueries.value[spk]
+  if (!query) return employeeOptions.value
+  const q = query.toLowerCase()
+  return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
+}
+const onSpeakerSelectVisibleChange = (spk, visible) => {
+  if (!visible) speakerQueries.value[spk] = ''
+}
+
+const newSpeakerQuery = ref('')
+const filterNewSpeakerEmployee = (query) => {
+  newSpeakerQuery.value = query
+}
+const filteredNewSpeakerOptions = computed(() => {
+  const query = newSpeakerQuery.value
+  if (!query) return employeeOptions.value
+  const q = query.toLowerCase()
+  return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
+})
+const onNewSpeakerSelectVisibleChange = (visible) => {
+  if (!visible) newSpeakerQuery.value = ''
+}
 
 const assignStrangerNames = async () => {
   const validMappings = {}
@@ -297,31 +325,19 @@ const startExtractTasks = async () => {
     if (res.status === 'processing') {
       extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
       
+      // Fallback Polling if socket doesn't work
       const pollTimer = setInterval(async () => {
+        if (!isExtracting.value) { clearInterval(pollTimer); return; }
         try {
-          const statusRes = await checkExtractStatus(props.meeting.name)
-          if (statusRes.status === 'success') {
-            clearInterval(pollTimer)
-            extractStatus.value = props.t('status_extract_ok')
-            tasks.value = statusRes.items || []
-            hrProjectsMap.value = statusRes.hr_projects_map || {}
-            dbEmployees.value = statusRes.employees || []
-            docxUrl.value = statusRes.docx_url
-            excelUrl.value = statusRes.excel_url
-            if (statusRes.meeting_summary) meetingSummary.value = statusRes.meeting_summary
-            if (statusRes.conclusion) meetingConclusion.value = statusRes.conclusion
-            loadHistory()
-            isExtracting.value = false
-          } else if (statusRes.status === 'error') {
-            clearInterval(pollTimer)
-            extractStatus.value = '❌ Lỗi: ' + statusRes.message
-            isExtracting.value = false
+          const statusRes = await checkExtractStatus(props.meeting.name);
+          if (statusRes.status === 'success' || statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            handleResult(statusRes);
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            handleProgress({ progress_info: statusRes.progress_info });
           }
-        } catch (pollErr) {
-          console.error(pollErr)
-        }
-      }, 2000)
-
+        } catch(e) {}
+      }, 5000);
     } else if (res.status === 'success') {
       extractStatus.value = props.t('status_extract_ok')
       tasks.value = res.items || []
@@ -586,9 +602,11 @@ const removeTask = (idx) => {
             style="flex: 1; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent;"
             class="w-full custom-el-override"
             fit-input-width
+            :filter-method="(q) => filterSpeakerMapping(spk, q)"
+            @visible-change="(v) => onSpeakerSelectVisibleChange(spk, v)"
           >
             <el-option
-              v-for="opt in employeeOptions"
+              v-for="opt in getFilteredEmployeeOptions(spk)"
               :key="opt.value"
               :label="opt.label"
               :value="opt.value"
@@ -643,9 +661,9 @@ const removeTask = (idx) => {
             
             <div class="flex items-center gap-2 mb-1 flex-wrap">
               <template v-if="editingSpeaker === idx">
-                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override">
-                  <el-option v-for="opt in employeeOptions" :key="opt.value" :label="opt.label" :value="opt.value">
-                    <span class="text-xs">{{ opt.label }}</span>
+                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override" @change="saveEditSpeaker(idx)" :filter-method="filterNewSpeakerEmployee" @visible-change="onNewSpeakerSelectVisibleChange">
+                  <el-option v-for="opt in filteredNewSpeakerOptions" :key="opt.value" :label="opt.label" :value="opt.value">
+                    <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
                   </el-option>
                 </el-select>
                 <button @click="saveEditSpeaker(idx)" class="text-xs font-bold text-white bg-primary px-2 py-0.5 rounded hover:bg-primary/90 ml-1">Lưu</button>

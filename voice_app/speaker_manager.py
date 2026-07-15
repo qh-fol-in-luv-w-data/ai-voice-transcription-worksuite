@@ -182,12 +182,12 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
             args,
             capture_output=True,
             text=True,
-            timeout=180,  # 3 phút timeout cho lần đầu load model
+            timeout=60,
         )
     except subprocess.TimeoutExpired as e:
         stderr_log = e.stderr[-2000:] if e.stderr else "None"
         stdout_log = e.stdout[-2000:] if e.stdout else "None"
-        raise RuntimeError(f"Subprocess embedding timed out after 180s.\nSTDOUT:\n{stdout_log}\nSTDERR:\n{stderr_log}")
+        raise RuntimeError(f"Subprocess embedding timed out after 60s.\nSTDOUT:\n{stdout_log}\nSTDERR:\n{stderr_log}")
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -210,6 +210,59 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
 
     embedding_list = json.loads(json_line)
     return np.array(embedding_list)
+
+def _extract_embeddings_from_files_remote(files_list: list) -> list:
+    """
+    Trích xuất embedding cho danh sách các file bằng cách gọi API external.
+    files_list: list of dict [{"wav_path": str, "start": float, "end": float}, ...]
+    Trả về: list các np.ndarray hoặc None
+    """
+    import requests
+    import os
+    
+    API_URL = "http://103.186.101.200:8004/extract"
+    final_results = []
+    
+    for item in files_list:
+        wav_path = item.get("wav_path")
+        start = item.get("start")
+        end = item.get("end")
+        
+        if not wav_path or not os.path.exists(wav_path):
+            final_results.append(None)
+            continue
+            
+        try:
+            with open(wav_path, "rb") as f:
+                files = {
+                    "file": (os.path.basename(wav_path), f, "audio/wav")
+                }
+                data = {}
+                if start is not None:
+                    data["start"] = str(start)
+                if end is not None:
+                    data["end"] = str(end)
+                    
+                response = requests.post(API_URL, files=files, data=data, timeout=120)
+                
+                if response.status_code == 200:
+                    result_json = response.json()
+                    # Tùy thuộc vào cấu trúc trả về của API, giả sử trả về {'embedding': [...] } hoặc [...]
+                    emb_data = result_json.get("embedding") if isinstance(result_json, dict) else result_json
+                    
+                    if isinstance(emb_data, list):
+                        final_results.append(np.array(emb_data))
+                    else:
+                        print(f"API không trả về embedding hợp lệ: {result_json}")
+                        final_results.append(None)
+                else:
+                    print(f"Lỗi API external (status {response.status_code}): {response.text}")
+                    final_results.append(None)
+        except Exception as e:
+            print(f"Lỗi khi gọi API external cho {wav_path}: {e}")
+            final_results.append(None)
+            
+    return final_results
 
 def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> list:
     """

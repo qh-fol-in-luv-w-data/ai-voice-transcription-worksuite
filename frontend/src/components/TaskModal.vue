@@ -1,5 +1,5 @@
 <script setup>
-import { defineProps, defineEmits, computed, watch } from 'vue'
+import { defineProps, defineEmits, computed, watch, ref } from 'vue'
 import { meetingSummary, meetingConclusion, currentMeetingName, tasks } from '../composables/useVoiceApp'
 import { saveMeetingDraft, exportDynamicDocx } from '../api'
 import { ElMessage } from 'element-plus'
@@ -49,6 +49,35 @@ const employeeOptions = computed(() => {
     label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
   }))
 })
+
+const attendeeQuery = ref('')
+const filterAttendee = (query) => {
+  attendeeQuery.value = query
+}
+const filteredAttendeeOptions = computed(() => {
+  const query = attendeeQuery.value
+  if (!query) return employeeOptions.value
+  const q = query.toLowerCase()
+  return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
+})
+const onAttendeeVisibleChange = (visible) => {
+  if (!visible) attendeeQuery.value = ''
+}
+
+const assigneeQueries = ref({})
+const filterAssignee = (idx, query) => {
+  assigneeQueries.value[idx] = query
+}
+const getFilteredAssigneeOptions = (idx) => {
+  const query = assigneeQueries.value[idx]
+  if (!query) return employeeOptions.value
+  const q = query.toLowerCase()
+  return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
+}
+const onAssigneeVisibleChange = (idx, visible) => {
+  if (!visible) assigneeQueries.value[idx] = ''
+}
+
 
 const onAttendeeSelect = (val) => {
   if(val) { 
@@ -159,9 +188,11 @@ const downloadDynamicDocx = async () => {
             :disabled="employeeOptions.length === 0"
             @change="onAttendeeSelect"
             clearable
+            :filter-method="filterAttendee"
+            @visible-change="onAttendeeVisibleChange"
           >
             <el-option
-              v-for="emp in employeeOptions"
+              v-for="emp in filteredAttendeeOptions"
               :key="emp.value"
               :label="emp.label"
               :value="emp.value"
@@ -240,10 +271,12 @@ const downloadDynamicDocx = async () => {
           </el-table-column>
           
           <el-table-column :label="t('col_assignee')" min-width="220">
-            <template #default="{ row }">
-              <el-select v-model="row.assignee_display" filterable placeholder="Tìm người...">
+            <template #default="{ row, $index }">
+              <el-select v-model="row.assignee_display" filterable placeholder="Tìm người..."
+                :filter-method="(q) => filterAssignee($index, q)"
+                @visible-change="(v) => onAssigneeVisibleChange($index, v)">
                 <el-option
-                  v-for="item in employeeOptions"
+                  v-for="item in getFilteredAssigneeOptions($index)"
                   :key="item.value"
                   :label="item.label"
                   :value="item.value"

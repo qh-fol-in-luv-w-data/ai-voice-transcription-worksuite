@@ -287,7 +287,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A["User bấm\n'Đồng bộ lên ERPNext'"] --> B["sync_tasks_to_erp()"]
+    A["User bấm\n'Đồng bộ lên Worksuite'"] --> B["sync_tasks_to_erp()"]
     B --> C["create_tasks_to_erp()"]
     C --> D["Check trùng lặp\n(subject + project + assignee)"]
     D --> E{"Trùng?"}

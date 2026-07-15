@@ -219,14 +219,12 @@ export const loadHistory = async () => {
 export const loadPastMeeting = (meeting) => {
   currentMeeting.value = meeting
   activeTab.value = 'view_meeting'
-  
   meetingSummary.value = meeting.meeting_summary || ''
   meetingConclusion.value = meeting.conclusion || ''
-  
   if (meeting.tasks_json) {
     try {
-      tasks.value = typeof meeting.tasks_json === 'string' 
-        ? JSON.parse(meeting.tasks_json) 
+      tasks.value = typeof meeting.tasks_json === 'string'
+        ? JSON.parse(meeting.tasks_json)
         : meeting.tasks_json
     } catch (e) {
       console.error("Failed to parse tasks_json", e)
