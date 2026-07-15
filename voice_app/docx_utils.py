@@ -209,11 +209,12 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 # Fetch directly from Employee if not in speaker_roles
                 if not desg and not spk_display.lower().startswith("người lạ"):
                     try:
-                        db_desg = frappe.db.get_value("Employee", {"employee_name": spk_display}, "designation")
+                        clean_spk = spk_display.replace("👤", "").replace("", "").strip()
+                        db_desg = frappe.db.get_value("Employee", {"employee_name": clean_spk}, "designation")
                         if db_desg:
                             desg = db_desg
                     except Exception:
-                        pass
+                        if hasattr(frappe.db, 'rollback'): frappe.db.rollback()
                 
                 if spk_display.lower().startswith("người lạ"):
                     designation_display = desg or "Khách"
