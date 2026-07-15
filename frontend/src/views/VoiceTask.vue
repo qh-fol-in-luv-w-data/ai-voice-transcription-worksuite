@@ -3,8 +3,10 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { voiceToTask, syncTasksToERP } from '../api'
 import { useSession } from '../utils/session'
-import { dict, uiLang, dbEmployees } from '../composables/useVoiceApp'
+import { dict, uiLang, dbEmployees, voiceTaskHistory, saveVoiceTaskHistory, selectedVoiceTaskHistoryItem } from '../composables/useVoiceApp'
 import { Microphone, VideoPause, Folder, Position, Warning, EditPen, Delete } from '@element-plus/icons-vue'
+import { onSocketEvent, offSocketEvent } from '../utils/socket.js'
+import { watch } from 'vue'
 
 const { currentUser } = useSession()
 const t = (key) => dict[uiLang.value][key] || key
@@ -25,6 +27,42 @@ const voiceTaskClarification = ref('')
 const voiceTaskMissingFields = ref([])
 const voiceTaskProjects = ref([])
 const voiceTaskEmployees = ref([])
+const currentDraftId = ref(null)
+
+const saveToHistory = () => {
+  if (!parsedVoiceTask.value) return
+  if (currentDraftId.value) {
+    const existing = voiceTaskHistory.value.find(h => h.id === currentDraftId.value)
+    if (existing) {
+      existing.transcript = voiceTaskTranscript.value
+      existing.task = JSON.parse(JSON.stringify(parsedVoiceTask.value))
+      saveVoiceTaskHistory()
+      return
+    }
+  }
+  
+  currentDraftId.value = Date.now()
+  voiceTaskHistory.value.unshift({
+    id: currentDraftId.value,
+    timestamp: Date.now(),
+    transcript: voiceTaskTranscript.value,
+    task: JSON.parse(JSON.stringify(parsedVoiceTask.value))
+  })
+  if (voiceTaskHistory.value.length > 20) voiceTaskHistory.value.pop()
+  saveVoiceTaskHistory()
+}
+
+watch(selectedVoiceTaskHistoryItem, (item) => {
+  if (item) {
+    parsedVoiceTask.value = JSON.parse(JSON.stringify(item.task))
+    voiceTaskTranscript.value = item.transcript
+    voiceTaskSyncStatus.value = ''
+    voiceTaskMissingFields.value = []
+    voiceTaskClarification.value = ''
+    currentDraftId.value = item.id
+    selectedVoiceTaskHistoryItem.value = null
+  }
+}, { immediate: true })
 
 const voiceTaskRefineAudioFile = ref(null)
 const voiceTaskRefineRecordedUrl = ref('')
@@ -77,6 +115,36 @@ const toggleVoiceTaskRecording = async () => {
   }
 }
 
+const applyVoiceTaskResult = (res) => {
+  voiceTaskStatus.value = t('voice_task_success')
+  voiceTaskTranscript.value = res.transcript || voiceTaskTranscript.value
+
+  let assignee = res.task.assignee_display || '';
+  if (!assignee && currentUser.value && res.employees) {
+    const emp = res.employees.find(e => e.user_id === currentUser.value);
+    if (emp) assignee = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ');
+  }
+
+  parsedVoiceTask.value = {
+    title: res.task.task_name || '',
+    assignee_display: assignee,
+    assignee_hr_code: '',
+    assignee_email: '',
+    project: res.task.project_id || '',
+    start_date: res.task.start_date || '',
+    due_date: res.task.end_date || '',
+    task_type: res.task.task_type || "task",
+    description: res.task.description || ''
+  }
+
+  voiceTaskProjects.value = res.projects || []
+  voiceTaskEmployees.value = res.employees || []
+  voiceTaskClarification.value = res.task.clarification_question || ''
+  voiceTaskMissingFields.value = res.task.missing_fields || []
+  
+  saveToHistory()
+}
+
 const submitVoiceTask = async () => {
   if (!voiceTaskAudioFile.value) {
     ElMessage.warning(t('alert_no_file'))
@@ -89,43 +157,46 @@ const submitVoiceTask = async () => {
   voiceTaskSyncStatus.value = ''
   voiceTaskClarification.value = ''
   voiceTaskMissingFields.value = []
-  
-  try {
-    const res = await voiceToTask(voiceTaskAudioFile.value)
-    if (res.status === 'success') {
-      voiceTaskStatus.value = t('voice_task_success')
-      voiceTaskTranscript.value = res.transcript
-      
-      let assignee = res.task.assignee_display || '';
-      if (!assignee && currentUser.value && res.employees) {
-        const emp = res.employees.find(e => e.user_id === currentUser.value);
-        if (emp) assignee = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ');
-      }
-      
-      parsedVoiceTask.value = {
-        title: res.task.task_name || '',
-        assignee_display: assignee,
-        assignee_hr_code: '',
-        assignee_email: '',
-        project: res.task.project_id || '',
-        start_date: res.task.start_date || '',
-        due_date: res.task.end_date || '',
-        task_type: res.task.task_type || "task",
-        description: res.task.description || ''
-      }
-      
-      voiceTaskProjects.value = res.projects || []
-      voiceTaskEmployees.value = res.employees || []
-      
-      voiceTaskClarification.value = res.task.clarification_question || ''
-      voiceTaskMissingFields.value = res.task.missing_fields || []
+  currentDraftId.value = null
+
+  const jobKey = 'v2t_' + Date.now() + '_' + Math.floor(Math.random() * 1000)
+
+  const handleProgress = (data) => {
+    if (data.job_key && data.job_key !== jobKey) return
+    if (data.msg) voiceTaskStatus.value = `${data.progress || 0}% - ${data.msg}`
+  }
+  const handleResult = (data) => {
+    if (data.job_key && data.job_key !== jobKey) return
+    offSocketEvent('v2t_progress', handleProgress)
+    offSocketEvent('v2t_result', handleResult)
+    isVoiceTaskProcessing.value = false
+    if (data.status === 'success') {
+      applyVoiceTaskResult(data)
     } else {
-      voiceTaskStatus.value = '❌ Lỗi: ' + res.message
+      voiceTaskStatus.value = '❌ Lỗi (socket): ' + JSON.stringify(data)
+    }
+  }
+
+  onSocketEvent('v2t_progress', handleProgress)
+  // in sync mode, we might not need v2t_result socket event, but keep it just in case
+  onSocketEvent('v2t_result', handleResult)
+
+  try {
+    const res = await voiceToTask(voiceTaskAudioFile.value, null, jobKey)
+    offSocketEvent('v2t_progress', handleProgress)
+    offSocketEvent('v2t_result', handleResult)
+    isVoiceTaskProcessing.value = false
+
+    if (res.status === 'success') {
+      applyVoiceTaskResult(res)
+    } else {
+      voiceTaskStatus.value = '❌ Lỗi (http): ' + JSON.stringify(res)
     }
   } catch(e) {
-    voiceTaskStatus.value = '❌ Lỗi: ' + t('error_connect')
-  } finally {
+    offSocketEvent('v2t_progress', handleProgress)
+    offSocketEvent('v2t_result', handleResult)
     isVoiceTaskProcessing.value = false
+    voiceTaskStatus.value = '❌ Lỗi (catch): ' + e.toString()
   }
 }
 
@@ -174,46 +245,56 @@ const submitVoiceTaskRefine = async () => {
   }
   isVoiceTaskProcessing.value = true
   voiceTaskStatus.value = t('voice_task_parsing')
-  
-  try {
-    const res = await voiceToTask(voiceTaskRefineAudioFile.value, parsedVoiceTask.value)
-    if (res.status === 'success') {
-      voiceTaskStatus.value = t('voice_task_success')
-      voiceTaskTranscript.value += ` -> ${res.transcript}`
-      
-      let assignee = res.task.assignee_display || '';
-      if (!assignee && currentUser.value && res.employees) {
-        const emp = res.employees.find(e => e.user_id === currentUser.value);
-        if (emp) assignee = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ');
-      }
-      
-      parsedVoiceTask.value = {
-        title: res.task.task_name || '',
-        assignee_display: assignee,
-        assignee_hr_code: '',
-        assignee_email: '',
-        project: res.task.project_id || '',
-        start_date: res.task.start_date || '',
-        due_date: res.task.end_date || '',
-        task_type: res.task.task_type || "task",
-        description: res.task.description || ''
-      }
-      
-      voiceTaskProjects.value = res.projects || []
-      voiceTaskEmployees.value = res.employees || []
-      
-      voiceTaskClarification.value = res.task.clarification_question || ''
-      voiceTaskMissingFields.value = res.task.missing_fields || []
-      
+
+  const prevTranscript = voiceTaskTranscript.value
+  let currentJobKey = null
+
+  const handleProgress = (data) => {
+    if (currentJobKey && data.job_key && data.job_key !== currentJobKey) return
+    if (data.msg) voiceTaskStatus.value = `${data.progress || 0}% - ${data.msg}`
+  }
+  const handleResult = (data) => {
+    if (currentJobKey && data.job_key && data.job_key !== currentJobKey) return
+    offSocketEvent('v2t_progress', handleProgress)
+    offSocketEvent('v2t_result', handleResult)
+    isVoiceTaskProcessing.value = false
+    if (data.status === 'success') {
+      voiceTaskTranscript.value = prevTranscript + (data.transcript ? ` -> ${data.transcript}` : '')
+      applyVoiceTaskResult(data)
       voiceTaskRefineAudioFile.value = null
       voiceTaskRefineRecordedUrl.value = ''
     } else {
-      voiceTaskStatus.value = '❌ Lỗi: ' + res.message
+      voiceTaskStatus.value = '❌ Lỗi: ' + (data.message || 'Không rõ lỗi')
+    }
+  }
+
+  onSocketEvent('v2t_progress', handleProgress)
+  onSocketEvent('v2t_result', handleResult)
+
+  try {
+    const res = await voiceToTask(voiceTaskRefineAudioFile.value, parsedVoiceTask.value)
+    if (res.status === 'processing') {
+      currentJobKey = res.job_key
+      voiceTaskStatus.value = '⏳ Đang xử lý âm thanh...'
+    } else if (res.status === 'success') {
+      offSocketEvent('v2t_progress', handleProgress)
+      offSocketEvent('v2t_result', handleResult)
+      isVoiceTaskProcessing.value = false
+      voiceTaskTranscript.value = prevTranscript + (res.transcript ? ` -> ${res.transcript}` : '')
+      applyVoiceTaskResult(res)
+      voiceTaskRefineAudioFile.value = null
+      voiceTaskRefineRecordedUrl.value = ''
+    } else {
+      offSocketEvent('v2t_progress', handleProgress)
+      offSocketEvent('v2t_result', handleResult)
+      isVoiceTaskProcessing.value = false
+      voiceTaskStatus.value = '❌ Lỗi: ' + (res.message || 'Không rõ lỗi')
     }
   } catch(e) {
-    voiceTaskStatus.value = '❌ Lỗi: ' + t('error_connect')
-  } finally {
+    offSocketEvent('v2t_progress', handleProgress)
+    offSocketEvent('v2t_result', handleResult)
     isVoiceTaskProcessing.value = false
+    voiceTaskStatus.value = '❌ Lỗi: ' + t('error_connect')
   }
 }
 
@@ -239,7 +320,8 @@ const syncVoiceTaskToERP = async () => {
     if (res.status === 'success') {
       const created = res.report.created_tasks ? res.report.created_tasks.length : 0
       if (created > 0) {
-        voiceTaskSyncStatus.value = t('voice_task_sync_success')
+        voiceTaskSyncStatus.value = t('voice_task_sync_success') || '✅ Tạo & Đồng bộ Task thành công!'
+        saveToHistory()
       } else {
         voiceTaskSyncStatus.value = t('voice_task_sync_error') + (res.report.errors ? res.report.errors.join(', ') : '')
       }
@@ -404,7 +486,7 @@ const syncVoiceTaskToERP = async () => {
               <el-table-column :label="t('col_name')" min-width="250" header-align="center">
                 <template #default="{ row }">
                   <div :class="{ 'missing-field': !row.title }">
-                    <el-input v-model="row.title" type="textarea" :rows="2" resize="vertical" placeholder="⚠️ Chưa có tên task" />
+                    <el-input v-model="row.title" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" resize="none" placeholder="⚠️ Chưa có tên task" />
                   </div>
                 </template>
               </el-table-column>
@@ -459,10 +541,10 @@ const syncVoiceTaskToERP = async () => {
            <div class="flex justify-between items-center w-full">
              <span class="text-sm font-semibold font-mono" :class="voiceTaskSyncStatus.includes('✅') ? 'text-primary' : 'text-danger'">{{ voiceTaskSyncStatus }}</span>
              <el-button @click="syncVoiceTaskToERP" type="primary" size="large" :loading="isVoiceTaskSyncing">
-                {{ isVoiceTaskSyncing ? '⏳ Đang đồng bộ...' : 'Tạo & Đồng bộ Task lên ERPNext' }}
+                {{ isVoiceTaskSyncing ? '⏳ Đang đồng bộ...' : 'Tạo & Đồng bộ Task lên Worksuite' }}
              </el-button>
            </div>
-        </template>
+         </template>
     </el-card>
  </div>
 </template>

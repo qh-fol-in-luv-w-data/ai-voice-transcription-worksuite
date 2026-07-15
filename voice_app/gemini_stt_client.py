@@ -331,7 +331,7 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
         if num_speakers else
         "Cuộc họp có thể có nhiều người tham dự."
     )
-    custom_vocab_note = f"\nTừ vựng người dùng bổ sung: {custom_vocabulary}" if custom_vocabulary else ""
+    custom_vocab_note = f"\n{custom_vocabulary}" if custom_vocabulary else ""
 
     return f"""Bạn là chuyên gia phiên âm và biên tập biên bản họp. Nhiệm vụ: xử lý file ghi âm cuộc họp nội bộ bằng {lang_note} và trả ra transcript đã được làm sạch hoàn toàn.
 
@@ -359,12 +359,7 @@ Chỉ xoá các từ/âm KHÔNG mang thông tin BÊN TRONG câu, KHÔNG được
 - TUYỆT ĐỐI GIỮ ĐÚNG NGHĨA GỐC — không thêm, không bịa, không suy diễn, không tóm tắt
 - Giữ code-switching Việt-Anh (không dịch thuật ngữ tiếng Anh)
 
-━━━ TỪ VỰNG ĐẶC BIỆT (nhận dạng chính xác) ━━━
-Tập đoàn: CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, Modulex, GASCO, DAIT, VGCT, CCTPA, Carbondo, Airbility
-Dự án/tòa nhà: M1, M2, M3, Metrostar, Simland, Minh Hưng Quảng Trị
-Hệ thống: 2AS, Worksuite, iMaster, ERP, CRM, NDT15, LAE, LAE 1, OSAT, CarbonFly, green bond, carbon credit, eVTOL, LiDAR
-AI/Tech: AI, AGI, LLM, GPT, ChatGPT, Claude, Gemini, ElevenLabs, RAG, vector, embedding, fine-tuning, diarization
-Tài chính: green bond, CCTPA, carbon credit, ESG, IPO, M&A{custom_vocab_note}
+━━━ TỪ VỰNG ĐẶC BIỆT (nhận dạng chính xác) ━━━{custom_vocab_note}
 
 ━━━ OUTPUT FORMAT ━━━
 Trả về JSON array thuần (KHÔNG markdown, KHÔNG giải thích, KHÔNG text ngoài JSON):
@@ -466,7 +461,7 @@ def _words_to_segments(raw_words):
     return segments
 
 
-def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = None,
+def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi", num_speakers: int = None,
                     custom_vocabulary: str = "", progress_callback=None, existing_segments=None):
     """
     Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
@@ -483,14 +478,18 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
 
     try:
         from .audio_utils import split_audio_by_silence
-        duration = get_duration(wav_path)
-        print(f"[Gemini STT] File {duration:.1f}s, lang={language}, speakers={num_speakers}")
+        
+        try:
+            import frappe
+            frappe.log_error(f"Bat dau call_gemini_stt voi {len(chunks_info)} chunks, model={model_name}", "Gemini STT Debug")
+        except: pass
+        
+        print(f"[Gemini STT] Xử lý {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
 
-        # Cắt thành chunk 30 phút (tối đa 35 phút)
-        chunks = split_audio_by_silence(wav_path, chunk_length_sec=1800.0, max_chunk_sec=2100.0)
+        chunks = chunks_info
         if progress_callback:
-            progress_callback(20, f"Đang xử lý song song {len(chunks)} đoạn âm thanh...")
+            progress_callback(20, f"Đang xử lý song song {len(chunks_info)} đoạn âm thanh...")
 
         all_segments  = []
         all_raw_words = []
@@ -507,30 +506,30 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                     except: pass
 
         import threading
-        _upload_lock = threading.Lock()
+        _upload_lock = threading.Semaphore(4)
 
-        def _process_single_chunk(idx, current_wav, chunk_tuple, is_subchunk=False, dense_subchunk_offset=0.0):
+        def _process_single_chunk(chunk_dict, is_subchunk=False, dense_subchunk_offset=0.0):
+            idx = chunk_dict.get("idx", 0)
+            original_chunk_wav = chunk_dict.get("wav")
+            current_wav = original_chunk_wav
+            offset = chunk_dict.get("offset", 0.0)
+            mappings = chunk_dict.get("mappings", [])
+            chunk_name = chunk_dict.get("name", f"CHUNK_{idx}")
+
             try:
-                if len(chunk_tuple) == 3:
-                    original_chunk_wav, offset, mappings = chunk_tuple
-                else:
-                    original_chunk_wav, offset = chunk_tuple
-                    mappings = []
-
                 if not is_subchunk and idx in completed_chunks:
-                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks)} vì đã hoàn thành.")
+                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks_info)} vì đã hoàn thành.")
                     return idx, None, None, None, None, None
 
                 if is_subchunk:
                     print(f"[Gemini STT]   -> Sub-chunk {idx} - offset: {offset:.1f}s")
                 else:
-                    print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks)} - offset: {offset:.1f}s")
+                    print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks_info)} - offset: {offset:.1f}s")
 
                 chunk_duration = get_duration(current_wav)
 
-                # Upload qua lock để tránh 429 Too Many Requests từ File API
+                # Upload với Semaphore 4
                 with _upload_lock:
-                    import time; time.sleep(1.5)  # Delay nhẹ để chống 429
                     file_uri, file_name = _upload_file(current_wav, api_key)
 
                 chunk_error = None
@@ -544,12 +543,10 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 finally:
                     if not (chunk_error == "HALLUCINATION_DETECTED" and not is_subchunk):
                         _delete_file(file_name, api_key)
-                        if current_wav != wav_path and current_wav != original_chunk_wav:
+                        if current_wav != original_chunk_wav:
                             try: os.remove(current_wav)
                             except: pass
-                        if not is_subchunk and original_chunk_wav != wav_path:
-                            try: os.remove(original_chunk_wav)
-                            except: pass
+                        # Do NOT remove original_chunk_wav, handled by api.py Voice Meeting Chunk records
 
                 if not gemini_segments:
                     return idx, [], [], "", chunk_usage, None
@@ -624,7 +621,8 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                         resume_audio.export(resume_wav, format="wav")
 
                         _, r_segs, r_words, r_txt, r_use, r_err = _process_single_chunk(
-                            f"{idx}_resume", resume_wav, chunk_tuple, is_subchunk=True, dense_subchunk_offset=last_valid_ts
+                            {"idx": f"{idx}_resume", "wav": resume_wav, "offset": offset, "mappings": mappings, "name": chunk_name}, 
+                            is_subchunk=True, dense_subchunk_offset=last_valid_ts
                         )
 
                         try: os.remove(resume_wav)
@@ -646,43 +644,67 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
                 return idx, None, None, None, None, str(e)
 
         # Chạy tất cả chunk song song
+        try:
+            frappe.log_error(f"Bat dau chay ThreadPoolExecutor cho {len(chunks)} chunks", "Gemini STT Debug")
+        except: pass
+        
+        if chunk_update_cb:
+            for c in chunks:
+                try: chunk_update_cb(c.get("name", ""), "Processing", None, None, None, 0)
+                except: pass
+        
         completed_count = 0
         total_chunks    = len(chunks)
-        results         = [None] * total_chunks
+        results         = {}
         total_in_all    = 0
         total_out_all   = 0
         total_tok_all   = 0
         chunk_errors    = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            future_to_idx = {
-                executor.submit(_process_single_chunk, idx, chunk_tuple[0], chunk_tuple): idx
-                for idx, chunk_tuple in enumerate(chunks)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_chunk = {
+                executor.submit(_process_single_chunk, chunk_dict): chunk_dict
+                for chunk_dict in chunks
             }
 
-            for future in concurrent.futures.as_completed(future_to_idx):
-                idx = future_to_idx[future]
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                chunk_dict = future_to_chunk[future]
+                idx = chunk_dict.get("idx", 0)
+                c_name = chunk_dict.get("name", "")
                 try:
                     res_idx, segments, raw_words, chunk_text, chunk_usage, err_msg = future.result()
                     if err_msg:
                         chunk_errors.append(f"Chunk {idx+1}: {err_msg}")
-                    results[res_idx] = (segments, raw_words, chunk_text)
+                        if chunk_update_cb:
+                            try: chunk_update_cb(c_name, "Error", None, None, err_msg, 0)
+                            except: pass
+                    else:
+                        results[res_idx] = (segments, raw_words, chunk_text)
+                        if chunk_update_cb:
+                            try: chunk_update_cb(c_name, "Completed", segments, raw_words, None, chunk_usage.get("tokens_used", 0) if chunk_usage else 0)
+                            except: pass
+
                     if chunk_usage:
                         total_in_all  += chunk_usage.get("prompt_tokens", 0)
                         total_out_all += chunk_usage.get("completion_tokens", 0)
                         total_tok_all += chunk_usage.get("tokens_used", 0)
                 except Exception as e:
                     import traceback
-                    traceback.print_exc()
-                    results[idx] = (None, None, None)
+                    err_trace = traceback.format_exc()
+                    try: frappe.log_error(f"Loi tai chunk future result: {err_trace}", "Gemini STT Debug")
+                    except: pass
                     chunk_errors.append(f"Chunk {idx+1}: {str(e)}")
+                    if chunk_update_cb:
+                        try: chunk_update_cb(c_name, "Error", None, None, str(e), 0)
+                        except: pass
 
                 completed_count += 1
                 if progress_callback:
                     pct = int((completed_count / total_chunks) * 100)
                     progress_callback(pct, f"Đang xử lý: xong {completed_count}/{total_chunks} đoạn...")
 
-        for res in results:
+        sorted_results = [results[k] for k in sorted(results.keys())]
+        for res in sorted_results:
             if not res: continue
             segments, raw_words, chunk_text = res
             if segments and raw_words:
@@ -712,16 +734,26 @@ def call_gemini_stt(wav_path: str, language: str = "vi", num_speakers: int = Non
         if not all_segments:
             return [], [], "", "Gemini không nhận ra giọng nói trong file (file trống, nhiễu hoặc sai format).", 0, 0
 
-        n_spk = len(set(s.get("speaker_id", "") for s in all_segments))
+        spk_set = set()
+        for s in all_segments:
+            s_spk = s.get("speaker_id", "")
+            if s_spk and s_spk not in spk_set:
+                spk_set.add(s_spk)
+        n_spk = len(spk_set)
+        
         PRICE_IN  = 1.50 / 1_000_000
         PRICE_OUT = 9.00 / 1_000_000
         total_cost = total_in_all * PRICE_IN + total_out_all * PRICE_OUT
         print(
-            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks)} chunks\n"
+            f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks_info)} chunks\n"
             f"💰 [Gemini STT] TỔNG CHI PHÍ FILE: "
             f"in={total_in_all:,} + out={total_out_all:,} = {total_tok_all:,} tokens | "
-            f"cost=~${total_cost:.4f} USD ({len(chunks)} chunks)"
+            f"cost=~${total_cost:.4f} USD ({len(chunks_info)} chunks)"
         )
+        try:
+            frappe.log_error(f"call_gemini_stt hoan thanh. Segments: {len(all_segments)}, Loi: {chunk_errors}", "Gemini STT Debug")
+        except: pass
+        
         return all_segments, all_raw_words, all_full_text.strip(), None, total_in_all, total_out_all
 
     except Exception as e:

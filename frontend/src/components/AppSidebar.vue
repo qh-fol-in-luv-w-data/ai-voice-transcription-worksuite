@@ -1,8 +1,9 @@
 <script setup>
 import { ref } from 'vue'
 import { useSession } from '../utils/session'
-import { activeTab, meetingHistory, loadPastMeeting, t, currentMeeting, loadHistory } from '../composables/useVoiceApp'
+import { activeTab, meetingHistory, loadPastMeeting, t, currentMeeting, loadHistory, voiceTaskHistory, selectedVoiceTaskHistoryItem } from '../composables/useVoiceApp'
 import { renameMeeting } from '../api'
+import { EditPen, Delete } from '@element-plus/icons-vue'
 
 const { currentUser, currentFullName } = useSession()
 
@@ -42,6 +43,13 @@ const selectMeetingFromModal = (meeting) => {
   loadPastMeeting(meeting)
   isHistoryModalOpen.value = false
 }
+
+const isVoiceTaskHistoryModalOpen = ref(false)
+const loadVoiceTaskHistory = (item) => {
+  selectedVoiceTaskHistoryItem.value = item
+  isVoiceTaskHistoryModalOpen.value = false
+  activeTab.value = 'voice_task'
+}
 </script>
 
 <template>
@@ -71,10 +79,14 @@ const selectMeetingFromModal = (meeting) => {
 <span class="font-body-md text-[14.5px] truncate">Đăng ký Giọng nói</span>
 </a>
 
-<h3 class="px-4 text-[11px] font-bold text-gray-400 dark:text-on-surface-variant/50 uppercase tracking-wider mb-2 mt-4">Lịch sử Cuộc họp</h3>
+<h3 class="px-4 text-[11px] font-bold text-gray-400 dark:text-on-surface-variant/50 uppercase tracking-wider mb-2 mt-4">Quản lý Lịch sử</h3>
 <a @click.prevent="isHistoryModalOpen = true" class="flex items-center gap-4 px-4 py-3.5 rounded-xl font-medium transition-all group cursor-pointer text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5">
 <span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform font-light">format_list_bulleted</span>
-<span class="font-body-md text-[14.5px] truncate">Quản lý Lịch sử Cuộc họp</span>
+<span class="font-body-md text-[14.5px] truncate">Lịch sử Cuộc họp</span>
+</a>
+<a @click.prevent="isVoiceTaskHistoryModalOpen = true" class="flex items-center gap-4 px-4 py-3.5 rounded-xl font-medium transition-all group cursor-pointer text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5">
+<span class="material-symbols-outlined text-[22px] group-hover:scale-110 transition-transform font-light">history</span>
+<span class="font-body-md text-[14.5px] truncate">Lịch sử Giao việc</span>
 </a>
 </nav>
 
@@ -128,6 +140,40 @@ const selectMeetingFromModal = (meeting) => {
               <span class="material-symbols-outlined text-[18px]">open_in_new</span>
             </button>
           </template>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div v-if="isVoiceTaskHistoryModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm">
+  <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 rounded-3xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-xl font-bold text-gray-900 dark:text-white tracking-wide">Lịch sử Giao việc</h2>
+      <button @click="isVoiceTaskHistoryModalOpen = false" class="w-8 h-8 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 flex items-center justify-center text-gray-500 dark:text-on-surface-variant hover:text-gray-900 dark:hover:text-white transition-colors">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    
+    <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+      <div v-if="voiceTaskHistory.length === 0" class="text-center text-gray-500 dark:text-on-surface-variant py-8">
+        <span class="material-symbols-outlined text-4xl mb-2 opacity-50">history</span>
+        <p>Chưa có giao việc nào</p>
+      </div>
+      
+      <div v-for="(item, idx) in voiceTaskHistory" :key="item.id" class="p-4 border border-gray-200 dark:border-white/10 rounded-xl bg-gray-50 dark:bg-surface-container-highest/30 flex justify-between items-start gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="font-bold mb-1 text-gray-800 dark:text-gray-200 truncate">{{ item.task.title || '(Chưa có tiêu đề)' }}</div>
+          <div class="text-sm text-gray-600 dark:text-gray-400 mb-3 italic line-clamp-2">"{{ item.transcript }}"</div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{{ item.task.assignee_display || 'Chưa giao' }}</span>
+            <span class="px-2 py-1 rounded bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300">{{ new Date(item.timestamp).toLocaleString() }}</span>
+          </div>
+        </div>
+        <div class="shrink-0">
+           <el-button size="small" type="primary" plain @click="loadVoiceTaskHistory(item)">
+              <el-icon><EditPen /></el-icon> Xem lại
+           </el-button>
         </div>
       </div>
     </div>

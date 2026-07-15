@@ -19,6 +19,8 @@
   "original_raw_results",
   "minute_docx",
   "task_xlsx",
+  "meeting_summary",
+  "conclusion",
   "tasks_json"
  ],
  "fields": [
@@ -77,6 +79,7 @@
   {
    "fieldname": "original_raw_results",
    "fieldtype": "Code",
+   "hidden": 1,
    "label": "Original Raw AI Results (JSON)",
    "options": "JSON"
   },
@@ -89,6 +92,16 @@
    "fieldname": "task_xlsx",
    "fieldtype": "Attach",
    "label": "Task Excel"
+  },
+  {
+   "fieldname": "meeting_summary",
+   "fieldtype": "Text Editor",
+   "label": "Meeting Summary"
+  },
+  {
+   "fieldname": "conclusion",
+   "fieldtype": "Text Editor",
+   "label": "Conclusion"
   },
   {
    "fieldname": "tasks_json",
