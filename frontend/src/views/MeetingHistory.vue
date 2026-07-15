@@ -330,13 +330,32 @@ const startExtractTasks = async () => {
         if (!isExtracting.value) { clearInterval(pollTimer); return; }
         try {
           const statusRes = await checkExtractStatus(props.meeting.name);
-          if (statusRes.status === 'success' || statusRes.status === 'error') {
-            clearInterval(pollTimer);
-            handleResult(statusRes);
-          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
-            handleProgress({ progress_info: statusRes.progress_info });
+          if (statusRes.message && statusRes.message.status) {
+            // Frappe might return { message: { status: "success", ... } }
+            Object.assign(statusRes, statusRes.message);
           }
-        } catch(e) {}
+          if (statusRes.status === 'success') {
+            clearInterval(pollTimer);
+            extractStatus.value = props.t('status_extract_ok');
+            tasks.value = statusRes.items || [];
+            hrProjectsMap.value = statusRes.hr_projects_map || {};
+            dbEmployees.value = statusRes.employees || [];
+            docxUrl.value = statusRes.docx_url;
+            excelUrl.value = statusRes.excel_url;
+            if (statusRes.meeting_summary) meetingSummary.value = statusRes.meeting_summary;
+            if (statusRes.conclusion) meetingConclusion.value = statusRes.conclusion;
+            loadHistory();
+            isExtracting.value = false;
+          } else if (statusRes.status === 'error') {
+            clearInterval(pollTimer);
+            extractStatus.value = '❌ Lỗi: ' + (statusRes.message || '');
+            isExtracting.value = false;
+          } else if (statusRes.status === 'processing' && statusRes.progress_info) {
+            extractStatus.value = statusRes.progress_info;
+          }
+        } catch(e) {
+          console.error(e);
+        }
       }, 5000);
     } else if (res.status === 'success') {
       extractStatus.value = props.t('status_extract_ok')
