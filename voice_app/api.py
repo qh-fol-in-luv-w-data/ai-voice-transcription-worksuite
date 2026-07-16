@@ -400,7 +400,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             
             try:
                 from voice_app.speaker_manager import _extract_embeddings_from_files_remote
-                emb_results = _extract_embeddings_from_files_remote(files_list)
+                emb_results = _extract_embeddings_from_files_remote(files_list, task="phân tích hội thoại")
                 for idx, emb in enumerate(emb_results):
                     if emb is not None:
                         spk_embeddings[spk_list[idx]] = emb
@@ -1543,7 +1543,14 @@ def map_and_enroll_speakers():
         for new_speaker, seg in needs_enrollment.items():
             start, end = seg[0], seg[1]
             try:
-                embedding = _extract_embedding_subprocess(wav_path, start, end)
+                from voice_app.speaker_manager import _extract_embeddings_from_files_remote
+                emb_res = _extract_embeddings_from_files_remote(
+                    [{"wav_path": wav_path, "start": start, "end": end}], 
+                    task="Đăng ký giọng nói"
+                )
+                embedding = emb_res[0] if emb_res else None
+                if embedding is None:
+                    raise Exception("Không thể trích xuất embedding từ API.")
                 email = employees_dict.get(new_speaker, "")
                 db.add_speaker(new_speaker, embedding, email=email, user_info=None)
                 enrolled.append(new_speaker)
