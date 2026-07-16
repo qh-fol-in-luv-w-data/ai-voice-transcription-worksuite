@@ -2258,3 +2258,25 @@ def get_global_vocabulary():
         return settings.get("custom_vocabulary") or ""
     except Exception:
         return ""
+
+
+@frappe.whitelist()
+def save_meeting_draft(meeting_name, summary=None, conclusion=None, tasks_json_str=None):
+    if not meeting_name:
+        frappe.throw("Thiếu meeting_name")
+        
+    if not frappe.db.exists("Voice Meeting", meeting_name):
+        frappe.throw(f"Không tìm thấy cuộc họp {meeting_name}")
+        
+    doc = frappe.get_doc("Voice Meeting", meeting_name)
+    if summary is not None:
+        doc.meeting_summary = summary
+    if conclusion is not None:
+        doc.conclusion = conclusion
+    if tasks_json_str is not None:
+        doc.tasks_json = tasks_json_str
+        
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    
+    return {"status": "success", "message": "Đã lưu bản nháp thành công"}
