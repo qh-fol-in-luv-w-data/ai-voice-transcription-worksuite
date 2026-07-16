@@ -157,7 +157,7 @@ MAX_SPEAKERS = 8
 DEFAULT_LANG = "vi"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SPEAKER_DB_PATH = os.path.join(BASE_DIR, "speaker_db.json")
-SIMILARITY_THRESHOLD = 0.80  # Nhận diện speaker từ DB khi similarity >= 0.80
+SIMILARITY_THRESHOLD = 0.85  # Nhận diện speaker từ DB khi similarity >= 0.85
 MERGE_THRESHOLD = 0.45      # Gộp các speaker giống nhau khi similarity >= 0.45
 LANGUAGES = [
     ("Tiếng Việt", "vi"), ("English", "en"), ("日本語", "ja"),
