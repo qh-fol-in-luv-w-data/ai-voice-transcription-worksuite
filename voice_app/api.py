@@ -384,19 +384,16 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             for spk, segs in unique_speakers.items():
                 concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.5)
                 if concat_wav is None:
-                    segs_sorted = sorted(segs, key=lambda x: x["end"] - x["start"], reverse=True)
-                    sample = segs_sorted[0]
-                    shrink = 0.1 if (sample["end"] - sample["start"] > 0.5) else 0.0
-                    start = sample["start"] + shrink
-                    end = sample["end"] - shrink
-                    if end <= start:
-                        start = sample["start"]
-                        end = sample["end"]
-                    files_list.append({"wav_path": wav, "start": start, "end": min(end, start + 5.0)})
-                else:
+                    # Fallback: ghép tất cả các đoạn bất kể ngắn dài (min_seg_sec=0.0)
+                    concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=0.0)
+                
+                if concat_wav is not None:
                     from voice_app.audio_utils import get_duration
                     dur = get_duration(concat_wav)
                     files_list.append({"wav_path": concat_wav, "start": 0.0, "end": dur})
+                else:
+                    # Fallback cuối cùng nếu ffmpeg lỗi
+                    files_list.append({"wav_path": wav, "start": 0.0, "end": 5.0})
                 spk_list.append(spk)
                 
             update_progress(100, "Đã dịch xong văn bản!", 25, f"Đang trích xuất đặc trưng giọng nói cho {len(spk_list)} người...")
