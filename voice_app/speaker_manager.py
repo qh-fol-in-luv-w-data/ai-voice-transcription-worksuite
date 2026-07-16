@@ -211,7 +211,7 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     embedding_list = json.loads(json_line)
     return np.array(embedding_list)
 
-def _extract_embeddings_from_files_remote(files_list: list) -> list:
+def _extract_embeddings_from_files_remote(files_list: list, task: str = None) -> list:
     """
     Trích xuất embedding cho danh sách các file bằng cách gọi API external.
     files_list: list of dict [{"wav_path": str, "start": float, "end": float}, ...]
@@ -242,6 +242,8 @@ def _extract_embeddings_from_files_remote(files_list: list) -> list:
                     data["start"] = str(start)
                 if end is not None:
                     data["end"] = str(end)
+                if task:
+                    data["task"] = task
                     
                 response = requests.post(API_URL, files=files, data=data, timeout=120)
                 
