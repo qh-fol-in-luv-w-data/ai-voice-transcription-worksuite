@@ -418,7 +418,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
 
             update_progress(100, "Đã dịch xong văn bản!", 95, "Đang đối chiếu dữ liệu nhân sự...")
             # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
-            # identify_ranked() đã filter >= SIMILARITY_THRESHOLD (0.65) rồi
+            # identify_ranked() đã filter >= SIMILARITY_THRESHOLD rồi
             # → fallback candidate nào cũng đảm bảo trên ngưỡng, không cần check lại
             allowed = json.loads(filter_speakers) if filter_speakers else None
     
@@ -474,8 +474,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             # Gộp các "Người lạ" có giọng giống nhau giữa các chunk (cosine sim >= 0.5)
             # Vì nhiều chunk trả ra nhiều speaker độc lập, nên phải so khớp để gán chung
             # Trả lại threshold 0.5 (mức chuẩn) và linkage 'average'
-            # Vì âm thanh đã được gọt mép sạch sẽ nên 0.5 là đủ an toàn, không cần siết quá gắt làm xé lẻ người lạ
-            MERGE_THRESHOLD = 0.5
+            from .constants import MERGE_THRESHOLD
             strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
     
             groups = []
@@ -1228,7 +1227,7 @@ def reassign_speaker_from_segment():
         emb_np = np.array(emb_data)
         spk_db.add_speaker(new_speaker_name, emb_np)
         
-        SIMILARITY_THRESHOLD = 0.65
+        from .constants import SIMILARITY_THRESHOLD
         changed_count = 0
         speakers_to_change = set()
         
