@@ -166,6 +166,7 @@ Nhiệm vụ của bạn:
 - Trích xuất các mục công việc (task) và thông báo (noti) vào mảng "items".
 - ĐẶC BIỆT LƯU Ý: Bắt buộc phải trích xuất ĐẦY ĐỦ, CHI TIẾT từng Task (nhiệm vụ/công việc) và Noti (thông báo) được nhắc đến trong biên bản. TUYỆT ĐỐI KHÔNG ĐƯỢC BỎ SÓT BẤT KỲ MỤC NÀO, dù là nhỏ nhất. Nếu có 10 ý, phải liệt kê đủ 10 ý.
 - Mỗi mục là một đầu việc hoặc thông báo riêng biệt, không được gộp chung các công việc khác nhau vào làm một.
+- NẾU một công việc được giao cho nhiều người cùng lúc (ví dụ: A và B cùng làm), BẮT BUỘC phải tách ra thành các item (task) riêng biệt cho từng người (mỗi người 1 task giống nhau).
 - Có người thực hiện, người tiếp nhận rõ ràng hoặc là thông báo chung.
 
 Điền thông tin:
