@@ -571,12 +571,26 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 """Lọc bỏ segment quá ngắn hoặc không có nội dung hữu ích."""
                 import re
                 t = text.strip()
-                if not t:
+                # Loại bỏ các dấu ... ở đầu và cuối để dễ check
+                t_clean = re.sub(r'^\.{2,}\s*|\s*\.{2,}$', '', t).strip()
+                
+                if not t_clean:
                     return False
                 # Loại bỏ câu chỉ có dấu câu / ký tự đặc biệt
-                if re.fullmatch(r'[\W\d]+', t):
+                if re.fullmatch(r'[\W\d]+', t_clean):
                     return False
-                # Bỏ cái check <= 2 từ đi vì nó hay xóa nhầm câu hợp lệ
+                
+                # Các cụm từ Whisper hay ảo giác khi có tiếng ồn hoặc đoạn ngắn
+                hallucinations = [
+                    "xong rồi gì nữa", "em xích lên cho", "cảm ơn các bạn", 
+                    "xin chào", "tạm biệt", "cảm ơn", "hết", "chào các bạn"
+                ]
+                t_lower = t_clean.lower()
+                if any(h == t_lower or t_lower.startswith(f"{h} ") or t_lower.endswith(f" {h}") for h in hallucinations):
+                    # Nếu độ dài câu rất ngắn (chỉ chứa 1-2 cụm ảo giác) thì bỏ
+                    if len(t_clean.split()) <= 5:
+                        return False
+
                 return True
     
             # ── GỘP SEGMENT LIỀN KỀ CÙNG SPEAKER ─────────────────────────────────
@@ -596,7 +610,12 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             segments.sort(key=lambda x: x["start"])
 
             for seg in segments:
+                import re
                 txt = " ".join(seg["text"].split())
+                # Dọn dẹp "..." ở đầu và cuối
+                txt = re.sub(r'^\.{2,}\s*', '', txt)
+                txt = re.sub(r'\s*\.{2,}$', '', txt).strip()
+                
                 if not txt or not is_meaningful(txt):
                     continue
                 spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
