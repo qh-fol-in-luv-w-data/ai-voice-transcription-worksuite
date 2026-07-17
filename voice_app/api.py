@@ -604,7 +604,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             MERGE_GAP = 1.5  # giây
     
             merged_segments = []
-            segments.sort(key=lambda x: x["start"])
+            if stt_mode == "google":
+                segments.sort(key=lambda x: x["start"])
 
             for seg in segments:
                 import re
