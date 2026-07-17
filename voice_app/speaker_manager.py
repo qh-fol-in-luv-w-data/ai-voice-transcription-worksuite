@@ -337,15 +337,39 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
     """
     Trích xuất embedding từ file âm thanh mẫu và lưu vào database bằng cách gọi qua remote API.
     """
-    emb_res = _extract_embeddings_from_files_remote(
-        [{"wav_path": wav_path, "start": None, "end": None}], 
-        task="Đăng ký giọng nói"
-    )
-    embedding = emb_res[0] if emb_res else None
+    import numpy as np
+    from voice_app.audio_utils import get_duration
     
-    if embedding is None:
+    try:
+        dur = get_duration(wav_path)
+    except:
+        dur = 3.0
+
+    chunk_len = 3.0
+    segments = []
+    
+    if dur > chunk_len:
+        for s in np.arange(0, dur, chunk_len):
+            e = min(s + chunk_len, dur)
+            if e - s >= 1.0:
+                segments.append({"wav_path": wav_path, "start": float(s), "end": float(e)})
+    else:
+        segments.append({"wav_path": wav_path, "start": 0.0, "end": dur})
+
+    if not segments:
         return False
 
+    emb_res = _extract_embeddings_from_files_remote(
+        segments, 
+        task="Đăng ký giọng nói"
+    )
+    
+    valid_embs = [emb for emb in emb_res if emb is not None]
+    if not valid_embs:
+        return False
+
+    avg_emb = np.mean(valid_embs, axis=0)
+    
     db = SpeakerDB()
-    db.add_speaker(name, embedding, email=email, user_info=user_info)
+    db.add_speaker(name, avg_emb.tolist(), email=email, user_info=user_info)
     return True
