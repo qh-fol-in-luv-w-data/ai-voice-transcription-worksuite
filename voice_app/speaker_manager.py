@@ -338,10 +338,24 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
     Trích xuất embedding từ file âm thanh mẫu và lưu vào database bằng cách gọi qua remote API.
     """
     import numpy as np
+    import subprocess
+    import tempfile
+    import os
     from voice_app.audio_utils import get_duration
     
+    # Dùng FFmpeg loại bỏ khoảng lặng (silence) để embedding không bị nhiễu
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        clean_wav = f.name
+        
+    cmd = [
+        "ffmpeg", "-y", "-i", wav_path,
+        "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-40dB:stop_periods=-1:stop_duration=0.5:stop_threshold=-40dB",
+        clean_wav
+    ]
+    subprocess.run(cmd, capture_output=True)
+
     try:
-        dur = get_duration(wav_path)
+        dur = get_duration(clean_wav)
     except:
         dur = 3.0
 
@@ -352,17 +366,20 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
         for s in np.arange(0, dur, chunk_len):
             e = min(s + chunk_len, dur)
             if e - s >= 1.0:
-                segments.append({"wav_path": wav_path, "start": float(s), "end": float(e)})
+                segments.append({"wav_path": clean_wav, "start": float(s), "end": float(e)})
     else:
-        segments.append({"wav_path": wav_path, "start": 0.0, "end": dur})
+        segments.append({"wav_path": clean_wav, "start": 0.0, "end": dur})
 
     if not segments:
+        if os.path.exists(clean_wav): os.remove(clean_wav)
         return False
 
     emb_res = _extract_embeddings_from_files_remote(
         segments, 
         task="Đăng ký giọng nói"
     )
+    
+    if os.path.exists(clean_wav): os.remove(clean_wav)
     
     valid_embs = [emb for emb in emb_res if emb is not None]
     if not valid_embs:
