@@ -83,8 +83,9 @@ def concat_speaker_segments(wav_path: str, segs: list,
     total = 0.0
 
     for i, seg in enumerate(candidates):
-        seg_start = seg["start"] + 0.2
-        seg_end   = seg["end"] - 0.2
+        shrink = 0.2 if (seg["end"] - seg["start"] >= 0.6) else 0.0
+        seg_start = seg["start"] + shrink
+        seg_end   = seg["end"] - shrink
         
         if seg_end <= seg_start:
             continue
