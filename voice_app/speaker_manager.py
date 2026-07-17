@@ -211,7 +211,7 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     embedding_list = json.loads(json_line)
     return np.array(embedding_list)
 
-def _extract_embeddings_from_files_remote(files_list: list) -> list:
+def _extract_embeddings_from_files_remote(files_list: list, task: str = None) -> list:
     """
     Trích xuất embedding cho danh sách các file bằng cách gọi API external.
     files_list: list of dict [{"wav_path": str, "start": float, "end": float}, ...]
@@ -242,6 +242,8 @@ def _extract_embeddings_from_files_remote(files_list: list) -> list:
                     data["start"] = str(start)
                 if end is not None:
                     data["end"] = str(end)
+                if task:
+                    data["task"] = task
                     
                 response = requests.post(API_URL, files=files, data=data, timeout=120)
                 
@@ -333,10 +335,16 @@ def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> 
 
 def enroll_new_speaker(name, wav_path, email="", user_info=None):
     """
-    Trích xuất embedding từ file âm thanh mẫu và lưu vào database.
-    Dùng subprocess riêng để tránh lỗi DNNL/NNPACK trong môi trường Gunicorn.
+    Trích xuất embedding từ file âm thanh mẫu và lưu vào database bằng cách gọi qua remote API.
     """
-    embedding = _extract_embedding_subprocess(wav_path)
+    emb_res = _extract_embeddings_from_files_remote(
+        [{"wav_path": wav_path, "start": None, "end": None}], 
+        task="Đăng ký giọng nói"
+    )
+    embedding = emb_res[0] if emb_res else None
+    
+    if embedding is None:
+        return False
 
     db = SpeakerDB()
     db.add_speaker(name, embedding, email=email, user_info=user_info)
