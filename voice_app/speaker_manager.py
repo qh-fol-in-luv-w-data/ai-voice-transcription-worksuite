@@ -335,10 +335,16 @@ def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> 
 
 def enroll_new_speaker(name, wav_path, email="", user_info=None):
     """
-    Trích xuất embedding từ file âm thanh mẫu và lưu vào database.
-    Dùng subprocess riêng để tránh lỗi DNNL/NNPACK trong môi trường Gunicorn.
+    Trích xuất embedding từ file âm thanh mẫu và lưu vào database bằng cách gọi qua remote API.
     """
-    embedding = _extract_embedding_subprocess(wav_path)
+    emb_res = _extract_embeddings_from_files_remote(
+        [{"wav_path": wav_path, "start": None, "end": None}], 
+        task="Đăng ký giọng nói"
+    )
+    embedding = emb_res[0] if emb_res else None
+    
+    if embedding is None:
+        return False
 
     db = SpeakerDB()
     db.add_speaker(name, embedding, email=email, user_info=user_info)
