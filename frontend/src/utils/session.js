@@ -49,19 +49,12 @@ export async function initSession(contextUrl) {
       headers: { Accept: 'application/json' },
     })
 
-    if (res.status === 403) {
-      authState.value = 'denied'
-      removeSplash()
-      return
-    }
-
-    // Frappe redirects to login if unauthenticated (allow_guest=False)
-    if (res.status === 401 || res.status === 307 || res.redirected || res.url.includes('/login')) {
+    if (res.status === 401 || res.status === 403 || res.status === 307 || res.redirected || res.url.includes('/login')) {
       removeSplash()
       if (import.meta.env.DEV) {
-        window.location.href = 'http://localhost:8000/login'
+        window.location.href = `http://${window.location.hostname}:8000/login?redirect-to=http://${window.location.host}`
       } else {
-        window.location.href = '/login'
+        window.location.href = `/login?redirect-to=${window.location.pathname}`
       }
       return
     }
