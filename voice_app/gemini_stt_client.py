@@ -343,8 +343,8 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
 - CHÚ Ý ĐẶC BIỆT: Tuyệt đối KHÔNG ĐƯỢC BỎ SÓT các từ ở ngay NHỮNG GIÂY ĐẦU TIÊN và NHỮNG GIÂY CUỐI CÙNG của file âm thanh. Hãy lắng nghe thật kỹ ngay từ giây 0.0.
 - NẾU CÓ 2 NGƯỜI NÓI ĐÈ LÊN NHAU (OVERLAP) HOẶC CÃI NHAU: TUYỆT ĐỐI KHÔNG GỘP CHUNG CHỮ VÀO 1 ENTRY. Bắt buộc phải tách lời của người A và người B thành 2 entry nối tiếp nhau. LỖI NGHIÊM TRỌNG NHẤT LÀ NHÉT LỜI CỦA 2 NGƯỜI VÀO CÙNG 1 CÂU NÓI CỦA 1 NGƯỜI.
 - CÂU HỎI và CÂU TRẢ LỜI luôn là 2 entry riêng biệt — người hỏi và người trả lời KHÔNG bao giờ được gộp chung.
-- Nếu một đoạn có nhiều người nói liên tục, HÃY CẮT NHỎ THÀNH NHIỀU ENTRY LIÊN TIẾP.
-- TUYỆT ĐỐI KHÔNG TRẢ VỀ 1 ENTRY KÉO DÀI NHIỀU PHÚT. Nếu một người nói liên tục quá lâu, BẮT BUỘC PHẢI CẮT NHỎ lời nói của họ thành nhiều entry liên tiếp (mỗi entry khoảng 3-5 câu).
+- BẮT BUỘC MỖI ENTRY KHÔNG ĐƯỢC VƯỢT QUÁ 15 GIÂY (end - start <= 15). NẾU MỘT NGƯỜI NÓI LIÊN TỤC VÀ DÀI HƠN 15 GIÂY, BẠN PHẢI CẮT NGANG THÀNH NHIỀU ENTRY NỐI TIẾP NHAU (VD: entry 1 từ 0-15s, entry 2 từ 15s-30s...).
+- TUYỆT ĐỐI KHÔNG TRẢ VỀ 1 ENTRY KÉO DÀI HÀNG PHÚT. VIỆC TRẢ VỀ 1 ENTRY DÀI HƠN 20 GIÂY SẼ BỊ COI LÀ LỖI RẤT NGHIÊM TRỌNG.
 - Hãy đối chiếu ÂM THANH THỰC TẾ: cao độ giọng, tốc độ nói, chất giọng. Nếu trong một đoạn liên tục có sự thay đổi âm sắc (ví dụ từ giọng nam trầm sang giọng nam cao, hoặc giọng nữ) → PHẢI TẠO ENTRY MỚI NGAY TẠI ĐIỂM ĐÓ.
 - KHÔNG suy đoán speaker theo ngữ cảnh (ai đặt câu hỏi thì ai trả lời) — CHỈ ĐƯỢC PHÉP dựa vào sự thay đổi thực tế của sóng âm/chất giọng mà bạn nghe được.
 - Bỏ qua tạp âm, tiếng ồn, tiếng động nền.
