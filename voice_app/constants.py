@@ -158,7 +158,12 @@ DEFAULT_LANG = "vi"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SPEAKER_DB_PATH = os.path.join(BASE_DIR, "speaker_db.json")
 SIMILARITY_THRESHOLD = 0.65  # Nhận diện speaker từ DB khi similarity >= 0.5
-MERGE_THRESHOLD = 0.45      # Gộp các speaker giống nhau khi similarity >= 0.45
+# ==============================================================================
+# NGƯỠNG GỘP NHÓM (CLUSTERING THRESHOLD)
+# - Dùng khi gộp các Speaker không có trong DB (Người lạ) thành các cụm.
+# - Nếu độ tương đồng cosine >= MERGE_THRESHOLD, gộp chung nhóm.
+MERGE_THRESHOLD = 0.50
+# ==============================================================================
 LANGUAGES = [
     ("Tiếng Việt", "vi"), ("English", "en"), ("日本語", "ja"),
     ("中文", "zh"), ("한국어", "ko"), ("Français", "fr"),
