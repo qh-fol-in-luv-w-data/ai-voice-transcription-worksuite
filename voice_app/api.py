@@ -510,10 +510,12 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                                 
                             # Tính similarity với vector trung bình của group
                             grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
-                            norm = np.linalg.norm(grp_emb)
-                            if norm > 0: grp_emb /= norm
                             
-                            sim = np.dot(emb, grp_emb)
+                            from scipy.spatial.distance import cosine
+                            if np.linalg.norm(grp_emb) == 0 or np.linalg.norm(emb) == 0:
+                                sim = 0.0
+                            else:
+                                sim = 1 - cosine(emb, grp_emb)
                             if sim > best_sim:
                                 best_sim = sim
                                 best_group_idx = i
