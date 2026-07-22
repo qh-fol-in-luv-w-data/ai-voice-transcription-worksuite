@@ -504,10 +504,10 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         best_group_idx = -1
                         
                         for i, grp in enumerate(groups):
-                            # RÀNG BUỘC CỐT LÕI: Group này đã có 1 người ở chunk hiện tại thì CẤM gộp thêm!
-                            if any(get_chunk_idx(member) == chunk_idx for member in grp):
-                                continue
-                                
+                            # Bỏ ràng buộc cấm gộp trong cùng 1 chunk. Pyannote over-segments rất nhiều.
+                            # Vì ta đã fix hàm tính Cosine Similarity chuẩn, các giọng khác nhau sẽ tự động < threshold.
+                            # if any(get_chunk_idx(member) == chunk_idx for member in grp):
+                            #     continue
                             # Tính similarity với vector trung bình của group
                             grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
                             
