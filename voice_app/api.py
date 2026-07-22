@@ -451,8 +451,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     claimed_names_by_chunk[chunk_prefix] = {}
 
                 if name in claimed_names_by_chunk[chunk_prefix]:
-                    print(f"[Speaker] Greedy: {spk}({score:.3f}) muốn '{name}' nhưng đã bị {claimed_names_by_chunk[chunk_prefix][name]} trong cùng chunk {chunk_prefix} claim → thử tiếp")
-                    continue  # tên này đã bị người khác lấy trong cùng chunk, thử candidate tiếp theo
+                    print(f"[Speaker] Greedy: {spk}({score:.3f}) muốn '{name}' và đã có {claimed_names_by_chunk[chunk_prefix][name]} lấy. VẪN CHO PHÉP GỘP ĐỂ FIX LỖI PYANNOTE OVER-SEGMENTATION!")
+                    # Không continue ở đây nữa, cho phép nhiều speaker ảo gán chung vào 1 người thật
                     
                 claimed_names_by_chunk[chunk_prefix][name] = spk
                 claimed_spks.add(spk)
