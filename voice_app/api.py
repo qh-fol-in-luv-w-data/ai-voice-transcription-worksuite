@@ -451,9 +451,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 if chunk_prefix not in claimed_names_by_chunk:
                     claimed_names_by_chunk[chunk_prefix] = {}
 
-                if name in claimed_names_by_chunk[chunk_prefix]:
-                    # RÀNG BUỘC CỐT LÕI: Đã có ai trong chunk này lấy name này chưa?
-                    continue
+                # Bỏ ràng buộc CỐT LÕI cũ: cho phép nhiều speaker trong cùng chunk nhận cùng 1 name
+                # vì Gemini STT có thể tự cắt 1 người thành nhiều speaker ID khác nhau.
                 claimed_names_by_chunk[chunk_prefix][name] = spk
                 claimed_spks.add(spk)
                 spk_identified[spk] = (name, score, email, user_info)
@@ -506,9 +505,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         best_group_idx = -1
                         
                         for i, grp in enumerate(groups):
-                            # RÀNG BUỘC CỐT LÕI: Group này đã có 1 người ở chunk hiện tại thì CẤM gộp thêm!
-                            if any(get_chunk_idx(member) == chunk_idx for member in grp):
-                                continue
+                            # Bỏ ràng buộc CỐT LÕI cũ: cho phép gộp các speaker trong cùng chunk
+                            # vì Gemini STT có thể cắt 1 người thành nhiều speaker_id.
                             grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
                             
                             from scipy.spatial.distance import cosine
