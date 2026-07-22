@@ -13,19 +13,19 @@ export default defineConfig(({ command }) => ({
     port: 5174,
     proxy: {
       '/api': {
-        target: 'http://ct-datalake.localhost:8000',
+        target: 'http://localhost:8000',
         changeOrigin: true
       },
       '/files': {
-        target: 'http://ct-datalake.localhost:8000',
+        target: 'http://localhost:8000',
         changeOrigin: true
       },
       '/private': {
-        target: 'http://ct-datalake.localhost:8000',
+        target: 'http://localhost:8000',
         changeOrigin: true
       },
       '/socket.io': {
-        target: 'http://ct-datalake.localhost:9000',
+        target: 'http://localhost:9000',
         changeOrigin: true,
         ws: true
       }
