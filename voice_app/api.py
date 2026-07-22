@@ -451,9 +451,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     claimed_names_by_chunk[chunk_prefix] = {}
 
                 if name in claimed_names_by_chunk[chunk_prefix]:
-                    print(f"[Speaker] Greedy: {spk}({score:.3f}) muốn '{name}' và đã có {claimed_names_by_chunk[chunk_prefix][name]} lấy. VẪN CHO PHÉP GỘP ĐỂ FIX LỖI PYANNOTE OVER-SEGMENTATION!")
-                    # Không continue ở đây nữa, cho phép nhiều speaker ảo gán chung vào 1 người thật
-                    
+                    # RÀNG BUỘC CỐT LÕI: Đã có ai trong chunk này lấy name này chưa?
+                    continue
                 claimed_names_by_chunk[chunk_prefix][name] = spk
                 claimed_spks.add(spk)
                 spk_identified[spk] = (name, score, email, user_info)
@@ -504,11 +503,9 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         best_group_idx = -1
                         
                         for i, grp in enumerate(groups):
-                            # Bỏ ràng buộc cấm gộp trong cùng 1 chunk. Pyannote over-segments rất nhiều.
-                            # Vì ta đã fix hàm tính Cosine Similarity chuẩn, các giọng khác nhau sẽ tự động < threshold.
-                            # if any(get_chunk_idx(member) == chunk_idx for member in grp):
-                            #     continue
-                            # Tính similarity với vector trung bình của group
+                            # RÀNG BUỘC CỐT LÕI: Group này đã có 1 người ở chunk hiện tại thì CẤM gộp thêm!
+                            if any(get_chunk_idx(member) == chunk_idx for member in grp):
+                                continue
                             grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
                             
                             from scipy.spatial.distance import cosine
