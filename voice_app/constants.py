@@ -158,7 +158,7 @@ DEFAULT_LANG = "vi"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SPEAKER_DB_PATH = os.path.join(BASE_DIR, "speaker_db.json")
 SIMILARITY_THRESHOLD = 0.65  # Nhận diện speaker từ DB khi similarity >= 0.5
-MERGE_THRESHOLD = 0.5      # Gộp các speaker giống nhau khi similarity >= 0.45
+MERGE_THRESHOLD = 0.6      # Gộp các speaker giống nhau khi similarity >= 0.45
 LANGUAGES = [
     ("Tiếng Việt", "vi"), ("English", "en"), ("日本語", "ja"),
     ("中文", "zh"), ("한국어", "ko"), ("Français", "fr"),
