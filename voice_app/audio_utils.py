@@ -69,12 +69,22 @@ def concat_speaker_segments(wav_path: str, segs: list,
 
     duration = get_duration(wav_path)
 
-    # Lọc & sắp xếp: ưu tiên đoạn dài, bỏ đoạn quá ngắn
-    candidates = sorted(
-        [s for s in segs if (s["end"] - s["start"]) >= min_seg_sec],
-        key=lambda x: x["end"] - x["start"],
-        reverse=True
-    )
+    # Lọc & sắp xếp để lấy mẫu trích xuất embedding:
+    # Gemini STT có xu hướng trộn nhiều người vào các đoạn rất dài (> 30s).
+    # Do đó, ƯU TIÊN các đoạn có độ dài vừa phải (2s - 15s) vì chúng thường là giọng PURE (không bị trộn).
+    # Nếu không đủ, mới lấy các đoạn dài hơn.
+    pure_candidates = [s for s in segs if 2.0 <= (s["end"] - s["start"]) <= 15.0]
+    long_candidates = [s for s in segs if (s["end"] - s["start"]) > 15.0]
+    short_candidates = [s for s in segs if min_seg_sec <= (s["end"] - s["start"]) < 2.0]
+    
+    import random
+    random.seed(42) # Giữ cố định random seed để kết quả ổn định
+    random.shuffle(pure_candidates)
+    
+    long_candidates = sorted(long_candidates, key=lambda x: x["end"] - x["start"], reverse=True)
+    short_candidates = sorted(short_candidates, key=lambda x: x["end"] - x["start"], reverse=True)
+    
+    candidates = pure_candidates + long_candidates + short_candidates
     if not candidates:
         return None
 

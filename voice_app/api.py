@@ -443,17 +443,16 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 
                 chunk_prefix = "all"
                 if spk.startswith("c") and "_" in spk:
-                    prefix = spk.split("_")[0]
-                    if prefix[1:].isdigit():
-                        chunk_prefix = prefix
+                    import re
+                    m = re.match(r'(c\d+(?:_resume)?)_', spk)
+                    if m:
+                        chunk_prefix = m.group(1)
 
                 if chunk_prefix not in claimed_names_by_chunk:
                     claimed_names_by_chunk[chunk_prefix] = {}
 
-                if name in claimed_names_by_chunk[chunk_prefix]:
-                    print(f"[Speaker] Greedy: {spk}({score:.3f}) muốn '{name}' nhưng đã bị {claimed_names_by_chunk[chunk_prefix][name]} trong cùng chunk {chunk_prefix} claim → thử tiếp")
-                    continue  # tên này đã bị người khác lấy trong cùng chunk, thử candidate tiếp theo
-                    
+                # Bỏ ràng buộc CỐT LÕI cũ: cho phép nhiều speaker trong cùng chunk nhận cùng 1 name
+                # vì Gemini STT có thể tự cắt 1 người thành nhiều speaker ID khác nhau.
                 claimed_names_by_chunk[chunk_prefix][name] = spk
                 claimed_spks.add(spk)
                 spk_identified[spk] = (name, score, email, user_info)
@@ -486,8 +485,10 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     import re
                     import numpy as np
                     def get_chunk_idx(s):
-                        m = re.match(r'c(\d+)_', s)
-                        return int(m.group(1)) if m else 0
+                        m = re.match(r'c(\d+)(_resume)?_', s)
+                        if not m: return 0.0
+                        base = float(m.group(1))
+                        return base + 0.5 if m.group(2) else base
                     
                     # Sắp xếp speaker theo chunk: ưu tiên xử lý c0 trước, rồi c1, c2...
                     valid_strangers.sort(key=lambda x: (get_chunk_idx(x), x))
@@ -504,23 +505,28 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         best_group_idx = -1
                         
                         for i, grp in enumerate(groups):
-                            # RÀNG BUỘC CỐT LÕI: Group này đã có 1 người ở chunk hiện tại thì CẤM gộp thêm!
-                            if any(get_chunk_idx(member) == chunk_idx for member in grp):
-                                continue
-                                
-                            # Tính similarity với vector trung bình của group
+                            # Bỏ ràng buộc CỐT LÕI cũ: cho phép gộp các speaker trong cùng chunk
+                            # vì Gemini STT có thể cắt 1 người thành nhiều speaker_id.
                             grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
-                            norm = np.linalg.norm(grp_emb)
-                            if norm > 0: grp_emb /= norm
                             
-                            sim = np.dot(emb, grp_emb)
+                            from scipy.spatial.distance import cosine
+                            if np.linalg.norm(grp_emb) == 0 or np.linalg.norm(emb) == 0:
+                                sim = 0.0
+                            else:
+                                sim = 1 - cosine(emb, grp_emb)
+                            print(f"[CLUSTER DEBUG] {spk} vs Group {i} ({grp}): Sim = {sim:.4f}")
+                            frappe.logger("voice_app").error(f"[CLUSTER DEBUG] {spk} vs Group {i} ({grp}): Sim = {sim:.4f}")
                             if sim > best_sim:
                                 best_sim = sim
                                 best_group_idx = i
                                 
                         if best_sim >= MERGE_THRESHOLD:
+                            print(f"[CLUSTER DEBUG] {spk} -> MERGED into Group {best_group_idx} (sim: {best_sim:.4f})")
+                            frappe.logger("voice_app").error(f"[CLUSTER DEBUG] {spk} -> MERGED into Group {best_group_idx} (sim: {best_sim:.4f})")
                             groups[best_group_idx].append(spk)
                         else:
+                            print(f"[CLUSTER DEBUG] {spk} -> NEW Group {len(groups)}")
+                            frappe.logger("voice_app").error(f"[CLUSTER DEBUG] {spk} -> NEW Group {len(groups)}")
                             groups.append([spk])
                         
                     # Những người không có âm thanh (không có embedding) thì mỗi người tự thành 1 nhóm riêng
@@ -535,13 +541,11 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     stranger_groups[spk] = rep
     
             # Đánh số "Người lạ N" theo thứ tự xuất hiện
-            group_label = {}  # group_id -> "Người lạ N"
-            unknown_counter = 1
+            group_label = {}  # group_id -> "Unknown_Group_X"
             for spk in strangers:
                 group_id = stranger_groups.get(spk, spk)
                 if group_id not in group_label:
-                    group_label[group_id] = f"Người lạ {unknown_counter}"
-                    unknown_counter += 1
+                    group_label[group_id] = f"Unknown_Group_{group_id}"
     
             # Tạo speaker_cache với nhãn hiển thị sạch
             speaker_cache = {}
@@ -554,14 +558,13 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         speaker_cache[spk] = f"👤 {name} ({email})"
                 else:
                     group_id = stranger_groups.get(spk, spk)
-                    label = group_label.get(group_id, f"Người lạ {unknown_counter}")
+                    label = group_label.get(group_id, f"Unknown_Group_{group_id}")
                     speaker_cache[spk] = f"👤 {label}"
     
             # Fallback cho những spk không có embedding
             for spk in unique_speakers:
                 if spk not in speaker_cache:
-                    speaker_cache[spk] = f"👤 Người lạ {unknown_counter}"
-                    unknown_counter += 1
+                    speaker_cache[spk] = f"👤 Unknown_Group_Fallback_{spk}"
     
             # ── LỌC SEGMENT VÔ NGHĨA ──────────────────────────────────────────────
             def is_meaningful(text):
@@ -607,6 +610,9 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             if stt_mode == "google":
                 segments.sort(key=lambda x: x["start"])
 
+            actual_stranger_counter = 1
+            real_stranger_map = {}
+
             for seg in segments:
                 import re
                 txt = " ".join(seg["text"].split())
@@ -616,7 +622,22 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 
                 if not txt or not is_meaningful(txt):
                     continue
-                spk_label = " ".join(speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).split())
+                
+                spk_cache_val = speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).strip()
+                # Clean up "👤 " prefix for checking
+                clean_spk = spk_cache_val.replace("👤 ", "")
+                
+                if clean_spk.startswith("Unknown_Group_"):
+                    if clean_spk not in real_stranger_map:
+                        real_stranger_map[clean_spk] = f"Người lạ {actual_stranger_counter}"
+                        actual_stranger_counter += 1
+                    spk_label = f"👤 {real_stranger_map[clean_spk]}"
+                else:
+                    spk_label = spk_cache_val
+                    if not spk_label.startswith("👤 "):
+                        spk_label = f"👤 {spk_label}"
+                        
+                spk_label = " ".join(spk_label.split())
                 emb = seg.get("embedding")
 
                 if (merged_segments
@@ -2293,3 +2314,75 @@ def save_meeting_draft(meeting_name, summary=None, conclusion=None, tasks_json_s
     frappe.db.commit()
     
     return {"status": "success", "message": "Đã lưu bản nháp thành công"}
+
+def debug_clustering():
+    import json
+    import numpy as np
+    from scipy.spatial.distance import cosine
+    
+    meeting = frappe.get_all("Voice Meeting", order_by="creation desc", limit=1)[0]
+    doc = frappe.get_doc("Voice Meeting", meeting.name)
+    if not doc.original_raw_results:
+        print("No original_raw_results found!")
+        return
+
+    results = json.loads(doc.original_raw_results)
+    segments = results if isinstance(results, list) else results.get("segments", [])
+
+    spk_embeddings = {}
+    strangers = set()
+    for seg in segments:
+        spk = seg.get("speaker_id")
+        emb = seg.get("embedding")
+        if spk and emb and spk.startswith("c"):
+            strangers.add(spk)
+            if spk not in spk_embeddings:
+                spk_embeddings[spk] = np.array(emb)
+
+    print(f"Found {len(spk_embeddings)} speakers.")
+
+    def get_chunk_idx(s):
+        try:
+            return int(s.split("_")[0][1:])
+        except:
+            return -1
+
+    valid_strangers = list(strangers)
+    valid_strangers.sort()
+
+    groups = []
+    for spk in valid_strangers:
+        chunk_idx = get_chunk_idx(spk)
+        emb = spk_embeddings[spk]
+        
+        best_sim = -1
+        best_group_idx = -1
+        
+        print(f"\nEvaluating {spk} (Chunk {chunk_idx})")
+        for i, grp in enumerate(groups):
+            if any(get_chunk_idx(member) == chunk_idx for member in grp):
+                print(f"  Group {i} ({grp}): SKIPPED (Chunk constraint)")
+                continue
+                
+            grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
+            if np.linalg.norm(grp_emb) == 0 or np.linalg.norm(emb) == 0:
+                sim = 0.0
+            else:
+                sim = 1 - cosine(emb, grp_emb)
+                
+            print(f"  Group {i} ({grp}): Similarity = {sim:.4f}")
+            
+            if sim > best_sim:
+                best_sim = sim
+                best_group_idx = i
+                
+        if best_sim >= 0.45:
+            print(f"  --> Merged into Group {best_group_idx} (Best Sim = {best_sim:.4f})")
+            groups[best_group_idx].append(spk)
+        else:
+            print(f"  --> Formed NEW Group {len(groups)}")
+            groups.append([spk])
+
+    print("\nFinal Groups:")
+    for i, grp in enumerate(groups):
+        print(f"Group {i}: {grp}")
