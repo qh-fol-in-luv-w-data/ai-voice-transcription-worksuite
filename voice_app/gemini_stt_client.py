@@ -540,13 +540,12 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     )
                     if chunk_error and chunk_error != "HALLUCINATION_DETECTED":
                         print(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
-                        return idx, None, None, None, chunk_usage, chunk_error
                 finally:
-                    if not (chunk_error == "HALLUCINATION_DETECTED" and not is_subchunk):
-                        _delete_file(file_name, api_key)
-                        if current_wav != original_chunk_wav:
-                            try: os.remove(current_wav)
-                            except: pass
+                    # Luôn xóa remote file sau khi xong
+                    _delete_file(file_name, api_key)
+                    if current_wav != original_chunk_wav:
+                        try: os.remove(current_wav)
+                        except: pass
                         # Do NOT remove original_chunk_wav, handled by api.py Voice Meeting Chunk records
 
                 if not gemini_segments:
@@ -610,11 +609,12 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
 
                 chunk_text = " ".join(s.get("text", "") for s in clean_segments)
 
-                # Smart Resume: nếu bị hallucination giữa chừng, cắt phần còn lại chạy tiếp
-                if chunk_error == "HALLUCINATION_DETECTED" and not is_subchunk:
-                    last_valid_ts = _parse_time(clean_segments[-1].get("end", 0))
+                # Smart Resume: nếu bị hallucination hoặc AI lười biếng bỏ sót đoạn cuối (miss > 15s), cắt phần còn lại chạy tiếp
+                if not is_subchunk:
+                    last_valid_ts = _parse_time(clean_segments[-1].get("end", 0)) if clean_segments else 0
                     if chunk_duration - last_valid_ts > 15:
-                        print(f"[Gemini STT] ⚠️ Chunk {idx+1} ngáo ở giây {last_valid_ts:.1f}/{chunk_duration:.1f}s. Kích hoạt Smart Resume...")
+                        reason = "ảo giác (MAX_TOKENS)" if chunk_error == "HALLUCINATION_DETECTED" else "lười biếng bỏ sót"
+                        print(f"[Gemini STT] ⚠️ Chunk {idx+1} bị {reason} ở giây {last_valid_ts:.1f}/{chunk_duration:.1f}s. Kích hoạt Smart Resume...")
                         import pydub
                         audio = pydub.AudioSegment.from_wav(current_wav)
                         resume_audio = audio[int(last_valid_ts * 1000):]
