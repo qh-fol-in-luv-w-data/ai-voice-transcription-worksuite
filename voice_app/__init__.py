@@ -12,8 +12,8 @@ if os.path.exists(_env_path):
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
                     os.environ[key.strip()] = value.strip()
-    except Exception:
-        pass
+    except OSError as exc:
+        print(f"Could not load voice_app .env file: {exc}")
 
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"

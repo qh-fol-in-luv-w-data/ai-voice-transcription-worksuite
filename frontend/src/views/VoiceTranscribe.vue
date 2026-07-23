@@ -236,7 +236,7 @@ const togglePlay = () => {
 }
 
 const formatTime = (time) => {
-  if (isNaN(time)) return '0:00'
+  if (Number.isNaN(Number(time))) return '0:00'
   const m = Math.floor(time / 60), s = Math.floor(time % 60)
   return `${m}:${s < 10 ? '0' : ''}${s}`
 }
@@ -447,7 +447,7 @@ const startExtractTasks = async () => {
   let startTime = null;
   if (meetingDate.value) {
     const d = new Date(meetingDate.value);
-    if (!isNaN(d.getTime())) {
+    if (!Number.isNaN(d.getTime())) {
       startTime = d.toLocaleString('vi-VN');
     }
   }
@@ -612,15 +612,15 @@ const startExtractTasks = async () => {
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md">Meeting Details</h2>
       <div class="space-y-1 mb-4">
-         <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Date</label>
+         <label for="meeting-date-input" class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Date</label>
          <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
-            <el-date-picker v-model="meetingDate" type="datetime" format="DD/MM/YYYY HH:mm" placeholder="08/07/2026 17:51" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;" />
+            <el-date-picker id="meeting-date-input" v-model="meetingDate" type="datetime" format="DD/MM/YYYY HH:mm" placeholder="08/07/2026 17:51" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;" />
          </div>
       </div>
       <div class="mb-3">
-         <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Host</label>
+         <label for="meeting-host-input" class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Host</label>
          <div class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-1 py-1 transition-colors overflow-hidden">
-            <el-select v-model="hostId" filterable placeholder="Chọn người chủ trì..." class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;" fit-input-width>
+            <el-select id="meeting-host-input" v-model="hostId" filterable placeholder="Chọn người chủ trì..." class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-bg-color: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent; --el-select-input-color: inherit;" fit-input-width>
                <el-option v-for="emp in dbEmployees" :key="emp.user_id" :label="[emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')" :value="emp.user_id">
                   <div class="truncate w-full block">{{ [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ') }}</div>
                </el-option>
@@ -628,15 +628,15 @@ const startExtractTasks = async () => {
          </div>
       </div>
       <div class="mb-3">
-         <label class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
-         <input v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
+         <label for="meeting-location-input" class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
+         <input id="meeting-location-input" v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
       </div>
       <div class="flex flex-col flex-1">
         <div class="flex justify-between items-center mb-1">
-            <label class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
+            <label for="global-vocabulary-input" class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Keywords / Global Dictionary</label>
             <button @click="handleSaveVocabulary" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded hover:bg-primary/20 transition-colors font-bold">Lưu</button>
         </div>
-        <textarea v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
+        <textarea id="global-vocabulary-input" v-model="globalVocabulary" @blur="handleSaveVocabulary" class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-primary transition-colors resize-none flex-1 min-h-[150px]" placeholder="Nhập từ khóa, tên dự án, thuật ngữ..."></textarea>
       </div>
     </div>
   </div>

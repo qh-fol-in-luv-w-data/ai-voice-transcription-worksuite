@@ -6,6 +6,7 @@ import traceback
 import pandas as pd
 import requests
 import urllib.parse
+from contextlib import suppress
 from voice_app.utils.activity_logger import ActivityLogger
 from frappe.utils.file_manager import save_file
 from voice_app.elevenlabs_client import call_elevenlabs_stt, check_elevenlabs_balance
@@ -17,6 +18,16 @@ from voice_app.speaker_manager import get_segment_embedding, SpeakerDB
 
 _logger = ActivityLogger("VOICE", "voice_app")
 
+def _can_access_meeting(meeting_owner, user=None):
+    user = user or frappe.session.user
+    if not user or user == "Guest":
+        return False
+    if meeting_owner == user:
+        return True
+    with suppress(Exception):
+        return "System Manager" in frappe.get_roles(user)
+    return False
+
 @frappe.whitelist(allow_guest=False)
 def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num_speakers=None, custom_vocabulary=""):
     if 'file' not in frappe.request.files:
@@ -27,7 +38,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
     # Tính hash để phát hiện upload lại cùng 1 file
     import hashlib
     content = audio_file.read()
-    content_hash = hashlib.md5(content).hexdigest()
+    content_hash = hashlib.sha256(content).hexdigest()
     audio_file.seek(0)
     
     # Tìm xem file này đã upload chưa
@@ -137,11 +148,11 @@ def get_cached_employees(ttl=300):
             employees = emp_resp.json().get("data", [])
             frappe.cache().set_value(cache_key, employees, expires_in_sec=ttl)
             return employees
-    except Exception:
-        pass
+    except Exception as exc:
+        frappe.log_error(str(exc), "Get Cached Employees Error")
     return []
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def check_meeting_status(meeting_name):
     meeting = frappe.get_doc("Voice Meeting", meeting_name)
     frappe.log_error(f"check_meeting_status called for {meeting_name}, status={meeting.status}", "Meeting Status Debug")
@@ -153,8 +164,8 @@ def check_meeting_status(meeting_name):
         try:
             if meeting.raw_results:
                 raw_results = json.loads(meeting.raw_results)
-        except:
-            pass
+        except (TypeError, json.JSONDecodeError) as exc:
+            frappe.log_error(str(exc), "Parse Meeting Raw Results Error")
             
         return {
             "status": "success",
@@ -219,8 +230,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     names = json.loads(filter_speakers)
                     if isinstance(names, list) and len(names) >= 2:
                         auto_num_speakers = len(names)
-                except Exception:
-                    pass
+                except (TypeError, json.JSONDecodeError):
+                    auto_num_speakers = kwargs.get("num_speakers")
                     
             global_vocabulary = kwargs.get("custom_vocabulary") or frappe.db.get_single_value("Voice App Settings", "global_vocabulary") or ""
             language = kwargs.get("language") or "vi"
@@ -336,8 +347,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 
                 # STT Hoàn tất thành công, dọn dẹp file chunk
                 import shutil
-                try: shutil.rmtree(frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name))
-                except: pass
+                with suppress(FileNotFoundError):
+                    shutil.rmtree(frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name))
             else:
                 segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=global_vocabulary)
                 if err:
@@ -410,8 +421,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             # Cleanup temp wavs
             for item in files_list:
                 if item["wav_path"] != wav and os.path.exists(item["wav_path"]):
-                    try: os.remove(item["wav_path"])
-                    except: pass
+                    with suppress(FileNotFoundError):
+                        os.remove(item["wav_path"])
 
             update_progress(100, "Đã dịch xong văn bản!", 95, "Đang đối chiếu dữ liệu nhân sự...")
             # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
@@ -572,7 +583,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 import re
                 t = text.strip()
                 # Loại bỏ các dấu ... ở đầu và cuối để dễ check
-                t_clean = re.sub(r'^\.{2,}\s*|\s*\.{2,}$', '', t).strip()
+                t_clean = re.sub(r'^(?:\.{2,}\s*)|(?:\s*\.{2,})$', '', t).strip()
                 
                 if not t_clean:
                     return False
@@ -617,8 +628,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 import re
                 txt = " ".join(seg["text"].split())
                 # Dọn dẹp "..." ở đầu và cuối
-                txt = re.sub(r'^\.{2,}\s*', '', txt)
-                txt = re.sub(r'\s*\.{2,}$', '', txt).strip()
+                txt = re.sub(r'^(?:\.{2,}\s*)', '', txt)
+                txt = re.sub(r'(?:\s*\.{2,})$', '', txt).strip()
                 
                 if not txt or not is_meaningful(txt):
                     continue
@@ -738,7 +749,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
         frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": str(e)})
         frappe.db.commit()
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def extract_tasks():
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -757,7 +768,7 @@ def extract_tasks():
     )
     return {"status": "processing"}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def check_extract_status(meeting_name):
     # Dùng frappe.cache()
     key = f"extract_result_{meeting_name}"
@@ -812,8 +823,8 @@ def _extract_tasks_async(payload, user, session_id_header):
             
             if raw_results:
                 results = json.loads(raw_results)
-        except Exception:
-            pass
+        except (TypeError, json.JSONDecodeError) as exc:
+            frappe.log_error(str(exc), "Parse Meeting Results For Task Error")
 
     if not results:
         frappe.cache().set_value(cache_key, {"status": "error", "message": "Không có nội dung để tạo task"}, expires_in_sec=86400)
@@ -902,7 +913,7 @@ def _extract_tasks_async(payload, user, session_id_header):
 
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
-            if True: # meeting_owner == user:
+            if _can_access_meeting(meeting_owner, user):
                 frappe.db.set_value("Voice Meeting", meeting_name, "minute_docx", docx_url)
                 frappe.db.set_value("Voice Meeting", meeting_name, "task_xlsx", excel_url)
                 frappe.db.set_value("Voice Meeting", meeting_name, "status", "Analyzed")
@@ -914,6 +925,8 @@ def _extract_tasks_async(payload, user, session_id_header):
                     frappe.db.set_value("Voice Meeting", meeting_name, "meeting_summary", meeting_summary)
                 if conclusion:
                     frappe.db.set_value("Voice Meeting", meeting_name, "conclusion", conclusion)
+            else:
+                raise frappe.PermissionError("Không có quyền cập nhật meeting này")
 
         frappe.db.commit()
 
@@ -952,7 +965,7 @@ def _extract_tasks_async(payload, user, session_id_header):
         frappe.log_error(traceback.format_exc(), "Task Extraction Error")
         frappe.cache().set_value(cache_key, {"status": "error", "message": str(e)}, expires_in_sec=86400)
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def clean_transcript():
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -971,7 +984,7 @@ def clean_transcript():
     )
     return {"status": "processing"}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def check_clean_status(meeting_name):
     key = f"clean_result_{meeting_name}"
     result = frappe.cache().get_value(key)
@@ -1033,22 +1046,25 @@ def _clean_transcript_async(payload, user, session_id_header):
                 try:
                     frappe.db.rollback()
                 except Exception:
-                    pass
+                    with suppress(Exception):
+                        frappe.db.rollback()
                 frappe.log_error(str(log_ex), "Log Clean Transcript AI Call Error")
 
         if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
-            if True: # meeting_owner == user:
+            if _can_access_meeting(meeting_owner, user):
                 frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
                                     json.dumps(cleaned_results, ensure_ascii=False))
                 frappe.db.commit()
+            else:
+                raise frappe.PermissionError("Không có quyền cập nhật meeting này")
 
         frappe.cache().set_value(cache_key, {"status": "success", "cleaned_results": cleaned_results}, expires_in_sec=86400)
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "Transcript Clean Error")
         frappe.cache().set_value(cache_key, {"status": "error", "message": str(e)}, expires_in_sec=86400)
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_employees():
     import requests
     from voice_app.constants import get_worksuite_url, get_worksuite_token
@@ -1119,7 +1135,7 @@ def get_employees():
     return {"status": "success", "employees": employees}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def update_meeting_results():
     """Cập nhật raw_results khi user hoàn tác lọc (undo clean)"""
     if frappe.session.user == "Guest":
@@ -1141,7 +1157,7 @@ def update_meeting_results():
                 
         if frappe.db.exists("Voice Meeting", meeting_name):
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
-            if False: # meeting_owner != frappe.session.user:
+            if not _can_access_meeting(meeting_owner):
                 return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
             # Gộp lại nội dung text
             final_text = " ".join([seg[3].strip() for seg in results if len(seg) > 3 and seg[3] and seg[3].strip()])
@@ -1156,7 +1172,7 @@ def update_meeting_results():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def update_transcript_text():
     """Cập nhật nội dung transcript khi user chỉnh sửa thủ công"""
     if frappe.session.user == "Guest":
@@ -1178,7 +1194,7 @@ def update_transcript_text():
                 
         if frappe.db.exists("Voice Meeting", meeting_name):
             meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
-            if False: # meeting_owner != frappe.session.user:
+            if not _can_access_meeting(meeting_owner):
                 return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
             
             # Gộp lại nội dung text
@@ -1220,7 +1236,7 @@ def reassign_speaker_from_segment():
                 return {"status": "error", "message": "Không tìm thấy meeting"}
                 
         meeting_owner = frappe.db.get_value("Voice Meeting", doc_name, "owner")
-        if meeting_owner != frappe.session.user:
+        if not _can_access_meeting(meeting_owner):
             return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
             
         raw_results = frappe.db.get_value("Voice Meeting", doc_name, "raw_results")
@@ -1282,8 +1298,8 @@ def reassign_speaker_from_segment():
                         if spk and spk != new_speaker_name:
                             speakers_to_change.add(spk)
                             orig["speaker"] = new_speaker_name
-                except Exception:
-                    pass
+                except (ValueError, TypeError):
+                    continue
         else:
             for seg in segments:
                 is_dict = isinstance(seg, dict)
@@ -1296,8 +1312,8 @@ def reassign_speaker_from_segment():
                         spk = seg.get("speaker") if is_dict else (seg[2] if len(seg) > 2 else "")
                         if spk and spk != new_speaker_name:
                             speakers_to_change.add(spk)
-                except Exception:
-                    pass
+                except (ValueError, TypeError):
+                    continue
                     
         current_spk = target_seg.get("speaker") if isinstance(target_seg, dict) else (target_seg[2] if len(target_seg) > 2 else "")
         if current_spk and current_spk != new_speaker_name:
@@ -1337,7 +1353,7 @@ def reassign_speaker_from_segment():
         frappe.log_error(traceback.format_exc(), "Reassign Speaker Error")
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def sync_tasks_to_erp():
     data = frappe.request.get_data()
     payload = json.loads(data)
@@ -1354,7 +1370,7 @@ def sync_tasks_to_erp():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def download_meeting_file():
     """
     Endpoint tải file (docx/xlsx) từ meeting về phía client.
@@ -1426,11 +1442,11 @@ def download_meeting_file():
 
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_elevenlabs_info():
     return {"balance": check_elevenlabs_balance()}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def enroll_voice():
     if frappe.session.user == "Guest":
         return {"status": "error", "message": "Vui lòng đăng nhập để đăng ký giọng nói."}
@@ -1480,7 +1496,7 @@ def enroll_voice():
         frappe.log_error(traceback.format_exc(), "Voice Enrollment Error")
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def map_and_enroll_speakers():
     """
     Tự động trích xuất và lưu mẫu giọng cho các 'Người lạ' được gán danh tính.
@@ -1590,7 +1606,7 @@ def map_and_enroll_speakers():
     }
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def reassign_speaker_from_segment():
     """
     Học giọng từ một đoạn hội thoại cụ thể và quét lại toàn bộ transcript
@@ -1746,12 +1762,12 @@ def enroll_speaker_from_segment():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_current_user():
     return frappe.session.user
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_enrolled_speakers():
     """Trả về danh sách người đã đăng ký giọng nói trong Voice DB."""
     try:
@@ -1769,7 +1785,8 @@ def get_enrolled_speakers():
                     spk["designation"] = erp_map[spk["email"]].get("designation", "")
                 else:
                     spk["designation"] = ""
-        except Exception:
+        except Exception as exc:
+            frappe.log_error(str(exc), "Get Enrolled Speakers Designation Error")
             for spk in speakers:
                 spk["designation"] = ""
         return {"status": "success", "speakers": speakers}
@@ -1777,7 +1794,7 @@ def get_enrolled_speakers():
         frappe.log_error(traceback.format_exc(), "Get Enrolled Speakers Error")
         return {"status": "error", "speakers": [], "message": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_meeting_history():
     """
     Chỉ trả về các meeting thuộc về user hiện tại.
@@ -1799,7 +1816,7 @@ def get_meeting_history():
         return {"status": "error", "message": str(e), "meetings": []}
 _logger = ActivityLogger(prefix="VOICE", module="voice_app")
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def voice_to_task(existing_task=None, job_key=None):
     """Tạo Task từ giọng nói — chạy đồng bộ, trả kết quả trực tiếp qua HTTP."""
     if 'file' not in frappe.request.files:
@@ -1825,7 +1842,7 @@ def voice_to_task(existing_task=None, job_key=None):
         job_key=job_key,
     )
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def get_context():
     if frappe.session.user == "Guest":
         frappe.throw("Vui lòng đăng nhập", frappe.AuthenticationError)
@@ -1869,7 +1886,8 @@ def _resolve_session(session_id: str) -> str:
             ignore_permissions=True,
         )
         return rows[0].name if rows else ""
-    except Exception:
+    except Exception as exc:
+        frappe.log_error(str(exc), "Resolve Voice Session Error")
         return ""
 
 def _log_action(session_id: str, action: str, details: dict):
@@ -1935,7 +1953,8 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
             _vas = frappe.get_doc("Voice App Settings")
             WS_EMAIL = _vas.worksuite_email or ""
             WS_PASSWORD = _vas.get_password("worksuite_password") or ""
-        except Exception:
+        except Exception as exc:
+            frappe.log_error(str(exc), "Load Worksuite Credentials Error")
             WS_EMAIL = ""
             WS_PASSWORD = ""
 
@@ -1955,8 +1974,8 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
                     r = session.get(f"{BASE_URL}/api/method/frappe.utils.get_csrf_token", timeout=5)
                     if r.status_code == 200:
                         csrf_token = r.json().get("message") or session.cookies.get("csrf_token")
-                except: 
-                    pass
+                except Exception as exc:
+                    frappe.log_error(str(exc), "Fetch Worksuite CSRF Token Error")
                 if not csrf_token: 
                     csrf_token = session.cookies.get("csrf_token")
                 if csrf_token:
@@ -2136,10 +2155,13 @@ Hãy trả về kết quả dưới dạng JSON duy nhất, KHÔNG chứa markdo
 
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False)
 def resume_transcription(meeting_name):
     try:
         meeting_doc = frappe.get_doc("Voice Meeting", meeting_name)
+        if not _can_access_meeting(meeting_doc.owner):
+            frappe.throw("Không có quyền tiếp tục xử lý meeting này", frappe.PermissionError)
+
         if meeting_doc.status not in ["Error", "Partial Error"]:
             return {"status": "error", "message": "Chỉ có thể tiếp tục với meeting có trạng thái Lỗi hoặc Lỗi một phần."}
         
@@ -2183,10 +2205,13 @@ def resume_transcription(meeting_name):
         frappe.log_error(frappe.get_traceback(), "resume_transcription_error")
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False)
 def undo_mapping(meeting_name):
     try:
         meeting_doc = frappe.get_doc("Voice Meeting", meeting_name)
+        if not _can_access_meeting(meeting_doc.owner):
+            frappe.throw("Không có quyền hoàn tác mapping meeting này", frappe.PermissionError)
+
         if not meeting_doc.original_raw_results:
             return {"status": "error", "message": "Không có dữ liệu gốc để hoàn tác."}
             
@@ -2197,7 +2222,7 @@ def undo_mapping(meeting_name):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False)
 def get_global_vocabulary():
     try:
         vocab = frappe.db.get_single_value("Voice App Settings", "global_vocabulary")
@@ -2205,35 +2230,19 @@ def get_global_vocabulary():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False)
 def save_global_vocabulary(vocabulary):
     try:
+        if "System Manager" not in frappe.get_roles(frappe.session.user):
+            frappe.throw("Không có quyền cập nhật global vocabulary", frappe.PermissionError)
+
         frappe.db.set_value("Voice App Settings", None, "global_vocabulary", vocabulary)
         frappe.db.commit()
         return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist(allow_guest=True)
-def save_meeting_draft(meeting_name, summary, conclusion, tasks_json_str):
-    try:
-        meeting = frappe.get_doc("Voice Meeting", meeting_name)
-        # Bỏ qua check quyền vì allow_guest=True
-        # if meeting.owner != frappe.session.user and "System Manager" not in frappe.get_roles():
-        #     return {"status": "error", "message": "Not permitted"}
-            
-        frappe.db.set_value("Voice Meeting", meeting_name, {
-            "meeting_summary": summary,
-            "conclusion": conclusion,
-            "tasks_json": tasks_json_str
-        })
-        frappe.db.commit()
-        return {"status": "success"}
-    except Exception as e:
-        frappe.log_error(str(e), "save_meeting_draft Error")
-        return {"status": "error", "message": str(e)}
-
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def export_dynamic_docx(meeting_name):
     from voice_app.docx_utils import save_to_docx
     from frappe.utils.file_manager import save_file
@@ -2241,6 +2250,8 @@ def export_dynamic_docx(meeting_name):
     import time
     try:
         meeting = frappe.get_doc("Voice Meeting", meeting_name)
+        if not _can_access_meeting(meeting.owner):
+            return {"status": "error", "message": "Không có quyền xuất meeting này"}
         
         raw_results = []
         if meeting.raw_results:
@@ -2265,8 +2276,8 @@ def export_dynamic_docx(meeting_name):
             for e in employees:
                 if e.employee_name and e.designation:
                     speaker_roles[e.employee_name.lower()] = e.designation
-        except:
-            pass
+        except Exception as exc:
+            frappe.log_error(str(exc), "Export DOCX Speaker Roles Error")
 
         start_time = meeting.date if meeting.date else ""
         
@@ -2294,7 +2305,7 @@ def export_dynamic_docx(meeting_name):
         frappe.log_error(traceback.format_exc(), "export_dynamic_docx Error")
         return {"status": "error", "message": str(e)}
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False)
 def save_meeting_draft(meeting_name, summary=None, conclusion=None, tasks_json_str=None):
     if not meeting_name:
         frappe.throw("Thiếu meeting_name")
@@ -2303,6 +2314,8 @@ def save_meeting_draft(meeting_name, summary=None, conclusion=None, tasks_json_s
         frappe.throw(f"Không tìm thấy cuộc họp {meeting_name}")
         
     doc = frappe.get_doc("Voice Meeting", meeting_name)
+    if not _can_access_meeting(doc.owner):
+        frappe.throw("Không có quyền chỉnh sửa meeting này", frappe.PermissionError)
     if summary is not None:
         doc.meeting_summary = summary
     if conclusion is not None:
@@ -2310,7 +2323,7 @@ def save_meeting_draft(meeting_name, summary=None, conclusion=None, tasks_json_s
     if tasks_json_str is not None:
         doc.tasks_json = tasks_json_str
         
-    doc.save(ignore_permissions=True)
+    doc.save()
     frappe.db.commit()
     
     return {"status": "success", "message": "Đã lưu bản nháp thành công"}
@@ -2344,7 +2357,7 @@ def debug_clustering():
     def get_chunk_idx(s):
         try:
             return int(s.split("_")[0][1:])
-        except:
+        except (ValueError, TypeError, IndexError):
             return -1
 
     valid_strangers = list(strangers)
