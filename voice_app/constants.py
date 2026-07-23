@@ -162,7 +162,7 @@ SIMILARITY_THRESHOLD = 0.65  # Nhận diện speaker từ DB khi similarity >= 0
 # NGƯỠNG GỘP NHÓM (CLUSTERING THRESHOLD)
 # - Dùng khi gộp các Speaker không có trong DB (Người lạ) thành các cụm.
 # - Nếu độ tương đồng cosine >= MERGE_THRESHOLD, gộp chung nhóm.
-MERGE_THRESHOLD = 0.50
+MERGE_THRESHOLD = 0.40
 # ==============================================================================
 LANGUAGES = [
     ("Tiếng Việt", "vi"), ("English", "en"), ("日本語", "ja"),
