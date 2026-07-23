@@ -21,8 +21,8 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi", num_speakers: int =
         sub_before = client.user.subscription.get()
         chars_before = sub_before.character_count or 0
         chars_limit = sub_before.character_limit or 0
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[ElevenLabs] Cannot read subscription before STT: {exc}")
     
     try:
         # Keyterms: gợi ý từ khoá nghiệp vụ để tăng độ chính xác nhận dạng
@@ -98,8 +98,8 @@ def call_elevenlabs_stt(wav_path: str, language: str = "vi", num_speakers: int =
             sub_after = client.user.subscription.get()
             chars_after = sub_after.character_count or 0
             chars_limit = sub_after.character_limit or 0
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[ElevenLabs] Cannot read subscription after STT: {exc}")
         
         chars_used = max(0, chars_after - chars_before)
         chars_remaining = max(0, chars_limit - chars_after)
