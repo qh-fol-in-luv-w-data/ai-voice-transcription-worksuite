@@ -1,10 +1,16 @@
-import subprocess
+import subprocess  # nosec B404 - ffmpeg is invoked with argv lists, validated paths, and timeouts.
 import tempfile
 import wave
 import os
+from contextlib import suppress
+from shutil import which
 
 def convert_to_wav(input_path: str):
     """Convert bất kỳ định dạng → WAV 16kHz mono cho ElevenLabs STT."""
+    if not which("ffmpeg"):
+        return None, "ffmpeg error: executable not found"
+    if not input_path or not os.path.isfile(str(input_path)):
+        return None, "ffmpeg error: input file not found"
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         out = f.name
     cmd = [
@@ -13,14 +19,14 @@ def convert_to_wav(input_path: str):
         out,
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=120)
+        r = subprocess.run(cmd, capture_output=True, timeout=120)  # nosec B603
     except subprocess.TimeoutExpired:
-        try: os.remove(out)
-        except: pass
+        with suppress(FileNotFoundError):
+            os.remove(out)
         return None, "ffmpeg error: timeout"
     if r.returncode != 0:
-        try: os.remove(out)
-        except: pass
+        with suppress(FileNotFoundError):
+            os.remove(out)
         return None, f"ffmpeg error: {r.stderr.decode(errors='ignore')}"
     return out, None
 
@@ -30,6 +36,10 @@ def get_duration(wav_path: str) -> float:
 
 def extract_segment_ffmpeg(wav_path: str, start: float, end: float, padding: float = 0.5) -> str:
     """Cắt đoạn [start, end] giây từ file WAV."""
+    if not which("ffmpeg"):
+        return None
+    if not wav_path or not os.path.isfile(str(wav_path)):
+        return None
     duration = get_duration(wav_path)
     padded_start = max(0.0, start - padding)
     padded_end   = min(duration, end + padding)
@@ -45,9 +55,15 @@ def extract_segment_ffmpeg(wav_path: str, start: float, end: float, padding: flo
         out,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, timeout=60)  # nosec B603
     except subprocess.TimeoutExpired:
-        pass
+        with suppress(FileNotFoundError):
+            os.remove(out)
+        return None
+    if result.returncode != 0:
+        with suppress(FileNotFoundError):
+            os.remove(out)
+        return None
     return out
 
 
@@ -63,10 +79,6 @@ def concat_speaker_segments(wav_path: str, segs: list,
     - Gọt mép 0.2s 2 đầu mỗi đoạn
     - Tạo filter_complex cắt và nối trong 1 tiến trình ffmpeg
     """
-    import tempfile
-    import subprocess
-    import os
-
     duration = get_duration(wav_path)
 
     # Lọc & sắp xếp để lấy mẫu trích xuất embedding:
@@ -77,9 +89,10 @@ def concat_speaker_segments(wav_path: str, segs: list,
     long_candidates = [s for s in segs if (s["end"] - s["start"]) > 15.0]
     short_candidates = [s for s in segs if min_seg_sec <= (s["end"] - s["start"]) < 2.0]
     
-    import random
-    random.seed(42) # Giữ cố định random seed để kết quả ổn định
-    random.shuffle(pure_candidates)
+    pure_candidates = sorted(
+        pure_candidates,
+        key=lambda x: (round(x["end"] - x["start"], 3), round(x["start"], 3)),
+    )
     
     long_candidates = sorted(long_candidates, key=lambda x: x["end"] - x["start"], reverse=True)
     short_candidates = sorted(short_candidates, key=lambda x: x["end"] - x["start"], reverse=True)
@@ -125,15 +138,15 @@ def concat_speaker_segments(wav_path: str, segs: list,
         out
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=60)
+        r = subprocess.run(cmd, capture_output=True, timeout=60)  # nosec B603
     except subprocess.TimeoutExpired:
-        try: os.remove(out)
-        except: pass
+        with suppress(FileNotFoundError):
+            os.remove(out)
         return None
 
     if r.returncode != 0:
-        try: os.remove(out)
-        except: pass
+        with suppress(FileNotFoundError):
+            os.remove(out)
         return None
     return out
 
@@ -164,7 +177,8 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_c
         if len(frame) == frame_size:
             try:
                 is_speech_list.append(vad.is_speech(frame, sample_rate))
-            except:
+            except Exception as exc:
+                print(f"VAD frame analysis failed: {exc}")
                 is_speech_list.append(True)
         else:
             is_speech_list.append(False)

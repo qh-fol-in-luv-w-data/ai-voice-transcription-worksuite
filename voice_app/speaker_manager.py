@@ -1,5 +1,11 @@
 import json
 import os
+import subprocess  # nosec B404 - subprocess calls use argv lists, local scripts, and timeouts.
+import tempfile
+import wave
+from contextlib import suppress
+from shutil import which
+from urllib.parse import urlparse
 # Fix "could not create a primitive" error in PyTorch on CPU environments (Linux/Docker)
 os.environ["USE_NNPACK"] = "0"
 os.environ["DNNL_PRIMITIVE_CACHE_CAPACITY"] = "0"
@@ -15,6 +21,25 @@ if not hasattr(np, 'NaN'):
 
 from scipy.spatial.distance import cosine
 from .constants import get_hf_token, SPEAKER_DB_PATH, SIMILARITY_THRESHOLD
+
+def _get_embedding_api_url():
+    url = os.getenv("VOICE_EMBEDDING_API_URL", "").strip()
+    if not url:
+        try:
+            import frappe
+            doc = frappe.get_single("Voice App Settings")
+            url = (doc.get("embedding_api_url") or "").strip()
+        except Exception as exc:
+            print(f"Embedding API URL lookup failed: {exc}")
+    if not url:
+        return ""
+    if not url.startswith(("https://", "http://")):
+        url = f"https://{url}"
+    parsed = urlparse(url)
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    if parsed.scheme != "https" and parsed.hostname not in local_hosts:
+        raise ValueError("VOICE_EMBEDDING_API_URL must use HTTPS for non-local hosts")
+    return url.rstrip("/")
 
 # ── SPEAKER DATABASE ──────────────────────────────────────────────────────────
 class SpeakerDB:
@@ -165,7 +190,6 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
     Giải pháp dứt khoát cho lỗi 'could not create a primitive' của DNNL/NNPACK
     khi PyTorch bị fork bởi Gunicorn.
     """
-    import subprocess
     import sys
     from voice_app.constants import get_hf_token
 
@@ -178,7 +202,7 @@ def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float
         args.extend([str(start), str(end)])
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             args,
             capture_output=True,
             text=True,
@@ -218,9 +242,11 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
     Trả về: list các np.ndarray hoặc None
     """
     import requests
-    import os
-    
-    API_URL = "http://103.186.101.200:8004/extract"
+
+    api_url = _get_embedding_api_url()
+    if not api_url:
+        raise RuntimeError("Chưa cấu hình VOICE_EMBEDDING_API_URL cho embedding service")
+    endpoint_url = f"{api_url}/extract"
     final_results = []
     
     for item in files_list:
@@ -245,7 +271,7 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
                 if task:
                     data["task"] = task
                     
-                response = requests.post(API_URL, files=files, data=data, timeout=120)
+                response = requests.post(endpoint_url, files=files, data=data, timeout=120)
                 
                 if response.status_code == 200:
                     result_json = response.json()
@@ -272,7 +298,6 @@ def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> 
     segments_list: list of dict [{"start": float, "end": float}, ...]
     Trả về: list các np.ndarray hoặc None
     """
-    import subprocess
     import sys
     import tempfile
     from voice_app.constants import get_hf_token
@@ -292,7 +317,7 @@ def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> 
     args = [python_exe, script_path, wav_path, hf_token, "--segments-file", temp_file_path]
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             args,
             capture_output=True,
             text=True,
@@ -337,11 +362,11 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
     """
     Trích xuất embedding từ file âm thanh mẫu và lưu vào database bằng cách gọi qua remote API.
     """
-    import numpy as np
-    import subprocess
-    import tempfile
-    import os
     from voice_app.audio_utils import get_duration
+    if not which("ffmpeg"):
+        return False
+    if not wav_path or not os.path.isfile(str(wav_path)):
+        return False
     
     # Dùng FFmpeg loại bỏ khoảng lặng (silence) để embedding không bị nhiễu
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -352,11 +377,20 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
         "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-40dB:stop_periods=-1:stop_duration=0.5:stop_threshold=-40dB",
         clean_wav
     ]
-    subprocess.run(cmd, capture_output=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=60)  # nosec B603
+    except subprocess.TimeoutExpired:
+        with suppress(FileNotFoundError):
+            os.remove(clean_wav)
+        return False
+    if result.returncode != 0:
+        with suppress(FileNotFoundError):
+            os.remove(clean_wav)
+        return False
 
     try:
         dur = get_duration(clean_wav)
-    except:
+    except (OSError, wave.Error, EOFError):
         dur = 3.0
 
     chunk_len = 3.0
@@ -371,15 +405,18 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
         segments.append({"wav_path": clean_wav, "start": 0.0, "end": dur})
 
     if not segments:
-        if os.path.exists(clean_wav): os.remove(clean_wav)
+        with suppress(FileNotFoundError):
+            os.remove(clean_wav)
         return False
 
-    emb_res = _extract_embeddings_from_files_remote(
-        segments, 
-        task="Đăng ký giọng nói"
-    )
-    
-    if os.path.exists(clean_wav): os.remove(clean_wav)
+    try:
+        emb_res = _extract_embeddings_from_files_remote(
+            segments,
+            task="Đăng ký giọng nói"
+        )
+    finally:
+        with suppress(FileNotFoundError):
+            os.remove(clean_wav)
     
     valid_embs = [emb for emb in emb_res if emb is not None]
     if not valid_embs:

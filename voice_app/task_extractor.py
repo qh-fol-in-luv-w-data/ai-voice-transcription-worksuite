@@ -469,7 +469,8 @@ def node_create_tasks(state: AgentState) -> dict:
                         },
                         timeout=10
                     )
-                except:
+                except requests.RequestException as exc:
+                    print(f"   ⚠️ Assign task failed: {exc}")
                     assign_ok = False
 
             # ── Log ──────────────────────────────────────────────────────
@@ -783,7 +784,8 @@ def create_tasks_to_erp(tasks_list):
                         },
                         timeout=10
                     )
-                except:
+                except requests.RequestException as exc:
+                    print(f"   ⚠️ Assign task failed: {exc}")
                     assign_ok = False
 
             created.append({
@@ -919,11 +921,10 @@ Trả về JSON:
             max_tokens=300,
         )
         raw = response.choices[0].message.content.strip()
-        raw = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+        raw = re.sub(r"^(?:```(?:json)?)|(?:```)$", "", raw, flags=re.MULTILINE).strip()
         mapping = json.loads(raw)
         print(f"[Speaker Map LLM] {mapping}")
         return mapping
     except Exception as e:
         print(f"Lỗi map_speakers_llm: {e}")
         return {}
-

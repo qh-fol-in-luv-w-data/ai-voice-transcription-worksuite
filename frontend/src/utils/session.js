@@ -17,8 +17,8 @@ import { ref } from 'vue'
 const authState  = ref('loading')   // 'loading' | 'authorized' | 'denied'
 const _csrf      = ref('')
 const _sessionId = ref('')
-const _user      = ref('Guest')
-const _fullName  = ref('Guest')
+const _user      = ref('')
+const _fullName  = ref('')
 let   _done      = false
 
 /**
@@ -51,10 +51,11 @@ export async function initSession(contextUrl) {
 
     if (res.status === 401 || res.status === 403 || res.status === 307 || res.redirected || res.url.includes('/login')) {
       removeSplash()
+      const redirectTarget = encodeURIComponent(import.meta.env.DEV ? window.location.href : window.location.pathname)
       if (import.meta.env.DEV) {
-        window.location.href = `http://${window.location.hostname}:8000/login?redirect-to=http://${window.location.host}`
+        window.location.href = `http://${window.location.hostname}:8000/login?redirect-to=${redirectTarget}`
       } else {
-        window.location.href = `/login?redirect-to=${window.location.pathname}`
+        window.location.href = `/login?redirect-to=${redirectTarget}`
       }
       return
     }
@@ -102,6 +103,6 @@ export function getSessionId()  { return _sessionId.value }
 
 /** Reset — dung khi logout hoac test */
 export function resetSession()  {
-  _csrf.value = ''; _sessionId.value = ''; _user.value = 'Guest'; _fullName.value = 'Guest'; _done = false
+  _csrf.value = ''; _sessionId.value = ''; _user.value = ''; _fullName.value = ''; _done = false
   authState.value = 'loading'
 }

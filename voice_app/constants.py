@@ -2,11 +2,17 @@ import os
 import frappe
 from dotenv import load_dotenv
 
+def _log_config_error(title, exc):
+    try:
+        frappe.log_error(str(exc), title)
+    except Exception:
+        return
+
 # Try to load .env from bench directory
 try:
     load_dotenv(os.path.join(frappe.utils.get_bench_path(), ".env"))
-except Exception:
-    pass
+except Exception as exc:
+    _log_config_error("Voice App dotenv load failed", exc)
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 def get_whisper_url():
@@ -14,7 +20,8 @@ def get_whisper_url():
         if frappe.db:
             val = frappe.db.get_single_value("Voice App Settings", "whisper_url")
             if val: return val
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App whisper URL lookup failed", exc)
     return os.getenv("WHISPER_URL", "http://localhost:8080/inference")
 
 def get_hf_token():
@@ -23,7 +30,8 @@ def get_hf_token():
             doc = frappe.get_doc("Voice App Settings")
             val = doc.get_password("hf_token")
             if val: return val
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App HF token lookup failed", exc)
     return os.getenv("HF_TOKEN", "")
 
 AGENT_NAME = "2AS-WORKSUITE"
@@ -35,13 +43,14 @@ def get_openai_api_key(agent_name=AGENT_NAME):
             try:
                 val = doc.get_password("openai_api_key")
                 if val: return val
-            except Exception:
-                pass
+            except Exception as exc:
+                _log_config_error("Voice App OpenAI password lookup failed", exc)
         
         # Fallback to site_config.json
         if frappe.conf.get("openai_api_key"):
             return frappe.conf.get("openai_api_key")
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App OpenAI key lookup failed", exc)
     return os.getenv("OPENAI_API_KEY", "")
 
 
@@ -53,7 +62,8 @@ def get_gemini_api_key():
             val = doc.get_password("gemini_api_key")
             frappe.flags.ignore_permissions = False
             if val: return val
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App Gemini key lookup failed", exc)
     return os.getenv("GEMINI_API_KEY", "")
 
 
@@ -65,7 +75,8 @@ def get_gemini_model():
             val = doc.gemini_model
             frappe.flags.ignore_permissions = False
             if val: return val
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App Gemini model lookup failed", exc)
     return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 
@@ -75,7 +86,8 @@ def get_elevenlabs_api_key():
             doc = frappe.get_doc("Voice App Settings")
             val = doc.get_password("elevenlabs_api_key")
             if val: return val
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App ElevenLabs key lookup failed", exc)
     return os.getenv("ELEVENLABS_API_KEY", "")
 
 def get_gemini_api_key():
@@ -86,8 +98,8 @@ def get_gemini_api_key():
             val = doc.get_password("gemini_api_key")
             if val:
                 return val
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_config_error("Voice App Gemini singleton key lookup failed", exc)
     return ""
 
 def get_gemini_model():
@@ -97,8 +109,8 @@ def get_gemini_model():
             val = frappe.db.get_single_value("Voice App Settings", "gemini_model")
             if val:
                 return str(val).strip()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_config_error("Voice App Gemini singleton model lookup failed", exc)
     return ""
 
 def get_worksuite_url():
@@ -109,11 +121,14 @@ def get_worksuite_url():
             doc = frappe.get_doc("Voice App Settings")
             val = doc.sync_api_url or doc.worksuite_url
             frappe.flags.ignore_permissions = False
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App Worksuite URL lookup failed", exc)
     if not val:
         val = os.getenv("WORKSUITE_URL", "https://cterp.ctgroupvietnam.com")
     val = val.strip()
-    if not val.startswith("http://") and not val.startswith("https://"):
+    if val.startswith("http://"):
+        val = "https://" + val[len("http://"):]
+    elif not val.startswith("https://"):
         val = "https://" + val
     return val.rstrip("/")
 
@@ -125,8 +140,9 @@ def get_worksuite_token():
             val = doc.get_password("sync_api_token") or doc.get_password("worksuite_token")
             frappe.flags.ignore_permissions = False
             if val: return val
-    except Exception: pass
-    return os.getenv("WORKSUITE_TOKEN", "b88248d0241d472:94a1889151c0543")
+    except Exception as exc:
+        _log_config_error("Voice App Worksuite token lookup failed", exc)
+    return os.getenv("WORKSUITE_TOKEN", "")
 
 def get_google_service_account_path():
     """Đường dẫn file JSON service account Google."""
@@ -137,7 +153,8 @@ def get_google_service_account_path():
             val = doc.google_sa_path
             frappe.flags.ignore_permissions = False
             if val: return val
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App Google service account lookup failed", exc)
     return os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 
 def get_google_gcs_bucket():
@@ -149,7 +166,8 @@ def get_google_gcs_bucket():
             val = doc.google_gcs_bucket
             frappe.flags.ignore_permissions = False
             if val: return val
-    except Exception: pass
+    except Exception as exc:
+        _log_config_error("Voice App Google GCS bucket lookup failed", exc)
     return os.getenv("GOOGLE_GCS_BUCKET", "pai-stt")
 
 MIN_SPEAKERS = None

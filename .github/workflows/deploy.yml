@@ -24,13 +24,19 @@ jobs:
             
               export PATH=$PATH:/home/frappe/.local/bin
               source /home/frappe/frappe-env/bin/activate
+              REPO_TOKEN="${{ secrets.WORKSUITE_REPO_TOKEN }}"
+              if [ -z "$REPO_TOKEN" ]; then
+                  echo "WORKSUITE_REPO_TOKEN secret is not configured"
+                  exit 1
+              fi
+              REPO_URL="https://x-access-token:${REPO_TOKEN}@github.com/CTGroup-DAIT/2as-worksuite.git"
               if [ ! -d "/home/frappe/frappe-bench/apps/voice_app" ]; then
                   echo "🚀 App voice_app chưa tồn tại. Đang tự động clone và cài đặt vào UAT..."
                   cd /home/frappe/frappe-bench
-                  bench get-app --branch uat https://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@github.com/CTGroup-DAIT/2as-worksuite.git --resolve-deps || true
+                  bench get-app --branch uat "$REPO_URL" --resolve-deps || true
                   cd /home/frappe/frappe-bench/apps/voice_app
                   git remote rename upstream origin || true
-              git remote set-url origin https://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@github.com/CTGroup-DAIT/2as-worksuite.git || true
+                  git remote set-url origin "$REPO_URL" || true
                   cd /home/frappe/frappe-bench
                   bench --site uatapp.ctpai.vn install-app voice_app || true
                   bench --site uatapp.ctpai.vn migrate
@@ -39,11 +45,11 @@ jobs:
               cd /home/frappe/frappe-bench/apps/voice_app
               # Self-healing: Tự động sửa remote nếu kẹt từ lần cài đặt cũ
               git remote rename upstream origin || true
-              git remote set-url origin https://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@github.com/CTGroup-DAIT/2as-worksuite.git || true
+              git remote set-url origin "$REPO_URL" || true
               git clean -fd
               git fetch origin uat || true
               git reset --hard origin/uat || true
-                            # Self-healing: Xóa các tên app bị lỗi
+              # Self-healing: Xóa các tên app bị lỗi
               sed -i 's/2as-worksuite//g' /home/frappe/frappe-bench/sites/apps.txt || true
               # Self-healing: Sửa lỗi file apps.txt bị dính chữ (vd: jd_generatorai_ats) do thiếu dấu enter
               sed -i "s/\(voice_app\)/\n\1\n/g" /home/frappe/frappe-bench/sites/apps.txt || true
@@ -85,13 +91,19 @@ jobs:
             
               export PATH=$PATH:/home/frappe/.local/bin
               source /home/frappe/frappe-env/bin/activate
+              REPO_TOKEN="${{ secrets.WORKSUITE_REPO_TOKEN }}"
+              if [ -z "$REPO_TOKEN" ]; then
+                  echo "WORKSUITE_REPO_TOKEN secret is not configured"
+                  exit 1
+              fi
+              REPO_URL="https://x-access-token:${REPO_TOKEN}@github.com/CTGroup-DAIT/2as-worksuite.git"
               if [ ! -d "/home/frappe/frappe-bench/apps/voice_app" ]; then
                   echo "🚀 App voice_app chưa tồn tại. Đang tự động clone và cài đặt vào PROD..."
                   cd /home/frappe/frappe-bench
-                  bench get-app --branch master https://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@github.com/CTGroup-DAIT/2as-worksuite.git --resolve-deps || true
+                  bench get-app --branch master "$REPO_URL" --resolve-deps || true
                   cd /home/frappe/frappe-bench/apps/voice_app
                   git remote rename upstream origin || true
-              git remote set-url origin https://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@github.com/CTGroup-DAIT/2as-worksuite.git || true
+                  git remote set-url origin "$REPO_URL" || true
                   cd /home/frappe/frappe-bench
                   bench --site app.ctpai.vn install-app voice_app || true
                   bench --site app.ctpai.vn migrate
@@ -100,11 +112,11 @@ jobs:
               cd /home/frappe/frappe-bench/apps/voice_app
               # Self-healing: Tự động sửa remote nếu kẹt từ lần cài đặt cũ
               git remote rename upstream origin || true
-              git remote set-url origin https://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@github.com/CTGroup-DAIT/2as-worksuite.git || true
+              git remote set-url origin "$REPO_URL" || true
               git clean -fd
               git fetch origin master || true
               git reset --hard origin/master || true
-                            # Self-healing: Xóa các tên app bị lỗi
+              # Self-healing: Xóa các tên app bị lỗi
               sed -i 's/2as-worksuite//g' /home/frappe/frappe-bench/sites/apps.txt || true
               # Self-healing: Sửa lỗi file apps.txt bị dính chữ (vd: jd_generatorai_ats) do thiếu dấu enter
               sed -i "s/\(voice_app\)/\n\1\n/g" /home/frappe/frappe-bench/sites/apps.txt || true

@@ -159,7 +159,9 @@ const submitVoiceTask = async () => {
   voiceTaskMissingFields.value = []
   currentDraftId.value = null
 
-  const jobKey = 'v2t_' + Date.now() + '_' + Math.floor(Math.random() * 1000)
+  const randomBytes = new Uint32Array(2)
+  crypto.getRandomValues(randomBytes)
+  const jobKey = `v2t_${Date.now()}_${Array.from(randomBytes, value => value.toString(16)).join('')}`
 
   const handleProgress = (data) => {
     if (data.job_key && data.job_key !== jobKey) return
