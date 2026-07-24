@@ -102,8 +102,8 @@ _hfhub.hf_hub_download = _patched_hf_hub_dl
 try:
     import pyannote.audio.core.pipeline as _ppl_mod
     _ppl_mod.hf_hub_download = _patched_hf_hub_dl
-except Exception:
-    pass
+except ImportError:
+    _ppl_mod = None
 
 # torchaudio.backend.common shim (pyannote 3.1.x speaker_verification)
 import sys

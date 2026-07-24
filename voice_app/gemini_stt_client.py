@@ -2,10 +2,11 @@ import os
 import time
 import json
 import re
-import random
+import secrets
 import threading
 import requests as _requests
 import concurrent.futures
+from contextlib import suppress
 from .audio_utils import get_duration
 from .constants import get_gemini_api_key, get_gemini_model
 
@@ -16,6 +17,7 @@ STREAM_URL      = "https://generativelanguage.googleapis.com/v1beta/models/{mode
 
 _RETRY_MAX        = 4   # số lần thử tối đa khi gặp 429
 _RETRY_BASE_DELAY = 5   # giây, tăng gấp đôi mỗi lần: 5 → 10 → 20 → 40
+_SECURE_RANDOM = secrets.SystemRandom()
 
 # Thread-local session để mỗi thread có connection pool riêng
 _thread_local = threading.local()
@@ -25,12 +27,16 @@ def _get_session():
         _thread_local.session = _requests.Session()
     return _thread_local.session
 
+def _retry_delay(attempt, low=1, high=5):
+    return _RETRY_BASE_DELAY * (2 ** attempt) + _SECURE_RANDOM.uniform(low, high)
+
 def _get_gemini_model():
     try:
         import frappe
         val = frappe.conf.get("gemini_model")
         if val: return val
-    except Exception: pass
+    except Exception as exc:
+        print(f"[Gemini STT] Cannot read gemini_model from frappe.conf: {exc}")
     return get_gemini_model()
 
 def _get_api_key():
@@ -38,7 +44,8 @@ def _get_api_key():
         import frappe
         val = frappe.conf.get("gemini_api_key")
         if val: return val
-    except Exception: pass
+    except Exception as exc:
+        print(f"[Gemini STT] Cannot read gemini_api_key from frappe.conf: {exc}")
     return get_gemini_api_key()
 
 
@@ -89,7 +96,7 @@ def _upload_file_data(wav_path, api_key):
                 timeout=120,
             )
             if init.status_code == 429 and attempt < _RETRY_MAX - 1:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                delay = _retry_delay(attempt)
                 print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
                 time.sleep(delay)
                 continue
@@ -97,7 +104,7 @@ def _upload_file_data(wav_path, api_key):
             break
         except (_requests.exceptions.RequestException, IOError) as e:
             if attempt < _RETRY_MAX - 1:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                delay = _retry_delay(attempt)
                 print(f"[Gemini STT] Lỗi kết nối (init upload) ({type(e).__name__}), thử lại sau {delay:.1f}s...")
                 time.sleep(delay)
                 continue
@@ -121,7 +128,7 @@ def _upload_file_data(wav_path, api_key):
                 timeout=600,
             )
             if upload_resp.status_code == 429 and attempt < _RETRY_MAX - 1:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                delay = _retry_delay(attempt)
                 print(f"[Gemini STT] 429 upload data, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
                 time.sleep(delay)
                 continue
@@ -129,7 +136,7 @@ def _upload_file_data(wav_path, api_key):
             break
         except (_requests.exceptions.RequestException, IOError) as e:
             if attempt < _RETRY_MAX - 1:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                delay = _retry_delay(attempt)
                 print(f"[Gemini STT] Lỗi kết nối (upload data) ({type(e).__name__}), thử lại sau {delay:.1f}s...")
                 time.sleep(delay)
                 continue
@@ -154,7 +161,7 @@ def _wait_file_active(file_name, file_uri, api_key):
         )
         if sr.status_code in [403, 429, 500, 502, 503, 504]:
             print(f"[Gemini STT] File status {sr.status_code}, retrying...")
-            time.sleep(5 + random.uniform(0, 2))
+            time.sleep(_retry_delay(0, 0, 2))
             continue
         sr.raise_for_status()
         state = sr.json().get("state", "")
@@ -231,7 +238,7 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
 
             if resp.status_code in [403, 429, 500, 502, 503, 504]:
                 if attempt < _RETRY_MAX - 1:
-                    delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                    delay = _retry_delay(attempt)
                     print(f"[Gemini STT] {resp.status_code} stream, thử lại sau {delay:.1f}s...")
                     time.sleep(delay)
                     continue
@@ -285,7 +292,7 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
 
         except (_requests.exceptions.RequestException, IOError) as e:
             if attempt < _RETRY_MAX - 1:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(1, 5)
+                delay = _retry_delay(attempt)
                 print(f"[Gemini STT] Connection error ({type(e).__name__}), thử lại sau {delay:.1f}s...")
                 time.sleep(delay)
             else:
@@ -373,7 +380,7 @@ QUAN TRỌNG: "start" và "end" là số GIÂY (seconds) tính từ đầu file,
 
 def _parse_gemini_response(text):
     """Extract JSON array từ Gemini response."""
-    text = re.sub(r"^```(?:json)?\s*|```\s*$", "", text.strip(), flags=re.MULTILINE).strip()
+    text = re.sub(r"^(?:```(?:json)?\s*)|(?:```\s*)$", "", text.strip(), flags=re.MULTILINE).strip()
     match = re.search(r"\[.*\]", text, re.DOTALL)
     text_to_parse = match.group() if match else text
 
@@ -483,7 +490,8 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
         try:
             import frappe
             frappe.log_error(f"Bat dau call_gemini_stt voi {len(chunks_info)} chunks, model={model_name}", "Gemini STT Debug")
-        except: pass
+        except Exception as exc:
+            print(f"[Gemini STT] Debug log failed: {exc}")
         
         print(f"[Gemini STT] Xử lý {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
@@ -504,7 +512,8 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     try:
                         chunk_idx = int(s['speaker_id'].split('_')[0][1:])
                         completed_chunks.add(chunk_idx)
-                    except: pass
+                    except (ValueError, TypeError, IndexError):
+                        continue
 
         import threading
         _upload_lock = threading.Semaphore(8)
@@ -544,8 +553,8 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     # Luôn xóa remote file sau khi xong
                     _delete_file(file_name, api_key)
                     if current_wav != original_chunk_wav:
-                        try: os.remove(current_wav)
-                        except: pass
+                        with suppress(FileNotFoundError):
+                            os.remove(current_wav)
                         # Do NOT remove original_chunk_wav, handled by api.py Voice Meeting Chunk records
 
                 if not gemini_segments:
@@ -560,7 +569,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     if not text: continue
                     try:
                         seg_start = _parse_time(seg.get("start", 0))
-                    except:
+                    except (ValueError, TypeError):
                         seg_start = 0
                     if seg_start > chunk_duration + 10:
                         break
@@ -626,8 +635,8 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                             is_subchunk=True, dense_subchunk_offset=last_valid_ts
                         )
 
-                        try: os.remove(resume_wav)
-                        except: pass
+                        with suppress(FileNotFoundError):
+                            os.remove(resume_wav)
 
                         if r_use:
                             for k in chunk_usage:
@@ -647,12 +656,13 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
         # Chạy tất cả chunk song song
         try:
             frappe.log_error(f"Bat dau chay ThreadPoolExecutor cho {len(chunks)} chunks", "Gemini STT Debug")
-        except: pass
+        except Exception as exc:
+            print(f"[Gemini STT] Debug log failed: {exc}")
         
         if chunk_update_cb:
             for c in chunks:
-                try: chunk_update_cb(c.get("name", ""), "Processing", None, None, None, 0)
-                except: pass
+                with suppress(Exception):
+                    chunk_update_cb(c.get("name", ""), "Processing", None, None, None, 0)
         
         completed_count = 0
         total_chunks    = len(chunks)
@@ -677,13 +687,13 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     if err_msg:
                         chunk_errors.append(f"Chunk {idx+1}: {err_msg}")
                         if chunk_update_cb:
-                            try: chunk_update_cb(c_name, "Error", None, None, err_msg, 0)
-                            except: pass
+                            with suppress(Exception):
+                                chunk_update_cb(c_name, "Error", None, None, err_msg, 0)
                     else:
                         results[res_idx] = (segments, raw_words, chunk_text)
                         if chunk_update_cb:
-                            try: chunk_update_cb(c_name, "Completed", segments, raw_words, None, chunk_usage.get("tokens_used", 0) if chunk_usage else 0)
-                            except: pass
+                            with suppress(Exception):
+                                chunk_update_cb(c_name, "Completed", segments, raw_words, None, chunk_usage.get("tokens_used", 0) if chunk_usage else 0)
 
                     if chunk_usage:
                         total_in_all  += chunk_usage.get("prompt_tokens", 0)
@@ -692,12 +702,12 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 except Exception as e:
                     import traceback
                     err_trace = traceback.format_exc()
-                    try: frappe.log_error(f"Loi tai chunk future result: {err_trace}", "Gemini STT Debug")
-                    except: pass
+                    with suppress(Exception):
+                        frappe.log_error(f"Loi tai chunk future result: {err_trace}", "Gemini STT Debug")
                     chunk_errors.append(f"Chunk {idx+1}: {str(e)}")
                     if chunk_update_cb:
-                        try: chunk_update_cb(c_name, "Error", None, None, str(e), 0)
-                        except: pass
+                        with suppress(Exception):
+                            chunk_update_cb(c_name, "Error", None, None, str(e), 0)
 
                 completed_count += 1
                 if progress_callback:
@@ -723,7 +733,8 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                             all_segments.append(s)
                             if 'text' in s:
                                 all_full_text += " " + s['text']
-                    except: pass
+                    except (ValueError, TypeError, IndexError):
+                        continue
 
         all_segments.sort(key=lambda x: x.get('start', 0))
 
@@ -751,9 +762,8 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
             f"in={total_in_all:,} + out={total_out_all:,} = {total_tok_all:,} tokens | "
             f"cost=~${total_cost:.4f} USD ({len(chunks_info)} chunks)"
         )
-        try:
+        with suppress(Exception):
             frappe.log_error(f"call_gemini_stt hoan thanh. Segments: {len(all_segments)}, Loi: {chunk_errors}", "Gemini STT Debug")
-        except: pass
         
         return all_segments, all_raw_words, all_full_text.strip(), None, total_in_all, total_out_all
 

@@ -15,8 +15,8 @@ const props = defineProps({
 const stringToColor = (str) => {
   if (!str) return '#888888';
   let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  for (const char of str) {
+    hash = char.codePointAt(0) + ((hash << 5) - hash);
   }
   const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
   return '#' + '00000'.substring(0, 6 - c.length) + c;
@@ -40,7 +40,7 @@ watch(() => props.meeting, (newVal) => {
 
 const formatTime = (seconds) => {
   if (seconds == null) return '0.00s'
-  return (typeof seconds === 'number' ? seconds : parseFloat(seconds)).toFixed(2) + 's'
+  return (typeof seconds === 'number' ? seconds : Number.parseFloat(seconds)).toFixed(2) + 's'
 }
 
 const downloadFile = (url) => {

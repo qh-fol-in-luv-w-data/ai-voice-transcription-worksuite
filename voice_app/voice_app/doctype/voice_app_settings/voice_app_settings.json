@@ -13,6 +13,7 @@
         "gemini_model",
         "google_sa_path",
         "google_gcs_bucket",
+        "embedding_api_url",
         "worksuite_url",
         "worksuite_email",
         "worksuite_password",
@@ -65,13 +66,18 @@
             "label": "Google GCS Bucket"
         },
         {
+            "description": "HTTPS endpoint for the voice embedding service, for example https://embedding.example.com",
+            "fieldname": "embedding_api_url",
+            "fieldtype": "Data",
+            "label": "Embedding API URL"
+        },
+        {
             "default": "https://deverp.ctgroupvietnam.com",
             "fieldname": "worksuite_url",
             "fieldtype": "Data",
             "label": "Worksuite URL"
         },
         {
-            "default": "ai.worksuit.dev@ctmcorp.com.vn",
             "fieldname": "worksuite_email",
             "fieldtype": "Data",
             "label": "Worksuite Email"

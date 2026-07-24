@@ -31,6 +31,7 @@ Cach dung:
 import frappe
 from frappe.utils import now_datetime
 import time
+from contextlib import suppress
 
 
 class ActivityLogger:
@@ -74,10 +75,10 @@ class ActivityLogger:
             return doc.name
         except Exception as e:
             # QUAN TRONG: rollback truoc khi log de tranh InFailedSqlTransaction
-            try: frappe.db.rollback()
-            except: pass
-            try: frappe.log_error(f"ActivityLogger.create_session failed: {e}")
-            except: pass
+            with suppress(Exception):
+                frappe.db.rollback()
+            with suppress(Exception):
+                frappe.log_error(f"ActivityLogger.create_session failed: {e}")
             return ""
 
     def update_session_active(self, session_name: str):
@@ -86,8 +87,9 @@ class ActivityLogger:
             frappe.db.set_value(self.session_dt, session_name,
                                 "last_active_at", now_datetime(),
                                 update_modified=False)
-        except Exception:
-            pass
+        except Exception as e:
+            with suppress(Exception):
+                frappe.log_error(f"ActivityLogger.update_session_active failed: {e}")
 
     def finish_session(self, session_name: str):
         """Danh dau session hoan thanh."""
@@ -96,8 +98,9 @@ class ActivityLogger:
                 "status": "completed",
                 "last_active_at": now_datetime(),
             }, update_modified=False)
-        except Exception:
-            pass
+        except Exception as e:
+            with suppress(Exception):
+                frappe.log_error(f"ActivityLogger.finish_session failed: {e}")
 
     def _increment_session_counters(self, session_name: str,
                                     actions: int = 0, ai_calls: int = 0,
@@ -140,10 +143,10 @@ class ActivityLogger:
             sess.save(ignore_permissions=True)
             frappe.db.commit()
         except Exception as e:
-            try: frappe.db.rollback()
-            except: pass
-            try: frappe.log_error(f"ActivityLogger._increment_session_counters: {e}")
-            except: pass
+            with suppress(Exception):
+                frappe.db.rollback()
+            with suppress(Exception):
+                frappe.log_error(f"ActivityLogger._increment_session_counters: {e}")
 
 
     # ─────────────────────────────────────────────
@@ -172,10 +175,10 @@ class ActivityLogger:
             self._increment_session_counters(session_name, actions=1)
             return doc.name
         except Exception as e:
-            try: frappe.db.rollback()
-            except: pass
-            try: frappe.log_error(f"ActivityLogger.start_action failed: {e}")
-            except: pass
+            with suppress(Exception):
+                frappe.db.rollback()
+            with suppress(Exception):
+                frappe.log_error(f"ActivityLogger.start_action failed: {e}")
             return ""
 
     def finish_action(self, action_name: str, status: str = "success",
@@ -200,10 +203,10 @@ class ActivityLogger:
             }, update_modified=False)
             frappe.db.commit()
         except Exception as e:
-            try: frappe.db.rollback()
-            except: pass
-            try: frappe.log_error(f"ActivityLogger.finish_action failed: {e}")
-            except: pass
+            with suppress(Exception):
+                frappe.db.rollback()
+            with suppress(Exception):
+                frappe.log_error(f"ActivityLogger.finish_action failed: {e}")
 
     # ─────────────────────────────────────────────
     # AI CALL LOG
@@ -252,10 +255,10 @@ class ActivityLogger:
             )
             return doc.name
         except Exception as e:
-            try: frappe.db.rollback()
-            except: pass
-            try: frappe.log_error(f"ActivityLogger.log_ai_call failed: {e}")
-            except: pass
+            with suppress(Exception):
+                frappe.db.rollback()
+            with suppress(Exception):
+                frappe.log_error(f"ActivityLogger.log_ai_call failed: {e}")
             return ""
 
 
