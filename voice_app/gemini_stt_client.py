@@ -563,23 +563,51 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 # Lọc ảo giác lặp
                 clean_segments = []
                 loop_count = 0
+                loop_key = None
+                loop_start_idx = 0
+
+                def repeat_key(text):
+                    import re
+                    key = re.sub(r"[^\w\s]", " ", text.lower(), flags=re.UNICODE)
+                    key = " ".join(key.split())
+                    key = key.replace("nhật trình", "tờ trình")
+                    key = key.replace("nhặt trình", "tờ trình")
+                    # Các đuôi tình thái làm Gemini biến thể câu loop:
+                    # "Nhật trình là được", "Nhật trình là được rồi", "Nhật trình là được mà".
+                    endings = {"rồi", "mà", "thôi", "nha", "nhé", "ạ", "á", "đó"}
+                    words = key.split()
+                    while words and words[-1] in endings:
+                        words.pop()
+                    return " ".join(words)
+
                 for seg in gemini_segments:
                     if not isinstance(seg, dict): continue
                     text = seg.get("text", "").strip()
                     if not text: continue
+                    text = text.replace("Nhật trình", "Tờ trình").replace("nhật trình", "tờ trình")
+                    text = text.replace("Nhặt trình", "Tờ trình").replace("nhặt trình", "tờ trình")
+                    seg["text"] = text
                     try:
                         seg_start = _parse_time(seg.get("start", 0))
                     except (ValueError, TypeError):
                         seg_start = 0
                     if seg_start > chunk_duration + 10:
                         break
-                    if clean_segments and text == clean_segments[-1].get("text", "").strip():
+
+                    key = repeat_key(text)
+                    is_short_loop_candidate = len(key.split()) <= 8
+                    if is_short_loop_candidate and key and key == loop_key:
                         loop_count += 1
-                        if loop_count >= 3:
+                        if loop_count > 3:
+                            del clean_segments[loop_start_idx:]
+                            print(f"[Gemini STT] ⚠️ Lọc loop STT lặp: '{text}'")
                             break
                     else:
-                        loop_count = 0
-                        clean_segments.append(seg)
+                        loop_key = key if is_short_loop_candidate else None
+                        loop_count = 1 if is_short_loop_candidate else 0
+                        loop_start_idx = len(clean_segments)
+
+                    clean_segments.append(seg)
 
                 if not clean_segments:
                     return idx, [], [], "", chunk_usage, None
