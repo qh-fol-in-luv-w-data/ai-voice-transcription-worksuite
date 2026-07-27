@@ -23,12 +23,23 @@ from scipy.spatial.distance import cosine
 from .constants import get_hf_token, SPEAKER_DB_PATH, SIMILARITY_THRESHOLD
 
 def _get_embedding_api_url():
-    url = os.getenv("VOICE_EMBEDDING_API_URL", "").strip()
+    url = (
+        os.getenv("VOICE_EMBEDDING_API_URL")
+        or os.getenv("EMBEDDING_API_URL")
+        or ""
+    ).strip()
     if not url:
         try:
             import frappe
-            doc = frappe.get_single("Voice App Settings")
-            url = (doc.get("embedding_api_url") or "").strip()
+            url = (
+                frappe.conf.get("voice_embedding_api_url")
+                or frappe.conf.get("embedding_api_url")
+                or ""
+            ).strip()
+            if not url:
+                doc = frappe.get_single("Voice App Settings")
+                if doc.meta.has_field("embedding_api_url"):
+                    url = (doc.get("embedding_api_url") or "").strip()
         except Exception as exc:
             print(f"Embedding API URL lookup failed: {exc}")
     if not url:
@@ -38,8 +49,74 @@ def _get_embedding_api_url():
     parsed = urlparse(url)
     local_hosts = {"localhost", "127.0.0.1", "::1"}
     if parsed.scheme != "https" and parsed.hostname not in local_hosts:
-        raise ValueError("VOICE_EMBEDDING_API_URL must use HTTPS for non-local hosts")
+        allow_insecure_http = os.getenv("VOICE_EMBEDDING_ALLOW_INSECURE_HTTP") == "1"
+        if not allow_insecure_http:
+            try:
+                import frappe
+                allow_insecure_http = bool(
+                    frappe.conf.get("voice_embedding_allow_insecure_http")
+                    or frappe.conf.get("allow_insecure_embedding_api_url")
+                )
+            except Exception:
+                allow_insecure_http = False
+        if not allow_insecure_http:
+            raise ValueError(
+                "Embedding API URL must use HTTPS for non-local hosts. "
+                "Set voice_embedding_allow_insecure_http=1 only for trusted dev endpoints."
+            )
     return url.rstrip("/")
+
+def _extract_embeddings_from_files_local(files_list: list) -> list:
+    import sys
+    from voice_app.constants import get_hf_token
+
+    if not files_list:
+        return []
+
+    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
+    hf_token = get_hf_token() or ""
+    python_exe = sys.executable
+
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as f:
+        json.dump(files_list, f)
+        temp_file_path = f.name
+
+    args = [python_exe, script_path, "", hf_token, "--files-list", temp_file_path]
+    try:
+        result = subprocess.run(  # nosec B603
+            args,
+            capture_output=True,
+            text=True,
+            timeout=max(300, 45 * len(files_list)),
+        )
+    except subprocess.TimeoutExpired:
+        with suppress(FileNotFoundError):
+            os.remove(temp_file_path)
+        raise RuntimeError(f"Local batch embedding timed out for {len(files_list)} files.")
+    finally:
+        with suppress(FileNotFoundError):
+            os.remove(temp_file_path)
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Local batch embedding failed (exit={result.returncode}):\n{result.stderr[-2000:]}"
+        )
+
+    stdout = result.stdout.strip()
+    json_line = None
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("["):
+            json_line = line
+            break
+    if json_line is None:
+        raise RuntimeError(f"Không tìm thấy JSON trong local batch stdout:\n{stdout[-2000:]}")
+
+    results_list = json.loads(json_line)
+    final_results = []
+    for emb in results_list:
+        final_results.append(None if emb is None else np.array(emb))
+    return final_results
 
 # ── SPEAKER DATABASE ──────────────────────────────────────────────────────────
 class SpeakerDB:
@@ -245,7 +322,8 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
 
     api_url = _get_embedding_api_url()
     if not api_url:
-        raise RuntimeError("Chưa cấu hình VOICE_EMBEDDING_API_URL cho embedding service")
+        print("Chưa cấu hình embedding service, fallback sang local subprocess")
+        return _extract_embeddings_from_files_local(files_list)
     endpoint_url = f"{api_url}/extract"
     final_results = []
     
@@ -290,6 +368,10 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
             print(f"Lỗi khi gọi API external cho {wav_path}: {e}")
             final_results.append(None)
             
+    if files_list and not any(emb is not None for emb in final_results):
+        print("Embedding API không trả về embedding nào, fallback sang local subprocess")
+        return _extract_embeddings_from_files_local(files_list)
+
     return final_results
 
 def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> list:
