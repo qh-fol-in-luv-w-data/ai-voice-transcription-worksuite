@@ -455,7 +455,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 chunk_prefix = "all"
                 if spk.startswith("c") and "_" in spk:
                     import re
-                    m = re.match(r'(c\d+(?:_resume)?)_', spk)
+                    m = re.match(r'(c\d+(?:_resume\d*)*)_', spk)
                     if m:
                         chunk_prefix = m.group(1)
 
@@ -473,14 +473,16 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 if spk not in spk_identified:
                     best_score = spk_ranked[spk][0][1] if spk_ranked.get(spk) else 0.0
                     spk_identified[spk] = ("Người lạ", best_score, "", None)
+            for spk in unique_speakers:
+                if spk not in spk_identified:
+                    spk_identified[spk] = ("Người lạ", 0.0, "", None)
     
             # Log kết quả greedy assignment
             summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
             print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
     
-            # Gộp các "Người lạ" có giọng giống nhau giữa các chunk (cosine sim >= 0.5)
+            # Gộp các "Người lạ" có giọng giống nhau giữa các chunk.
             # Vì nhiều chunk trả ra nhiều speaker độc lập, nên phải so khớp để gán chung
-            # Trả lại threshold 0.5 (mức chuẩn) và linkage 'average'
             from .constants import MERGE_THRESHOLD
             strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
     
@@ -496,42 +498,72 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     import re
                     import numpy as np
                     def get_chunk_idx(s):
-                        m = re.match(r'c(\d+)(_resume)?_', s)
+                        m = re.match(r'c(\d+)(?:_resume\d*)*_', s)
                         if not m: return 0.0
                         base = float(m.group(1))
-                        return base + 0.5 if m.group(2) else base
+                        return base + 0.5 if "_resume" in s else base
+
+                    def get_speaker_suffix(s):
+                        m = re.match(r'c\d+(?:_resume\d*)*_(.+)', s)
+                        return m.group(1) if m else s
+
+                    def get_group_stats(group):
+                        duration = 0.0
+                        words = 0
+                        seg_count = 0
+                        for member in group:
+                            for seg in unique_speakers.get(member, []):
+                                start = float(seg.get("start") or 0)
+                                end = float(seg.get("end") or start)
+                                duration += max(0.0, end - start)
+                                words += len((seg.get("text") or "").split())
+                                seg_count += 1
+                        return seg_count, duration, words
+
+                    def group_embedding(group):
+                        embs = [spk_embeddings[m] for m in group if m in spk_embeddings]
+                        if not embs:
+                            return None
+                        return np.mean(embs, axis=0)
+
+                    def cosine_sim(a, b):
+                        from scipy.spatial.distance import cosine
+                        if a is None or b is None or np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+                            return 0.0
+                        return 1 - cosine(a, b)
+
+                    def should_cleanup_short_group(group):
+                        seg_count, duration, words = get_group_stats(group)
+                        has_resume = any("_resume" in member for member in group)
+                        too_tiny = duration <= 3.0 or words <= 3
+                        short_resume = has_resume and duration <= 10.0 and words <= 12
+                        very_short = duration <= 8.0 and seg_count <= 2 and words <= 8
+                        return too_tiny or short_resume or very_short
                     
                     # Sắp xếp speaker theo chunk: ưu tiên xử lý c0 trước, rồi c1, c2...
                     valid_strangers.sort(key=lambda x: (get_chunk_idx(x), x))
                     
-                    # Thuật toán Gom Nhóm Ràng Buộc (Constrained Clustering):
-                    # 1. Không bao giờ gộp 2 speaker trong CÙNG 1 chunk.
-                    # 2. Người lạ ở chunk sau sẽ tìm group ở chunk trước có độ giống cao nhất.
+                    # Gom nhóm theo ngưỡng MERGE_THRESHOLD cấu hình.
                     groups = []
                     for spk in valid_strangers:
-                        chunk_idx = get_chunk_idx(spk)
                         emb = spk_embeddings[spk]
                         
                         best_sim = -1
                         best_group_idx = -1
                         
                         for i, grp in enumerate(groups):
-                            # Bỏ ràng buộc CỐT LÕI cũ: cho phép gộp các speaker trong cùng chunk
-                            # vì Gemini STT có thể cắt 1 người thành nhiều speaker_id.
                             grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
                             
-                            from scipy.spatial.distance import cosine
-                            if np.linalg.norm(grp_emb) == 0 or np.linalg.norm(emb) == 0:
-                                sim = 0.0
-                            else:
-                                sim = 1 - cosine(emb, grp_emb)
+                            sim = cosine_sim(emb, grp_emb)
                             print(f"[CLUSTER DEBUG] {spk} vs Group {i} ({grp}): Sim = {sim:.4f}")
                             frappe.logger("voice_app").error(f"[CLUSTER DEBUG] {spk} vs Group {i} ({grp}): Sim = {sim:.4f}")
                             if sim > best_sim:
                                 best_sim = sim
                                 best_group_idx = i
                                 
-                        if best_sim >= MERGE_THRESHOLD:
+                        can_merge = best_sim >= MERGE_THRESHOLD
+
+                        if can_merge:
                             print(f"[CLUSTER DEBUG] {spk} -> MERGED into Group {best_group_idx} (sim: {best_sim:.4f})")
                             frappe.logger("voice_app").error(f"[CLUSTER DEBUG] {spk} -> MERGED into Group {best_group_idx} (sim: {best_sim:.4f})")
                             groups[best_group_idx].append(spk)
@@ -540,9 +572,40 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                             frappe.logger("voice_app").error(f"[CLUSTER DEBUG] {spk} -> NEW Group {len(groups)}")
                             groups.append([spk])
                         
-                    # Những người không có âm thanh (không có embedding) thì mỗi người tự thành 1 nhóm riêng
-                    for spk in missing_strangers:
-                        groups.append([spk])
+                    # Nếu embedding fail toàn bộ, gom fallback theo nhãn diarization gốc
+                    # để tránh bung ra hàng chục "Người lạ" riêng lẻ.
+                    missing_buckets = {}
+                    for spk in sorted(missing_strangers, key=lambda x: (get_chunk_idx(x), x)):
+                        missing_buckets.setdefault(get_speaker_suffix(spk), []).append(spk)
+                    groups.extend(missing_buckets.values())
+
+                    # Cleanup bảo thủ: chỉ gom group rất ngắn/outlier khi có bằng chứng đủ gần.
+                    # Giữ nguyên các câu ngắn nhưng có nội dung rõ để tránh nuốt người chỉ nói 1 câu.
+                    removed_group_indexes = set()
+                    protected_group_indexes = set()
+                    for i, group in enumerate(groups):
+                        if i in removed_group_indexes or i in protected_group_indexes or not should_cleanup_short_group(group):
+                            continue
+                        emb = group_embedding(group)
+                        best_sim = -1.0
+                        best_group_idx = -1
+                        for j, target in enumerate(groups):
+                            if i == j or j in removed_group_indexes:
+                                continue
+                            sim = cosine_sim(emb, group_embedding(target))
+                            if sim > best_sim:
+                                best_sim = sim
+                                best_group_idx = j
+                        if best_group_idx >= 0 and best_sim >= MERGE_THRESHOLD:
+                            print(f"[CLUSTER CLEANUP] Group {i} {group} -> Group {best_group_idx} (sim: {best_sim:.4f})")
+                            frappe.logger("voice_app").error(
+                                f"[CLUSTER CLEANUP] Group {i} {group} -> Group {best_group_idx} (sim: {best_sim:.4f})"
+                            )
+                            groups[best_group_idx].extend(group)
+                            protected_group_indexes.add(best_group_idx)
+                            removed_group_indexes.add(i)
+                    if removed_group_indexes:
+                        groups = [grp for idx, grp in enumerate(groups) if idx not in removed_group_indexes]
                     
             # Tái tạo lại dictionary stranger_groups như cũ để không làm bể code phía dưới
             stranger_groups = {}
@@ -660,6 +723,84 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb)
                 else:
                     merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb))
+
+            def collapse_short_stranger_labels(items):
+                from collections import defaultdict
+
+                stats = defaultdict(lambda: {"segments": 0, "duration": 0.0})
+                for s, e, label, _txt, _emb in items:
+                    stats[label]["segments"] += 1
+                    stats[label]["duration"] += max(0.0, float(e or s) - float(s or 0))
+
+                def is_short_stranger(label):
+                    item = stats[label]
+                    if not str(label).startswith("👤 Người lạ"):
+                        return False
+                    if item["duration"] <= 3.0:
+                        return True
+                    return item["duration"] <= 8.0 and item["segments"] <= 3
+
+                short_labels = {label for label in stats if is_short_stranger(label)}
+                if not short_labels:
+                    return items
+
+                remap = {}
+                for idx, (s, e, label, _txt, _emb) in enumerate(items):
+                    if label not in short_labels:
+                        continue
+                    best_label = None
+                    best_distance = None
+                    for direction in (-1, 1):
+                        j = idx + direction
+                        while 0 <= j < len(items):
+                            candidate = items[j][2]
+                            if candidate != label and candidate not in short_labels:
+                                if direction < 0:
+                                    distance = abs(float(s or 0) - float(items[j][1] or items[j][0] or 0))
+                                else:
+                                    distance = abs(float(items[j][0] or 0) - float(e or s or 0))
+                                if best_distance is None or distance < best_distance:
+                                    best_distance = distance
+                                    best_label = candidate
+                                break
+                            j += direction
+                    if best_label:
+                        remap[label] = best_label
+
+                if not remap:
+                    return items
+
+                print(f"[LABEL CLEANUP] Short stranger remap: {remap}")
+                frappe.logger("voice_app").error(f"[LABEL CLEANUP] Short stranger remap: {remap}")
+
+                cleaned = []
+                for s, e, label, txt, emb in items:
+                    new_label = remap.get(label, label)
+                    if cleaned and cleaned[-1][2] == new_label and s - cleaned[-1][1] <= 1.5:
+                        prev_s, prev_e, prev_label, prev_txt, prev_emb = cleaned[-1]
+                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb or emb)
+                    else:
+                        cleaned.append((s, e, new_label, txt, emb))
+                return cleaned
+
+            merged_segments = collapse_short_stranger_labels(merged_segments)
+
+            def renumber_stranger_labels(items):
+                import re
+
+                remap = {}
+                next_idx = 1
+                renumbered = []
+                for s, e, label, txt, emb in items:
+                    if re.match(r"^👤 Người lạ \d+$", str(label)):
+                        if label not in remap:
+                            remap[label] = f"👤 Người lạ {next_idx}"
+                            next_idx += 1
+                        label = remap[label]
+                    renumbered.append((s, e, label, txt, emb))
+                return renumbered
+
+            merged_segments = renumber_stranger_labels(merged_segments)
 
             # Format results
             ui_results = []
@@ -963,105 +1104,6 @@ def _extract_tasks_async(payload, user, session_id_header):
     except Exception as e:
         if hasattr(frappe.db, 'rollback'): frappe.db.rollback()
         frappe.log_error(traceback.format_exc(), "Task Extraction Error")
-        frappe.cache().set_value(cache_key, {"status": "error", "message": str(e)}, expires_in_sec=86400)
-
-@frappe.whitelist(allow_guest=False)
-def clean_transcript():
-    data = frappe.request.get_data()
-    payload = json.loads(data)
-    meeting_name = payload.get("meeting_name")
-    if not meeting_name:
-        return {"status": "error", "message": "Thiếu meeting_name"}
-    
-    session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
-    frappe.enqueue(
-        "voice_app.api._clean_transcript_async",
-        queue="long",
-        timeout=1500,
-        payload=payload,
-        user=frappe.session.user,
-        session_id_header=session_id_header
-    )
-    return {"status": "processing"}
-
-@frappe.whitelist(allow_guest=False)
-def check_clean_status(meeting_name):
-    key = f"clean_result_{meeting_name}"
-    result = frappe.cache().get_value(key)
-    if result:
-        frappe.cache().delete_value(key)
-        return result
-    return {"status": "processing"}
-
-def _clean_transcript_async(payload, user, session_id_header):
-    frappe.session.user = user
-    results = payload.get("results", [])
-    model_type = payload.get("model_type", "gpt-4o")
-    meeting_name = payload.get("meeting_name")
-    custom_vocabulary = payload.get("custom_vocabulary", "")
-    
-    cache_key = f"clean_result_{meeting_name}"
-
-    if not results:
-        frappe.cache().set_value(cache_key, {"status": "error", "message": "Không có nội dung để lọc"}, expires_in_sec=86400)
-        return
-
-    try:
-        cleaned_results, err, clean_usage = clean_transcript_llm(results, model_type, custom_vocabulary)
-        if err:
-            frappe.cache().set_value(cache_key, {"status": "error", "message": err}, expires_in_sec=86400)
-            return
-
-        if clean_usage:
-            p_tokens = clean_usage.get("prompt_tokens", 0)
-            c_tokens = clean_usage.get("completion_tokens", 0)
-            cost = (p_tokens * 2.5 + c_tokens * 10.0) / 1000000
-            print(f"💰 [Chi phí OpenAI Clean] Model: {model_type} | Input: {p_tokens} tokens | Output: {c_tokens} tokens | Ước tính: ${cost:.4f}")
-
-            try:
-                session_name = _resolve_session(session_id_header)
-                if session_name:
-                    action_name = _logger.start_action(
-                        session_name,
-                        action_type="clean_transcript",
-                        input_summary=f"Clean transcript with {model_type}",
-                    )
-                    _logger.log_ai_call(
-                        session_name=session_name,
-                        action_name=action_name,
-                        call_type="clean_transcript",
-                        ai_model=model_type,
-                        prompt_tokens=p_tokens,
-                        completion_tokens=c_tokens,
-                        status="success",
-                    )
-                    _logger.finish_action(
-                        action_name,
-                        status="success",
-                        ai_model=model_type,
-                        prompt_tokens=p_tokens,
-                        completion_tokens=c_tokens,
-                    )
-            except Exception as log_ex:
-                try:
-                    frappe.db.rollback()
-                except Exception:
-                    with suppress(Exception):
-                        frappe.db.rollback()
-                frappe.log_error(str(log_ex), "Log Clean Transcript AI Call Error")
-
-        if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
-            meeting_owner = frappe.db.get_value("Voice Meeting", meeting_name, "owner")
-            if _can_access_meeting(meeting_owner, user):
-                frappe.db.set_value("Voice Meeting", meeting_name, "raw_results",
-                                    json.dumps(cleaned_results, ensure_ascii=False))
-                frappe.db.commit()
-            else:
-                raise frappe.PermissionError("Không có quyền cập nhật meeting này")
-
-        frappe.cache().set_value(cache_key, {"status": "success", "cleaned_results": cleaned_results}, expires_in_sec=86400)
-    except Exception as e:
-        frappe.log_error(traceback.format_exc(), "Transcript Clean Error")
         frappe.cache().set_value(cache_key, {"status": "error", "message": str(e)}, expires_in_sec=86400)
 
 @frappe.whitelist(allow_guest=False)
@@ -2191,7 +2233,8 @@ def resume_transcription(meeting_name):
             _transcribe_audio_async,
             queue='long',
             timeout=7200,
-            wav_path=local_path,
+            file_path=local_path,
+            file_url=file_url,
             language=meeting_doc.language or "vi",
             filter_speakers=meeting_doc.filter_speakers,
             meeting_name=meeting_name,

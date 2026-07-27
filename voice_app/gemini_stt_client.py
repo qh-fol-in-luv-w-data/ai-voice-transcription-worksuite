@@ -71,6 +71,50 @@ def _get_auth_headers_and_query(api_key):
             "x-goog-user-project": project_id
         }
 
+def _clean_segment_text(text):
+    """Normalize STT text without changing meeting meaning."""
+    if not text:
+        return ""
+
+    cleaned = str(text).strip()
+    replacements = {
+        "Nhật trình": "Tờ trình",
+        "nhật trình": "tờ trình",
+        "Nhặt trình": "Tờ trình",
+        "nhặt trình": "tờ trình",
+    }
+    for old, new in replacements.items():
+        cleaned = cleaned.replace(old, new)
+
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.!?;:])", r"\1", cleaned)
+
+    filler_only = re.compile(
+        r"^\s*(?:dạ|vâng|ừ|ừm|ờ|à|okay|ok|được anh|dạ em hiểu rồi)[\s,.!?;:]*$",
+        re.IGNORECASE,
+    )
+    if filler_only.fullmatch(cleaned):
+        return ""
+
+    filler_phrases = [
+        "ừm", "ờ", "à", "thì là", "ý là", "tức là", "kiểu như",
+        "vậy á", "nha anh", "đó nha", "nghen",
+    ]
+    for phrase in filler_phrases:
+        pattern = r"(?<!\w)" + re.escape(phrase) + r"(?!\w)[\s,]*"
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+    prev = None
+    repeated_word = re.compile(r"(?i)\b([\wÀ-ỹ]+)(?:\s+\1\b)+")
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = repeated_word.sub(r"\1", cleaned)
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    return cleaned
+
 def _upload_file_data(wav_path, api_key):
     """Upload file lên Gemini, trả về (file_uri, file_name) ngay khi upload xong (chưa chờ ACTIVE)."""
     session = _get_session()
@@ -563,23 +607,51 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 # Lọc ảo giác lặp
                 clean_segments = []
                 loop_count = 0
+                loop_key = None
+                loop_start_idx = 0
+
+                def repeat_key(text):
+                    import re
+                    key = re.sub(r"[^\w\s]", " ", text.lower(), flags=re.UNICODE)
+                    key = " ".join(key.split())
+                    key = key.replace("nhật trình", "tờ trình")
+                    key = key.replace("nhặt trình", "tờ trình")
+                    # Các đuôi tình thái làm Gemini biến thể câu loop:
+                    # "Nhật trình là được", "Nhật trình là được rồi", "Nhật trình là được mà".
+                    endings = {"rồi", "mà", "thôi", "nha", "nhé", "ạ", "á", "đó"}
+                    words = key.split()
+                    while words and words[-1] in endings:
+                        words.pop()
+                    return " ".join(words)
+
                 for seg in gemini_segments:
                     if not isinstance(seg, dict): continue
                     text = seg.get("text", "").strip()
                     if not text: continue
+                    text = _clean_segment_text(text)
+                    if not text: continue
+                    seg["text"] = text
                     try:
                         seg_start = _parse_time(seg.get("start", 0))
                     except (ValueError, TypeError):
                         seg_start = 0
                     if seg_start > chunk_duration + 10:
                         break
-                    if clean_segments and text == clean_segments[-1].get("text", "").strip():
+
+                    key = repeat_key(text)
+                    is_short_loop_candidate = len(key.split()) <= 8
+                    if is_short_loop_candidate and key and key == loop_key:
                         loop_count += 1
-                        if loop_count >= 3:
+                        if loop_count > 3:
+                            del clean_segments[loop_start_idx:]
+                            print(f"[Gemini STT] ⚠️ Lọc loop STT lặp: '{text}'")
                             break
                     else:
-                        loop_count = 0
-                        clean_segments.append(seg)
+                        loop_key = key if is_short_loop_candidate else None
+                        loop_count = 1 if is_short_loop_candidate else 0
+                        loop_start_idx = len(clean_segments)
+
+                    clean_segments.append(seg)
 
                 if not clean_segments:
                     return idx, [], [], "", chunk_usage, None
