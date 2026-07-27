@@ -507,6 +507,9 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         m = re.match(r'c(\d+)(?:_resume\d*)*_', s)
                         return int(m.group(1)) if m else None
 
+                    def is_resume_speaker(s):
+                        return "_resume" in s
+
                     def get_speaker_suffix(s):
                         m = re.match(r'c\d+(?:_resume\d*)*_(.+)', s)
                         return m.group(1) if m else s
@@ -547,9 +550,10 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     # Sắp xếp speaker theo chunk: ưu tiên xử lý c0 trước, rồi c1, c2...
                     valid_strangers.sort(key=lambda x: (get_chunk_idx(x), x))
                     
-                    # Thuật toán Gom Nhóm Ràng Buộc (Constrained Clustering):
-                    # 1. Không bao giờ gộp 2 speaker trong CÙNG 1 chunk.
-                    # 2. Người lạ ở chunk sau sẽ tìm group ở chunk trước có độ giống cao nhất.
+                    # Thuật toán gom nhóm có guard:
+                    # - Resume của cùng chunk được phép nhập lại.
+                    # - Speaker khác suffix trong cùng chunk chỉ nhập khi cực kỳ chắc.
+                    # - Cùng suffix qua các chunk được tin hơn vì Gemini thường giữ vai nói tương đối ổn.
                     groups = []
                     for spk in valid_strangers:
                         chunk_idx = get_chunk_idx(spk)
@@ -561,10 +565,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         best_group_idx = -1
                         
                         for i, grp in enumerate(groups):
-                            # Không gộp 2 speaker khác nhau trong cùng chunk. Đây là guard quan trọng
-                            # để tránh một group lớn nuốt nhầm nhiều vai trong cùng đoạn.
-                            if any(get_base_chunk_idx(member) == spk_base_chunk for member in grp):
-                                continue
                             grp_emb = np.mean([spk_embeddings[m] for m in grp], axis=0)
                             
                             sim = cosine_sim(emb, grp_emb)
@@ -575,12 +575,18 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                                 best_group_idx = i
                                 
                         best_group = groups[best_group_idx] if best_group_idx >= 0 else []
-                        same_suffix = bool(best_group) and all(get_speaker_suffix(member) == spk_suffix for member in best_group)
-                        strong_threshold = max(MERGE_THRESHOLD, 0.62)
-                        suffix_threshold = max(MERGE_THRESHOLD, 0.52)
+                        same_suffix = bool(best_group) and any(get_speaker_suffix(member) == spk_suffix for member in best_group)
+                        same_base_chunk = bool(best_group) and any(get_base_chunk_idx(member) == spk_base_chunk for member in best_group)
+                        resume_pair = same_base_chunk and (
+                            is_resume_speaker(spk) or any(is_resume_speaker(member) for member in best_group)
+                        )
+                        strong_threshold = max(MERGE_THRESHOLD, 0.58)
+                        suffix_threshold = MERGE_THRESHOLD
+                        same_chunk_threshold = max(MERGE_THRESHOLD, 0.72)
                         can_merge = (
                             best_sim >= strong_threshold
-                            or (same_suffix and best_sim >= suffix_threshold)
+                            or (same_suffix and best_sim >= suffix_threshold and (not same_base_chunk or resume_pair))
+                            or (same_base_chunk and same_suffix and best_sim >= same_chunk_threshold)
                         )
 
                         if can_merge:
@@ -612,17 +618,11 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         for j, target in enumerate(groups):
                             if i == j or j in removed_group_indexes:
                                 continue
-                            if any(
-                                get_base_chunk_idx(member) == get_base_chunk_idx(target_member)
-                                for member in group
-                                for target_member in target
-                            ):
-                                continue
                             sim = cosine_sim(emb, group_embedding(target))
                             if sim > best_sim:
                                 best_sim = sim
                                 best_group_idx = j
-                        if best_group_idx >= 0 and best_sim >= max(MERGE_THRESHOLD, 0.62):
+                        if best_group_idx >= 0 and best_sim >= max(MERGE_THRESHOLD, 0.58):
                             print(f"[CLUSTER CLEANUP] Group {i} {group} -> Group {best_group_idx} (sim: {best_sim:.4f})")
                             frappe.logger("voice_app").error(
                                 f"[CLUSTER CLEANUP] Group {i} {group} -> Group {best_group_idx} (sim: {best_sim:.4f})"
@@ -726,12 +726,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 seg_end = float(seg.get("end") or seg_start)
                 seg_duration = max(0.0, seg_end - seg_start)
                 txt_lower = txt.lower()
-                if seg_duration <= 2.0 and len(txt.split()) >= 8:
-                    print(f"[SEGMENT CLEANUP] Skip suspicious short segment ({seg_duration:.2f}s): {txt[:120]}")
-                    frappe.logger("voice_app").error(
-                        f"[SEGMENT CLEANUP] Skip suspicious short segment ({seg_duration:.2f}s): {txt[:120]}"
-                    )
-                    continue
                 if seg_duration <= 5.0 and any(key in txt_lower for key in ("cctpa", "green bond", "carbon credit")):
                     print(f"[SEGMENT CLEANUP] Skip suspicious domain hallucination ({seg_duration:.2f}s): {txt[:120]}")
                     frappe.logger("voice_app").error(
