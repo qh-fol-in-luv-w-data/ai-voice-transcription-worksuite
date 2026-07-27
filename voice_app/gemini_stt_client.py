@@ -71,6 +71,50 @@ def _get_auth_headers_and_query(api_key):
             "x-goog-user-project": project_id
         }
 
+def _clean_segment_text(text):
+    """Normalize STT text without changing meeting meaning."""
+    if not text:
+        return ""
+
+    cleaned = str(text).strip()
+    replacements = {
+        "Nhật trình": "Tờ trình",
+        "nhật trình": "tờ trình",
+        "Nhặt trình": "Tờ trình",
+        "nhặt trình": "tờ trình",
+    }
+    for old, new in replacements.items():
+        cleaned = cleaned.replace(old, new)
+
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.!?;:])", r"\1", cleaned)
+
+    filler_only = re.compile(
+        r"^\s*(?:dạ|vâng|ừ|ừm|ờ|à|okay|ok|được anh|dạ em hiểu rồi)[\s,.!?;:]*$",
+        re.IGNORECASE,
+    )
+    if filler_only.fullmatch(cleaned):
+        return ""
+
+    filler_phrases = [
+        "ừm", "ờ", "à", "thì là", "ý là", "tức là", "kiểu như",
+        "vậy á", "nha anh", "đó nha", "nghen",
+    ]
+    for phrase in filler_phrases:
+        pattern = r"(?<!\w)" + re.escape(phrase) + r"(?!\w)[\s,]*"
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+    prev = None
+    repeated_word = re.compile(r"(?i)\b([\wÀ-ỹ]+)(?:\s+\1\b)+")
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = repeated_word.sub(r"\1", cleaned)
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    return cleaned
+
 def _upload_file_data(wav_path, api_key):
     """Upload file lên Gemini, trả về (file_uri, file_name) ngay khi upload xong (chưa chờ ACTIVE)."""
     session = _get_session()
@@ -584,8 +628,8 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     if not isinstance(seg, dict): continue
                     text = seg.get("text", "").strip()
                     if not text: continue
-                    text = text.replace("Nhật trình", "Tờ trình").replace("nhật trình", "tờ trình")
-                    text = text.replace("Nhặt trình", "Tờ trình").replace("nhặt trình", "tờ trình")
+                    text = _clean_segment_text(text)
+                    if not text: continue
                     seg["text"] = text
                     try:
                         seg_start = _parse_time(seg.get("start", 0))

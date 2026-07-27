@@ -87,16 +87,6 @@ export async function getEnrolledSpeakers() {
   return res.data.message
 }
 
-export async function cleanTranscript(results, modelType, meetingName, customVocabulary = '') {
-  const res = await api.post('/api/method/voice_app.api.clean_transcript', {
-    results: results,
-    model_type: modelType,
-    meeting_name: meetingName,
-    custom_vocabulary: customVocabulary
-  })
-  return res.data.message
-}
-
 export async function updateMeetingResults(meetingName, results) {
   const res = await api.post('/api/method/voice_app.api.update_meeting_results', {
     meeting_name: meetingName,
@@ -148,14 +138,6 @@ export async function checkExtractStatus(meetingName) {
   })
   return res.data.message
 }
-
-export async function checkCleanStatus(meetingName) {
-  const res = await api.get('/api/method/voice_app.api.check_clean_status', {
-    params: { meeting_name: meetingName }
-  })
-  return res.data.message
-}
-
 
 export async function resumeTranscription(meetingName) {
   const res = await api.post('/api/method/voice_app.api.resume_transcription', {
