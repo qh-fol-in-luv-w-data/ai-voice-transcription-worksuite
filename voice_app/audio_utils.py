@@ -76,7 +76,7 @@ def concat_speaker_segments(wav_path: str, segs: list,
     Chiến lược:
     - Sắp xếp segments theo độ dài (dài trước)
     - Chọn các đoạn >= min_seg_sec cho đến khi đủ max_total_sec
-    - Gọt mép 0.2s 2 đầu mỗi đoạn
+    - Gọt mép đầu nhẹ và chừa đuôi nhiều hơn để tránh dính giọng người kế tiếp
     - Tạo filter_complex cắt và nối trong 1 tiến trình ffmpeg
     """
     duration = get_duration(wav_path)
@@ -106,9 +106,11 @@ def concat_speaker_segments(wav_path: str, segs: list,
     total = 0.0
 
     for i, seg in enumerate(candidates):
-        shrink = 0.2 if (seg["end"] - seg["start"] >= 0.6) else 0.0
-        seg_start = seg["start"] + shrink
-        seg_end   = seg["end"] - shrink
+        seg_duration = seg["end"] - seg["start"]
+        head_trim = 0.2 if seg_duration >= 0.8 else 0.0
+        tail_trim = 0.6 if seg_duration >= 1.4 else 0.0
+        seg_start = seg["start"] + head_trim
+        seg_end   = seg["end"] - tail_trim
         
         if seg_end <= seg_start:
             continue
