@@ -2,12 +2,12 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   audioFile, language, modelType, isTranscribing, transcribeStatus, transcriptResults,
-  isCleaned, transcriptText, isExtracting, extractStatus, isCleaning,
+  isCleaned, transcriptText, isExtracting, extractStatus,
   tasks, selectedAttendees, isReanalyzing, dict, uiLang,
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, cleanTranscript, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, enrollSpeakerFromSegment } from '../api'
+import { transcribeAudio, extractTasks, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, enrollSpeakerFromSegment } from '../api'
 import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -407,24 +407,6 @@ const startTranscribe = async () => {
     offSocketEvent("transcribe_result", handleResult);
     transcribeStatus.value = t('error_connect'); isTranscribing.value = false 
   }
-}
-
-const startCleanTranscript = async () => {
-  if (isCleaned.value) {
-    saveState()
-    transcriptResults.value = [...originalTranscriptResults.value]; isCleaned.value = false; return 
-  }
-  if (transcriptResults.value.length === 0) return
-  isCleaning.value = true
-  try {
-    const res = await cleanTranscript(transcriptResults.value, modelType.value, currentMeetingName.value)
-    if (res.status === 'success') {
-      if (originalTranscriptResults.value.length === 0) originalTranscriptResults.value = [...transcriptResults.value]
-      saveState()
-      transcriptResults.value = res.cleaned_results; isCleaned.value = true
-    } else { alert('❌ Lỗi lọc: ' + res.message) }
-  } catch (e) { alert(t('error_connect')) }
-  finally { isCleaning.value = false }
 }
 
 const openTaskModal = async () => {

@@ -1,5 +1,5 @@
 import { ref, watch, onMounted } from 'vue'
-import { transcribeAudio, extractTasks, syncTasksToERP, enrollVoice, getEnrolledSpeakers, getMeetingHistory, cleanTranscript } from '../api'
+import { transcribeAudio, extractTasks, syncTasksToERP, enrollVoice, getEnrolledSpeakers, getMeetingHistory } from '../api'
 
 // Global UI State
 const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
