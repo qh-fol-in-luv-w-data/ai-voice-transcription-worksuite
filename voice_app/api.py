@@ -696,16 +696,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 
                 if not txt or not is_meaningful(txt):
                     continue
-                seg_start = float(seg.get("start") or 0)
-                seg_end = float(seg.get("end") or seg_start)
-                seg_duration = max(0.0, seg_end - seg_start)
-                txt_lower = txt.lower()
-                if seg_duration <= 5.0 and any(key in txt_lower for key in ("cctpa", "green bond", "carbon credit")):
-                    print(f"[SEGMENT CLEANUP] Skip suspicious domain hallucination ({seg_duration:.2f}s): {txt[:120]}")
-                    frappe.logger("voice_app").error(
-                        f"[SEGMENT CLEANUP] Skip suspicious domain hallucination ({seg_duration:.2f}s): {txt[:120]}"
-                    )
-                    continue
                 
                 spk_cache_val = speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).strip()
                 # Clean up "👤 " prefix for checking
@@ -733,6 +723,67 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb)
                 else:
                     merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb))
+
+            def collapse_short_stranger_labels(items):
+                from collections import defaultdict
+
+                stats = defaultdict(lambda: {"segments": 0, "duration": 0.0})
+                for s, e, label, _txt, _emb in items:
+                    stats[label]["segments"] += 1
+                    stats[label]["duration"] += max(0.0, float(e or s) - float(s or 0))
+
+                def is_short_stranger(label):
+                    item = stats[label]
+                    if not str(label).startswith("👤 Người lạ"):
+                        return False
+                    if item["duration"] <= 3.0:
+                        return True
+                    return item["duration"] <= 8.0 and item["segments"] <= 3
+
+                short_labels = {label for label in stats if is_short_stranger(label)}
+                if not short_labels:
+                    return items
+
+                remap = {}
+                for idx, (s, e, label, _txt, _emb) in enumerate(items):
+                    if label not in short_labels:
+                        continue
+                    best_label = None
+                    best_distance = None
+                    for direction in (-1, 1):
+                        j = idx + direction
+                        while 0 <= j < len(items):
+                            candidate = items[j][2]
+                            if candidate != label and candidate not in short_labels:
+                                if direction < 0:
+                                    distance = abs(float(s or 0) - float(items[j][1] or items[j][0] or 0))
+                                else:
+                                    distance = abs(float(items[j][0] or 0) - float(e or s or 0))
+                                if best_distance is None or distance < best_distance:
+                                    best_distance = distance
+                                    best_label = candidate
+                                break
+                            j += direction
+                    if best_label:
+                        remap[label] = best_label
+
+                if not remap:
+                    return items
+
+                print(f"[LABEL CLEANUP] Short stranger remap: {remap}")
+                frappe.logger("voice_app").error(f"[LABEL CLEANUP] Short stranger remap: {remap}")
+
+                cleaned = []
+                for s, e, label, txt, emb in items:
+                    new_label = remap.get(label, label)
+                    if cleaned and cleaned[-1][2] == new_label and s - cleaned[-1][1] <= 1.5:
+                        prev_s, prev_e, prev_label, prev_txt, prev_emb = cleaned[-1]
+                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb or emb)
+                    else:
+                        cleaned.append((s, e, new_label, txt, emb))
+                return cleaned
+
+            merged_segments = collapse_short_stranger_labels(merged_segments)
 
             def renumber_stranger_labels(items):
                 import re
