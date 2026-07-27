@@ -503,13 +503,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         base = float(m.group(1))
                         return base + 0.5 if "_resume" in s else base
 
-                    def get_base_chunk_idx(s):
-                        m = re.match(r'c(\d+)(?:_resume\d*)*_', s)
-                        return int(m.group(1)) if m else None
-
-                    def is_resume_speaker(s):
-                        return "_resume" in s
-
                     def get_speaker_suffix(s):
                         m = re.match(r'c\d+(?:_resume\d*)*_(.+)', s)
                         return m.group(1) if m else s
@@ -550,16 +543,10 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     # Sắp xếp speaker theo chunk: ưu tiên xử lý c0 trước, rồi c1, c2...
                     valid_strangers.sort(key=lambda x: (get_chunk_idx(x), x))
                     
-                    # Thuật toán gom nhóm có guard:
-                    # - Resume của cùng chunk được phép nhập lại.
-                    # - Speaker khác suffix trong cùng chunk chỉ nhập khi cực kỳ chắc.
-                    # - Cùng suffix qua các chunk được tin hơn vì Gemini thường giữ vai nói tương đối ổn.
+                    # Gom nhóm theo ngưỡng MERGE_THRESHOLD cấu hình.
                     groups = []
                     for spk in valid_strangers:
-                        chunk_idx = get_chunk_idx(spk)
                         emb = spk_embeddings[spk]
-                        spk_base_chunk = get_base_chunk_idx(spk)
-                        spk_suffix = get_speaker_suffix(spk)
                         
                         best_sim = -1
                         best_group_idx = -1
@@ -574,20 +561,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                                 best_sim = sim
                                 best_group_idx = i
                                 
-                        best_group = groups[best_group_idx] if best_group_idx >= 0 else []
-                        same_suffix = bool(best_group) and any(get_speaker_suffix(member) == spk_suffix for member in best_group)
-                        same_base_chunk = bool(best_group) and any(get_base_chunk_idx(member) == spk_base_chunk for member in best_group)
-                        resume_pair = same_base_chunk and (
-                            is_resume_speaker(spk) or any(is_resume_speaker(member) for member in best_group)
-                        )
-                        strong_threshold = max(MERGE_THRESHOLD, 0.58)
-                        suffix_threshold = MERGE_THRESHOLD
-                        same_chunk_threshold = max(MERGE_THRESHOLD, 0.72)
-                        can_merge = (
-                            best_sim >= strong_threshold
-                            or (same_suffix and best_sim >= suffix_threshold and (not same_base_chunk or resume_pair))
-                            or (same_base_chunk and same_suffix and best_sim >= same_chunk_threshold)
-                        )
+                        can_merge = best_sim >= MERGE_THRESHOLD
 
                         if can_merge:
                             print(f"[CLUSTER DEBUG] {spk} -> MERGED into Group {best_group_idx} (sim: {best_sim:.4f})")
@@ -622,7 +596,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                             if sim > best_sim:
                                 best_sim = sim
                                 best_group_idx = j
-                        if best_group_idx >= 0 and best_sim >= max(MERGE_THRESHOLD, 0.58):
+                        if best_group_idx >= 0 and best_sim >= MERGE_THRESHOLD:
                             print(f"[CLUSTER CLEANUP] Group {i} {group} -> Group {best_group_idx} (sim: {best_sim:.4f})")
                             frappe.logger("voice_app").error(
                                 f"[CLUSTER CLEANUP] Group {i} {group} -> Group {best_group_idx} (sim: {best_sim:.4f})"
