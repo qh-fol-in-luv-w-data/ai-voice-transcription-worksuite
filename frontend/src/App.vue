@@ -20,7 +20,7 @@ import {
   isTaskModalOpen, tasks, hrProjectsMap,
   docxUrl, excelUrl, selectedAttendees, isReanalyzing 
 } from './composables/useVoiceApp'
-import { getElevenLabsInfo, syncTasksToERP } from './api'
+import { syncTasksToERP } from './api'
 import { ElMessage } from 'element-plus'
 
 const handleSyncERP = async () => {
@@ -56,10 +56,6 @@ onMounted(async () => {
   if (authState.value !== 'authorized') return
 
   // Load essential data
-  try {
-    const res = await getElevenLabsInfo()
-  } catch (e) { console.warn(e) }
-  
   try {
     const res = await getEnrolledSpeakers()
     if (res && res.speakers) voiceDbSpeakers.value = res.speakers
