@@ -293,13 +293,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
     
             auto_num_speakers = kwargs.get("num_speakers")
-            if filter_speakers:
-                try:
-                    names = json.loads(filter_speakers)
-                    if isinstance(names, list) and len(names) >= 2:
-                        auto_num_speakers = len(names)
-                except (TypeError, json.JSONDecodeError):
-                    auto_num_speakers = kwargs.get("num_speakers")
                     
             global_vocabulary = kwargs.get("custom_vocabulary") or frappe.db.get_single_value("Voice App Settings", "global_vocabulary") or ""
             language = kwargs.get("language") or "vi"

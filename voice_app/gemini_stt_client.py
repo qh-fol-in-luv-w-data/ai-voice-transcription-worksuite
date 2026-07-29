@@ -389,7 +389,7 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
 def _build_prompt(num_speakers, language, custom_vocabulary=""):
     lang_note    = "tiếng Việt" if language in ("vi", "vi-VN") else language
     speaker_note = (
-        f"Cuộc họp có KHOẢNG {num_speakers} người tham dự. Hãy phân biệt các giọng nói (Speaker 1, Speaker 2... tối đa {num_speakers} người)."
+        f"Cuộc họp có KHOẢNG {num_speakers} người tham dự. Đây chỉ là gợi ý ban đầu, KHÔNG phải giới hạn cứng. Nếu nghe thấy nhiều giọng hơn, hãy tạo thêm Speaker mới."
         if num_speakers else
         "Cuộc họp có thể có nhiều người tham dự."
     )
