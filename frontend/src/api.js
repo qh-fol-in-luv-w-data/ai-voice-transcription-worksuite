@@ -67,11 +67,6 @@ export async function syncTasksToERP(tasks) {
   return res.data.message
 }
 
-export async function getElevenLabsInfo() {
-  const res = await api.get('/api/method/voice_app.api.get_elevenlabs_info')
-  return res.data.message
-}
-
 export async function enrollVoice(audioBlob) {
   const formData = new FormData()
   formData.append('file', audioBlob, 'voice_record.wav')
