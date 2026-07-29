@@ -363,6 +363,9 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
     PRICE_IN  = 1.50 / 1_000_000
     PRICE_OUT = 9.00 / 1_000_000
     cost = total_in * PRICE_IN + billable_out * PRICE_OUT
+    usage_result["cost_usd"] = cost
+    usage_result["input_cost_usd"] = total_in * PRICE_IN
+    usage_result["output_cost_usd"] = billable_out * PRICE_OUT
     _parse_log(
         f"💰 [Gemini STT] model={model_name} | "
         f"in={total_in:,} out={billable_out:,} (think={thoughts_tokens}) | "
@@ -791,7 +794,16 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                         results[res_idx] = (segments, raw_words, chunk_text)
                         if chunk_update_cb:
                             with suppress(Exception):
-                                chunk_update_cb(c_name, "Completed", segments, raw_words, None, chunk_usage.get("tokens_used", 0) if chunk_usage else 0, parse_logs)
+                                chunk_update_cb(
+                                    c_name,
+                                    "Completed",
+                                    segments,
+                                    raw_words,
+                                    None,
+                                    chunk_usage.get("tokens_used", 0) if chunk_usage else 0,
+                                    parse_logs,
+                                    chunk_usage,
+                                )
 
                     if chunk_usage:
                         total_in_all  += chunk_usage.get("prompt_tokens", 0)
