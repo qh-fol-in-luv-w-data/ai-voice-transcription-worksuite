@@ -17,6 +17,12 @@
   "transcript",
   "raw_results",
   "original_raw_results",
+  "stt_prompt_tokens",
+  "stt_completion_tokens",
+  "stt_total_tokens",
+  "stt_cost_usd",
+  "stt_cost_user",
+  "stt_model",
   "stt_parse_log",
   "minute_docx",
   "task_xlsx",
@@ -83,6 +89,47 @@
    "hidden": 1,
    "label": "Original Raw AI Results (JSON)",
    "options": "JSON"
+  },
+  {
+   "default": "0",
+   "fieldname": "stt_prompt_tokens",
+   "fieldtype": "Int",
+   "label": "STT Prompt Tokens",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "stt_completion_tokens",
+   "fieldtype": "Int",
+   "label": "STT Completion Tokens",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "stt_total_tokens",
+   "fieldtype": "Int",
+   "label": "STT Total Tokens",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "stt_cost_usd",
+   "fieldtype": "Float",
+   "label": "STT Cost USD",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stt_cost_user",
+   "fieldtype": "Link",
+   "label": "STT Cost User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stt_model",
+   "fieldtype": "Data",
+   "label": "STT Model",
+   "read_only": 1
   },
   {
    "fieldname": "stt_parse_log",
