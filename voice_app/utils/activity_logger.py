@@ -133,8 +133,9 @@ class ActivityLogger:
                 elif not isinstance(current, dict):
                     current = {"input": 0, "output": 0}
                     
-                current["input"] += prompt_tokens
-                current["output"] += completion_tokens
+                current["input"] = current.get("input", 0) + prompt_tokens
+                current["output"] = current.get("output", 0) + completion_tokens
+                current.pop("total", None)
                 breakdown[ai_model] = current
                 
                 sess.token_breakdown = json.dumps(breakdown, ensure_ascii=False)

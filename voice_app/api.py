@@ -846,17 +846,34 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 if session_name:
                     ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
                     action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary=f"Transcribe with {stt_label}")
-                    _logger.log_ai_call(
-                        session_name=session_name,
-                        action_name=action_name,
-                        call_type="transcribe_audio",
-                        ai_model=ai_model_log,
-                        duration_seconds=0,
-                        status="success",
-                        elevenlabs_chars_used=el_chars_used,
-                        elevenlabs_chars_remaining=el_chars_remaining,
-                    )
-                    _logger.finish_action(action_name, status="success")
+                    if stt_mode == "google":
+                        _logger.log_ai_call(
+                            session_name=session_name,
+                            action_name=action_name,
+                            call_type="transcribe_audio",
+                            ai_model=ai_model_log,
+                            duration_seconds=0,
+                            status="success",
+                            prompt_tokens=el_chars_used,
+                            completion_tokens=el_chars_remaining,
+                        )
+                        _logger.finish_action(
+                            action_name, status="success",
+                            prompt_tokens=el_chars_used,
+                            completion_tokens=el_chars_remaining,
+                        )
+                    else:
+                        _logger.log_ai_call(
+                            session_name=session_name,
+                            action_name=action_name,
+                            call_type="transcribe_audio",
+                            ai_model=ai_model_log,
+                            duration_seconds=0,
+                            status="success",
+                            elevenlabs_chars_used=el_chars_used,
+                            elevenlabs_chars_remaining=el_chars_remaining,
+                        )
+                        _logger.finish_action(action_name, status="success")
             except Exception as log_ex:
                 if getattr(frappe.db, "_cursor", None):
                     frappe.db._cursor.execute("ROLLBACK")
