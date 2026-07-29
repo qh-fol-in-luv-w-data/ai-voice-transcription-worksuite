@@ -17,6 +17,7 @@
   "transcript",
   "raw_results",
   "original_raw_results",
+  "stt_parse_log",
   "minute_docx",
   "task_xlsx",
   "meeting_summary",
@@ -82,6 +83,11 @@
    "hidden": 1,
    "label": "Original Raw AI Results (JSON)",
    "options": "JSON"
+  },
+  {
+   "fieldname": "stt_parse_log",
+   "fieldtype": "Long Text",
+   "label": "STT Parse Log"
   },
   {
    "fieldname": "minute_docx",

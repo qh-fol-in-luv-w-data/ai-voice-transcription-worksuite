@@ -22,6 +22,12 @@ _SECURE_RANDOM = secrets.SystemRandom()
 # Thread-local session để mỗi thread có connection pool riêng
 _thread_local = threading.local()
 
+def _parse_log(message, log_cb=None):
+    print(message)
+    if log_cb:
+        with suppress(Exception):
+            log_cb(message)
+
 def _get_session():
     if not hasattr(_thread_local, "session"):
         _thread_local.session = _requests.Session()
@@ -115,7 +121,7 @@ def _clean_segment_text(text):
         cleaned = cleaned[0].upper() + cleaned[1:]
     return cleaned
 
-def _upload_file_data(wav_path, api_key):
+def _upload_file_data(wav_path, api_key, log_cb=None):
     """Upload file lên Gemini, trả về (file_uri, file_name) ngay khi upload xong (chưa chờ ACTIVE)."""
     session = _get_session()
     file_size = os.path.getsize(wav_path)
@@ -141,7 +147,7 @@ def _upload_file_data(wav_path, api_key):
             )
             if init.status_code == 429 and attempt < _RETRY_MAX - 1:
                 delay = _retry_delay(attempt)
-                print(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
+                _parse_log(f"[Gemini STT] 429 upload init, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...", log_cb)
                 time.sleep(delay)
                 continue
             init.raise_for_status()
@@ -149,7 +155,7 @@ def _upload_file_data(wav_path, api_key):
         except (_requests.exceptions.RequestException, IOError) as e:
             if attempt < _RETRY_MAX - 1:
                 delay = _retry_delay(attempt)
-                print(f"[Gemini STT] Lỗi kết nối (init upload) ({type(e).__name__}), thử lại sau {delay:.1f}s...")
+                _parse_log(f"[Gemini STT] Lỗi kết nối (init upload) ({type(e).__name__}), thử lại sau {delay:.1f}s...", log_cb)
                 time.sleep(delay)
                 continue
             raise
@@ -173,7 +179,7 @@ def _upload_file_data(wav_path, api_key):
             )
             if upload_resp.status_code == 429 and attempt < _RETRY_MAX - 1:
                 delay = _retry_delay(attempt)
-                print(f"[Gemini STT] 429 upload data, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...")
+                _parse_log(f"[Gemini STT] 429 upload data, thử lại {attempt + 1}/{_RETRY_MAX - 1} sau {delay:.1f}s...", log_cb)
                 time.sleep(delay)
                 continue
             upload_resp.raise_for_status()
@@ -181,7 +187,7 @@ def _upload_file_data(wav_path, api_key):
         except (_requests.exceptions.RequestException, IOError) as e:
             if attempt < _RETRY_MAX - 1:
                 delay = _retry_delay(attempt)
-                print(f"[Gemini STT] Lỗi kết nối (upload data) ({type(e).__name__}), thử lại sau {delay:.1f}s...")
+                _parse_log(f"[Gemini STT] Lỗi kết nối (upload data) ({type(e).__name__}), thử lại sau {delay:.1f}s...", log_cb)
                 time.sleep(delay)
                 continue
             raise
@@ -189,11 +195,11 @@ def _upload_file_data(wav_path, api_key):
     file_info = upload_resp.json()["file"]
     file_uri  = file_info["uri"]
     file_name = file_info["name"]
-    print(f"[Gemini STT] Uploaded → {file_uri}, chờ ACTIVE...")
+    _parse_log(f"[Gemini STT] Uploaded → {file_uri}, chờ ACTIVE...", log_cb)
     return file_uri, file_name
 
 
-def _wait_file_active(file_name, file_uri, api_key):
+def _wait_file_active(file_name, file_uri, api_key, log_cb=None):
     """Poll cho đến khi file ACTIVE rồi mới trả về."""
     session = _get_session()
     query, auth_headers = _get_auth_headers_and_query(api_key)
@@ -204,13 +210,13 @@ def _wait_file_active(file_name, file_uri, api_key):
             timeout=30,
         )
         if sr.status_code in [403, 429, 500, 502, 503, 504]:
-            print(f"[Gemini STT] File status {sr.status_code}, retrying...")
+            _parse_log(f"[Gemini STT] File status {sr.status_code}, retrying...", log_cb)
             time.sleep(_retry_delay(0, 0, 2))
             continue
         sr.raise_for_status()
         state = sr.json().get("state", "")
         if state == "ACTIVE":
-            print(f"[Gemini STT] File ACTIVE: {file_uri}")
+            _parse_log(f"[Gemini STT] File ACTIVE: {file_uri}", log_cb)
             return
         if state == "FAILED":
             raise Exception(f"Gemini file processing FAILED: {file_name}")
@@ -218,14 +224,14 @@ def _wait_file_active(file_name, file_uri, api_key):
     raise Exception("Gemini file processing timeout sau 200s")
 
 
-def _upload_file(wav_path, api_key):
+def _upload_file(wav_path, api_key, log_cb=None):
     """Upload và chờ ACTIVE (wrapper để tương thích ngược)."""
-    file_uri, file_name = _upload_file_data(wav_path, api_key)
-    _wait_file_active(file_name, file_uri, api_key)
+    file_uri, file_name = _upload_file_data(wav_path, api_key, log_cb=log_cb)
+    _wait_file_active(file_name, file_uri, api_key, log_cb=log_cb)
     return file_uri, file_name
 
 
-def _delete_file(file_name, api_key):
+def _delete_file(file_name, api_key, log_cb=None):
     """Xóa file khỏi Gemini File API sau khi dùng xong."""
     try:
         session = _get_session()
@@ -236,14 +242,14 @@ def _delete_file(file_name, api_key):
             timeout=30,
         )
         if resp.status_code in (200, 204):
-            print(f"[Gemini STT] Deleted: {file_name}")
+            _parse_log(f"[Gemini STT] Deleted: {file_name}", log_cb)
         else:
-            print(f"[Gemini STT] Delete failed {resp.status_code}: {file_name}")
+            _parse_log(f"[Gemini STT] Delete failed {resp.status_code}: {file_name}", log_cb)
     except Exception as e:
-        print(f"[Gemini STT] Delete error: {e}")
+        _parse_log(f"[Gemini STT] Delete error: {e}", log_cb)
 
 
-def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=12000):
+def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=12000, log_cb=None):
     """Gọi Gemini stream API, trả về (segments, usage_dict, error_str|None)."""
     session = _get_session()
     if not model_name:
@@ -276,14 +282,14 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
     url += "&alt=sse" if "?" in url else "?alt=sse"
 
     for attempt in range(_RETRY_MAX):
-        print(f"[Gemini STT] Streaming attempt {attempt + 1}/{_RETRY_MAX} (model={model_name})...")
+        _parse_log(f"[Gemini STT] Streaming attempt {attempt + 1}/{_RETRY_MAX} (model={model_name})...", log_cb)
         try:
             resp = session.post(url, json=payload, headers=auth_headers, timeout=1800, stream=True)
 
             if resp.status_code in [403, 429, 500, 502, 503, 504]:
                 if attempt < _RETRY_MAX - 1:
                     delay = _retry_delay(attempt)
-                    print(f"[Gemini STT] {resp.status_code} stream, thử lại sau {delay:.1f}s...")
+                    _parse_log(f"[Gemini STT] {resp.status_code} stream, thử lại sau {delay:.1f}s...", log_cb)
                     time.sleep(delay)
                     continue
                 resp.raise_for_status()
@@ -337,7 +343,7 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
         except (_requests.exceptions.RequestException, IOError) as e:
             if attempt < _RETRY_MAX - 1:
                 delay = _retry_delay(attempt)
-                print(f"[Gemini STT] Connection error ({type(e).__name__}), thử lại sau {delay:.1f}s...")
+                _parse_log(f"[Gemini STT] Connection error ({type(e).__name__}), thử lại sau {delay:.1f}s...", log_cb)
                 time.sleep(delay)
             else:
                 raise
@@ -357,14 +363,16 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
     PRICE_IN  = 1.50 / 1_000_000
     PRICE_OUT = 9.00 / 1_000_000
     cost = total_in * PRICE_IN + billable_out * PRICE_OUT
-    print(
+    _parse_log(
         f"💰 [Gemini STT] model={model_name} | "
         f"in={total_in:,} out={billable_out:,} (think={thoughts_tokens}) | "
         f"total={total_tokens:,} tokens | cost=~${cost:.4f} USD | finish={finish_reason}"
+        ,
+        log_cb,
     )
 
     if finish_reason == "MAX_TOKENS":
-        print("[Gemini STT] ⚠️ MAX_TOKENS — Phát hiện vòng lặp ảo giác.")
+        _parse_log("[Gemini STT] ⚠️ MAX_TOKENS — Phát hiện vòng lặp ảo giác.", log_cb)
         return _parse_gemini_response(full_text), usage_result, "HALLUCINATION_DETECTED"
     elif finish_reason == "SAFETY":
         return [], usage_result, "Safety filter rejected content"
@@ -419,6 +427,11 @@ Trả về JSON array thuần (KHÔNG markdown, KHÔNG giải thích, KHÔNG tex
   {{"speaker": "Speaker 1", "start": 0.0, "end": 8.5, "text": "nội dung đã làm sạch"}},
   {{"speaker": "Speaker 2", "start": 8.8, "end": 15.2, "text": "nội dung đã làm sạch"}}
 ]
+RÀNG BUỘC BẮT BUỘC VỚI MỖI OBJECT JSON:
+- Mỗi object chỉ được chứa lời của ĐÚNG 1 người nói trong đúng 1 lượt nói.
+- Nếu trong cùng một khoảng thời gian nghe thấy 2 người, hoặc text có dạng "A nói... B đáp...", phải tách thành 2 object riêng, mỗi object có `speaker`, `start`, `end`, `text` riêng.
+- Không được viết một câu/đoạn mà bên trong có lời của 2 speaker khác nhau, kể cả khi họ nói rất ngắn, chen ngang, xác nhận, hỏi/đáp nhanh hoặc nói đè.
+- Trước khi trả JSON, tự kiểm tra từng object: nếu `text` còn chứa lời đối thoại của hơn 1 người thì bắt buộc tách object đó ra.
 QUAN TRỌNG: "start" và "end" là số GIÂY (seconds) tính từ đầu file, KHÔNG phải phút. Ví dụ: 1 phút 30 giây = 90.0, không phải 1.5."""
 
 
@@ -464,7 +477,7 @@ def _parse_time(val):
         return 0.0
 
 
-def _segments_to_raw_words(segments, file_duration=None):
+def _segments_to_raw_words(segments, file_duration=None, log_cb=None):
     """Convert Gemini segments → raw_words format tương thích pipeline."""
     segments = [s for s in segments if isinstance(s, dict)]
     if not segments:
@@ -472,7 +485,7 @@ def _segments_to_raw_words(segments, file_duration=None):
 
     raw_start = segments[0].get("start")
     raw_end   = segments[-1].get("end")
-    print(f"[Gemini STT] Raw timestamps sample — first.start={raw_start!r} last.end={raw_end!r}")
+    _parse_log(f"[Gemini STT] Raw timestamps sample — first.start={raw_start!r} last.end={raw_end!r}", log_cb)
 
     parsed = []
     for seg in segments:
@@ -514,7 +527,7 @@ def _words_to_segments(raw_words):
 
 
 def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi", num_speakers: int = None,
-                    custom_vocabulary: str = "", progress_callback=None, existing_segments=None):
+                    custom_vocabulary: str = "", progress_callback=None, existing_segments=None, parse_log_cb=None):
     """
     Google Gemini STT với speaker diarization (hỗ trợ chunking cho file dài).
     Dùng requests + ThreadPoolExecutor (tương thích Frappe gevent worker).
@@ -538,6 +551,9 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
             print(f"[Gemini STT] Debug log failed: {exc}")
         
         print(f"[Gemini STT] Xử lý {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
+        if parse_log_cb:
+            with suppress(Exception):
+                parse_log_cb("", f"[Gemini STT] Xử lý {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
 
         chunks = chunks_info
@@ -569,40 +585,48 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
             offset = chunk_dict.get("offset", 0.0)
             mappings = chunk_dict.get("mappings", [])
             chunk_name = chunk_dict.get("name", f"CHUNK_{idx}")
+            parse_logs = []
+
+            def append_chunk_log(message):
+                parse_logs.append(message)
+
+            def chunk_log(message):
+                print(message)
+                parse_logs.append(message)
 
             try:
                 if not is_subchunk and idx in completed_chunks:
-                    print(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks_info)} vì đã hoàn thành.")
-                    return idx, None, None, None, None, None
+                    chunk_log(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks_info)} vì đã hoàn thành.")
+                    return idx, None, None, None, None, None, parse_logs
 
                 if is_subchunk:
-                    print(f"[Gemini STT]   -> Sub-chunk {idx} - offset: {offset:.1f}s")
+                    chunk_log(f"[Gemini STT]   -> Sub-chunk {idx} - offset: {offset:.1f}s")
                 else:
-                    print(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks_info)} - offset: {offset:.1f}s")
+                    chunk_log(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks_info)} - offset: {offset:.1f}s")
 
                 chunk_duration = get_duration(current_wav)
 
                 # Upload với Semaphore 4
                 with _upload_lock:
-                    file_uri, file_name = _upload_file(current_wav, api_key)
+                    file_uri, file_name = _upload_file(current_wav, api_key, log_cb=append_chunk_log)
 
                 chunk_error = None
                 try:
                     gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(
-                        file_uri, api_key, prompt, model_name, max_tokens=65536
+                        file_uri, api_key, prompt, model_name, max_tokens=65536, log_cb=append_chunk_log
                     )
                     if chunk_error and chunk_error != "HALLUCINATION_DETECTED":
-                        print(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
+                        chunk_log(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
                 finally:
                     # Luôn xóa remote file sau khi xong
-                    _delete_file(file_name, api_key)
+                    _delete_file(file_name, api_key, log_cb=append_chunk_log)
                     if current_wav != original_chunk_wav:
                         with suppress(FileNotFoundError):
                             os.remove(current_wav)
                         # Do NOT remove original_chunk_wav, handled by api.py Voice Meeting Chunk records
 
                 if not gemini_segments:
-                    return idx, [], [], "", chunk_usage, None
+                    return idx, [], [], "", chunk_usage, None, parse_logs
 
                 # Lọc ảo giác lặp
                 clean_segments = []
@@ -644,7 +668,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                         loop_count += 1
                         if loop_count > 3:
                             del clean_segments[loop_start_idx:]
-                            print(f"[Gemini STT] ⚠️ Lọc loop STT lặp: '{text}'")
+                            chunk_log(f"[Gemini STT] ⚠️ Lọc loop STT lặp: '{text}'")
                             break
                     else:
                         loop_key = key if is_short_loop_candidate else None
@@ -654,9 +678,9 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     clean_segments.append(seg)
 
                 if not clean_segments:
-                    return idx, [], [], "", chunk_usage, None
+                    return idx, [], [], "", chunk_usage, None, parse_logs
 
-                raw_words = _segments_to_raw_words(clean_segments, file_duration=chunk_duration)
+                raw_words = _segments_to_raw_words(clean_segments, file_duration=chunk_duration, log_cb=append_chunk_log)
                 
                 # Hàm map thời gian đặc ruột về thời gian gốc
                 def map_time(t_val):
@@ -695,17 +719,18 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     last_valid_ts = _parse_time(clean_segments[-1].get("end", 0)) if clean_segments else 0
                     if chunk_duration - last_valid_ts > 15:
                         reason = "ảo giác (MAX_TOKENS)" if chunk_error == "HALLUCINATION_DETECTED" else "lười biếng bỏ sót"
-                        print(f"[Gemini STT] ⚠️ Chunk {idx+1} bị {reason} ở giây {last_valid_ts:.1f}/{chunk_duration:.1f}s. Kích hoạt Smart Resume...")
+                        chunk_log(f"[Gemini STT] ⚠️ Chunk {idx+1} bị {reason} ở giây {last_valid_ts:.1f}/{chunk_duration:.1f}s. Kích hoạt Smart Resume...")
                         import pydub
                         audio = pydub.AudioSegment.from_wav(current_wav)
                         resume_audio = audio[int(last_valid_ts * 1000):]
                         resume_wav = current_wav.replace(".wav", f"_{idx}_resume.wav")
                         resume_audio.export(resume_wav, format="wav")
 
-                        _, r_segs, r_words, r_txt, r_use, r_err = _process_single_chunk(
+                        _, r_segs, r_words, r_txt, r_use, r_err, r_logs = _process_single_chunk(
                             {"idx": f"{idx}_resume", "wav": resume_wav, "offset": offset, "mappings": mappings, "name": chunk_name}, 
                             is_subchunk=True, dense_subchunk_offset=last_valid_ts
                         )
+                        parse_logs.extend(r_logs or [])
 
                         with suppress(FileNotFoundError):
                             os.remove(resume_wav)
@@ -718,12 +743,13 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                         if r_words: raw_words.extend(r_words)
                         if r_txt:   chunk_text += " " + r_txt
 
-                return idx, segments, raw_words, chunk_text, chunk_usage, None
+                return idx, segments, raw_words, chunk_text, chunk_usage, None, parse_logs
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                return idx, None, None, None, None, str(e)
+                chunk_log(f"[Gemini STT] Exception chunk {idx+1}: {e}")
+                return idx, None, None, None, None, str(e), parse_logs
 
         # Chạy tất cả chunk song song
         try:
@@ -755,17 +781,17 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 idx = chunk_dict.get("idx", 0)
                 c_name = chunk_dict.get("name", "")
                 try:
-                    res_idx, segments, raw_words, chunk_text, chunk_usage, err_msg = future.result()
+                    res_idx, segments, raw_words, chunk_text, chunk_usage, err_msg, parse_logs = future.result()
                     if err_msg:
                         chunk_errors.append(f"Chunk {idx+1}: {err_msg}")
                         if chunk_update_cb:
                             with suppress(Exception):
-                                chunk_update_cb(c_name, "Error", None, None, err_msg, 0)
+                                chunk_update_cb(c_name, "Error", None, None, err_msg, 0, parse_logs)
                     else:
                         results[res_idx] = (segments, raw_words, chunk_text)
                         if chunk_update_cb:
                             with suppress(Exception):
-                                chunk_update_cb(c_name, "Completed", segments, raw_words, None, chunk_usage.get("tokens_used", 0) if chunk_usage else 0)
+                                chunk_update_cb(c_name, "Completed", segments, raw_words, None, chunk_usage.get("tokens_used", 0) if chunk_usage else 0, parse_logs)
 
                     if chunk_usage:
                         total_in_all  += chunk_usage.get("prompt_tokens", 0)
@@ -779,7 +805,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     chunk_errors.append(f"Chunk {idx+1}: {str(e)}")
                     if chunk_update_cb:
                         with suppress(Exception):
-                            chunk_update_cb(c_name, "Error", None, None, str(e), 0)
+                            chunk_update_cb(c_name, "Error", None, None, str(e), 0, [str(e)])
 
                 completed_count += 1
                 if progress_callback:
@@ -828,12 +854,16 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
         PRICE_IN  = 1.50 / 1_000_000
         PRICE_OUT = 9.00 / 1_000_000
         total_cost = total_in_all * PRICE_IN + total_out_all * PRICE_OUT
-        print(
+        total_log = (
             f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks_info)} chunks\n"
             f"💰 [Gemini STT] TỔNG CHI PHÍ FILE: "
             f"in={total_in_all:,} + out={total_out_all:,} = {total_tok_all:,} tokens | "
             f"cost=~${total_cost:.4f} USD ({len(chunks_info)} chunks)"
         )
+        print(total_log)
+        if parse_log_cb:
+            with suppress(Exception):
+                parse_log_cb("", total_log)
         with suppress(Exception):
             frappe.log_error(f"call_gemini_stt hoan thanh. Segments: {len(all_segments)}, Loi: {chunk_errors}", "Gemini STT Debug")
         

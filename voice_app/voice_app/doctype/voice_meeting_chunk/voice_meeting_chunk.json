@@ -14,7 +14,8 @@
   "audio_file_path",
   "error_message",
   "tokens_used",
-  "raw_segments"
+  "raw_segments",
+  "stt_parse_log"
  ],
  "fields": [
   {
@@ -65,6 +66,11 @@
    "fieldtype": "Code",
    "label": "Raw Segments",
    "options": "JSON"
+  },
+  {
+   "fieldname": "stt_parse_log",
+   "fieldtype": "Long Text",
+   "label": "STT Parse Log"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -183,6 +183,32 @@ def check_meeting_status(meeting_name):
         return {"status": "processing", "meeting_name": meeting.name, "progress_info": progress_info}
 
 
+def _append_stt_parse_log(doctype, docname, lines, max_chars=200000):
+    """Append STT parse/runtime logs to a DocType field without failing the main pipeline."""
+    if not docname or not lines:
+        return
+    if isinstance(lines, str):
+        lines = [lines]
+    lines = [str(line).strip() for line in lines if str(line).strip()]
+    if not lines:
+        return
+
+    try:
+        if not frappe.db.has_column(doctype, "stt_parse_log"):
+            return
+        old_log = frappe.db.get_value(doctype, docname, "stt_parse_log") or ""
+        from frappe.utils import now_datetime
+        stamp = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
+        new_block = "\n".join(f"[{stamp}] {line}" for line in lines)
+        combined = f"{old_log.rstrip()}\n{new_block}".strip() if old_log else new_block
+        if len(combined) > max_chars:
+            combined = combined[-max_chars:]
+        frappe.db.set_value(doctype, docname, "stt_parse_log", combined, update_modified=False)
+    except Exception as exc:
+        with suppress(Exception):
+            frappe.log_error(str(exc), f"Append STT Parse Log Failed: {doctype}")
+
+
 def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None, stt_mode="google", meeting_name=None, session_id_header=None, **kwargs):
     try:
     
@@ -281,9 +307,12 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 chunks_to_process = [c for c in chunks_info if c["status"] in ("Pending", "Error", "Processing")]
                 
                 site_name = frappe.local.site
-                def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks):
+                def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks, c_parse_logs=None):
                     import frappe
                     try:
+                        if c_parse_logs:
+                            _append_stt_parse_log("Voice Meeting Chunk", c_name, c_parse_logs)
+                            _append_stt_parse_log("Voice Meeting", meeting_name, c_parse_logs)
                         if c_status == "Processing":
                             frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
                         elif c_status == "Completed":
@@ -308,7 +337,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     _segs, _raw, _txt, err, el_chars_used, el_chars_remaining = call_gemini_stt(
                         chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
                         language=language, num_speakers=auto_num_speakers, 
-                        custom_vocabulary=global_vocabulary, progress_callback=stt_cb
+                        custom_vocabulary=global_vocabulary, progress_callback=stt_cb,
+                        parse_log_cb=lambda c_name, lines: _append_stt_parse_log("Voice Meeting", meeting_name, lines)
                     )
                     frappe.log_error(f"Goi call_gemini_stt hoan tat. Err={err}", "Transcribe Debug")
                 
@@ -357,6 +387,11 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
             el_speakers = set(s["speaker_id"] for s in segments)
             print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
+            _append_stt_parse_log(
+                "Voice Meeting",
+                meeting_name,
+                f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}",
+            )
     
             # ── EXTRACT ALL SEGMENT EMBEDDINGS (BATCH) ──
             update_progress(100, "Đã dịch xong văn bản!", 10, "Đang trích xuất đặc trưng cho từng câu thoại...")
@@ -434,6 +469,13 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             spk_ranked = {}  # speaker_id -> [(name, score, email, user_info), ...]
             for spk, emb in spk_embeddings.items():
                 spk_ranked[spk] = spk_db.identify_ranked(emb, allowed_names=allowed)
+                ranked_preview = ", ".join(f"{name}={score:.3f}" for name, score, _email, _user_info in spk_ranked[spk][:5])
+                _append_stt_parse_log(
+                    "Voice Meeting",
+                    meeting_name,
+                    f"[Speaker] {spk}: candidates>=threshold {len(spk_ranked[spk])}"
+                    + (f" | {ranked_preview}" if ranked_preview else ""),
+                )
     
             is_single_chunk = not any(spk.startswith("c") and "_" in spk for spk in spk_embeddings)
             spk_identified = {}
@@ -480,6 +522,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             # Log kết quả greedy assignment
             summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
             print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
+            _append_stt_parse_log("Voice Meeting", meeting_name, f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
     
             # Gộp các "Người lạ" có giọng giống nhau giữa các chunk.
             # Vì nhiều chunk trả ra nhiều speaker độc lập, nên phải so khớp để gán chung
