@@ -9,7 +9,6 @@ import urllib.parse
 from contextlib import suppress
 from voice_app.utils.activity_logger import ActivityLogger
 from frappe.utils.file_manager import save_file
-from voice_app.elevenlabs_client import call_elevenlabs_stt, check_elevenlabs_balance
 from voice_app.gemini_stt_client import call_gemini_stt
 from voice_app.task_extractor import extract_tasks_only, create_tasks_to_erp
 from voice_app.docx_utils import save_to_docx
@@ -33,6 +32,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
 
+    stt_mode = "google"
     audio_file = frappe.request.files['file']
     
     # Tính hash để phát hiện upload lại cùng 1 file
@@ -252,6 +252,7 @@ def _sync_meeting_stt_usage(meeting_name, cost_user, model=None, fallback_prompt
 
 def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None, stt_mode="google", meeting_name=None, session_id_header=None, **kwargs):
     try:
+        stt_mode = "google"
     
     
         pass
@@ -442,9 +443,10 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 with suppress(FileNotFoundError):
                     shutil.rmtree(frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name))
             else:
-                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=global_vocabulary)
-                if err:
-                    frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
+                err = "STT mode không hỗ trợ. Hệ thống chỉ dùng Google Gemini."
+                frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err})
+                frappe.db.commit()
+                return
     
             stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
             el_speakers = set(s["speaker_id"] for s in segments)
@@ -945,11 +947,11 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             })
             frappe.db.commit()
     
-            # Log AI call (ElevenLabs)
+            # Log AI call (Gemini STT)
             try:
                 session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
                 if session_name:
-                    ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
+                    ai_model_log = "google/gemini"
                     action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary=f"Transcribe with {stt_label}")
                     _logger.log_ai_call(
                         session_name=session_name,
@@ -966,7 +968,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 if getattr(frappe.db, "_cursor", None):
                     frappe.db._cursor.execute("ROLLBACK")
                 frappe.db.rollback()
-                frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
+                frappe.log_error(str(log_ex), "Log Gemini STT AI Call Error")
     
             result_data = {
                 "status": "success",
@@ -1591,7 +1593,7 @@ def download_meeting_file():
 
 @frappe.whitelist(allow_guest=False)
 def get_elevenlabs_info():
-    return {"balance": check_elevenlabs_balance()}
+    return {"balance": "ElevenLabs STT đã tắt. Hệ thống đang dùng Google Gemini."}
 
 @frappe.whitelist(allow_guest=False)
 def enroll_voice():
@@ -2072,8 +2074,17 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
             return {"status": "error", "message": err}
 
         send_progress(30, "Đang trích xuất văn bản (STT)...")
-        # Gọi ElevenLabs Speech-to-Text
-        segments, _raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
+        segments, _raw_words, full_text, err, _prompt_tokens, _completion_tokens = call_gemini_stt(
+            chunks_info=[{
+                "name": "",
+                "idx": 0,
+                "wav": wav,
+                "offset": 0,
+                "mappings": [],
+                "status": "Pending",
+            }],
+            language="vi",
+        )
         if err:
             frappe.publish_realtime("v2t_result", {"status": "error", "message": err}, user=user, after_commit=False)
             return {"status": "error", "message": err}
@@ -2343,7 +2354,7 @@ def resume_transcription(meeting_name):
             language=meeting_doc.language or "vi",
             filter_speakers=meeting_doc.filter_speakers,
             meeting_name=meeting_name,
-            stt_mode=meeting_doc.stt_mode or "elevenlabs",
+            stt_mode="google",
             num_speakers=meeting_doc.num_speakers,
             custom_vocabulary=meeting_doc.custom_vocabulary or ""
         )
