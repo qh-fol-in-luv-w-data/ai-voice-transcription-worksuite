@@ -14,7 +14,14 @@
   "audio_file_path",
   "error_message",
   "tokens_used",
-  "raw_segments"
+  "stt_prompt_tokens",
+  "stt_completion_tokens",
+  "stt_total_tokens",
+  "stt_cost_usd",
+  "stt_cost_user",
+  "stt_model",
+  "raw_segments",
+  "stt_parse_log"
  ],
  "fields": [
   {
@@ -61,10 +68,56 @@
    "label": "Tokens Used"
   },
   {
+   "default": "0",
+   "fieldname": "stt_prompt_tokens",
+   "fieldtype": "Int",
+   "label": "STT Prompt Tokens",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "stt_completion_tokens",
+   "fieldtype": "Int",
+   "label": "STT Completion Tokens",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "stt_total_tokens",
+   "fieldtype": "Int",
+   "label": "STT Total Tokens",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "stt_cost_usd",
+   "fieldtype": "Float",
+   "label": "STT Cost USD",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stt_cost_user",
+   "fieldtype": "Link",
+   "label": "STT Cost User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stt_model",
+   "fieldtype": "Data",
+   "label": "STT Model",
+   "read_only": 1
+  },
+  {
    "fieldname": "raw_segments",
    "fieldtype": "Code",
    "label": "Raw Segments",
    "options": "JSON"
+  },
+  {
+   "fieldname": "stt_parse_log",
+   "fieldtype": "Long Text",
+   "label": "STT Parse Log"
   }
  ],
  "index_web_pages_for_search": 1,

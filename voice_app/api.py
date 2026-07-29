@@ -9,7 +9,6 @@ import urllib.parse
 from contextlib import suppress
 from voice_app.utils.activity_logger import ActivityLogger
 from frappe.utils.file_manager import save_file
-from voice_app.elevenlabs_client import call_elevenlabs_stt, check_elevenlabs_balance
 from voice_app.gemini_stt_client import call_gemini_stt
 from voice_app.task_extractor import extract_tasks_only, create_tasks_to_erp
 from voice_app.docx_utils import save_to_docx
@@ -33,6 +32,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
     if 'file' not in frappe.request.files:
         frappe.throw("Thiếu file âm thanh")
 
+    stt_mode = "google"
     audio_file = frappe.request.files['file']
     
     # Tính hash để phát hiện upload lại cùng 1 file
@@ -183,8 +183,76 @@ def check_meeting_status(meeting_name):
         return {"status": "processing", "meeting_name": meeting.name, "progress_info": progress_info}
 
 
+def _append_stt_parse_log(doctype, docname, lines, max_chars=200000):
+    """Append STT parse/runtime logs to a DocType field without failing the main pipeline."""
+    if not docname or not lines:
+        return
+    if isinstance(lines, str):
+        lines = [lines]
+    lines = [str(line).strip() for line in lines if str(line).strip()]
+    if not lines:
+        return
+
+    try:
+        if not frappe.db.has_column(doctype, "stt_parse_log"):
+            return
+        old_log = frappe.db.get_value(doctype, docname, "stt_parse_log") or ""
+        from frappe.utils import now_datetime
+        stamp = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
+        new_block = "\n".join(f"[{stamp}] {line}" for line in lines)
+        combined = f"{old_log.rstrip()}\n{new_block}".strip() if old_log else new_block
+        if len(combined) > max_chars:
+            combined = combined[-max_chars:]
+        frappe.db.set_value(doctype, docname, "stt_parse_log", combined, update_modified=False)
+    except Exception as exc:
+        with suppress(Exception):
+            frappe.log_error(str(exc), f"Append STT Parse Log Failed: {doctype}")
+
+
+def _gemini_stt_cost(prompt_tokens=0, completion_tokens=0):
+    price_in = 1.50 / 1_000_000
+    price_out = 9.00 / 1_000_000
+    return (int(prompt_tokens or 0) * price_in) + (int(completion_tokens or 0) * price_out)
+
+
+def _sync_meeting_stt_usage(meeting_name, cost_user, model=None, fallback_prompt_tokens=0, fallback_completion_tokens=0):
+    totals = frappe.db.sql(
+        """
+        SELECT
+            COALESCE(SUM(stt_prompt_tokens), 0) AS prompt_tokens,
+            COALESCE(SUM(stt_completion_tokens), 0) AS completion_tokens,
+            COALESCE(SUM(stt_total_tokens), 0) AS total_tokens,
+            COALESCE(SUM(stt_cost_usd), 0) AS cost_usd
+        FROM `tabVoice Meeting Chunk`
+        WHERE meeting = %s
+        """,
+        (meeting_name,),
+        as_dict=True,
+    )[0]
+    prompt_tokens = int(totals.prompt_tokens or 0)
+    completion_tokens = int(totals.completion_tokens or 0)
+    total_tokens = int(totals.total_tokens or 0)
+    cost_usd = float(totals.cost_usd or 0)
+
+    if not total_tokens and (fallback_prompt_tokens or fallback_completion_tokens):
+        prompt_tokens = int(fallback_prompt_tokens or 0)
+        completion_tokens = int(fallback_completion_tokens or 0)
+        total_tokens = prompt_tokens + completion_tokens
+        cost_usd = _gemini_stt_cost(prompt_tokens, completion_tokens)
+
+    frappe.db.set_value("Voice Meeting", meeting_name, {
+        "stt_prompt_tokens": prompt_tokens,
+        "stt_completion_tokens": completion_tokens,
+        "stt_total_tokens": total_tokens,
+        "stt_cost_usd": cost_usd,
+        "stt_cost_user": cost_user,
+        "stt_model": model or f"google/{frappe.db.get_single_value('Voice App Settings', 'gemini_model') or 'gemini'}"
+    })
+
+
 def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None, stt_mode="google", meeting_name=None, session_id_header=None, **kwargs):
     try:
+        stt_mode = "google"
     
     
         pass
@@ -281,16 +349,31 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 chunks_to_process = [c for c in chunks_info if c["status"] in ("Pending", "Error", "Processing")]
                 
                 site_name = frappe.local.site
-                def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks):
+                meeting_cost_user = frappe.db.get_value("Voice Meeting", meeting_name, "owner") or frappe.session.user
+                def chunk_update_cb(c_name, c_status, c_segs, c_words, c_err, c_toks, c_parse_logs=None, c_usage=None):
                     import frappe
                     try:
+                        if c_parse_logs:
+                            _append_stt_parse_log("Voice Meeting Chunk", c_name, c_parse_logs)
+                            _append_stt_parse_log("Voice Meeting", meeting_name, c_parse_logs)
                         if c_status == "Processing":
                             frappe.db.set_value("Voice Meeting Chunk", c_name, "status", "Processing")
                         elif c_status == "Completed":
+                            usage = c_usage or {}
+                            prompt_tokens = int(usage.get("prompt_tokens") or 0)
+                            completion_tokens = int(usage.get("completion_tokens") or 0)
+                            total_tokens = int(usage.get("tokens_used") or c_toks or 0)
+                            cost_usd = float(usage.get("cost_usd") or _gemini_stt_cost(prompt_tokens, completion_tokens))
                             frappe.db.set_value("Voice Meeting Chunk", c_name, {
                                 "status": "Completed",
                                 "raw_segments": json.dumps({"segments": c_segs, "raw_words": c_words}, ensure_ascii=False),
                                 "tokens_used": c_toks,
+                                "stt_prompt_tokens": prompt_tokens,
+                                "stt_completion_tokens": completion_tokens,
+                                "stt_total_tokens": total_tokens,
+                                "stt_cost_usd": cost_usd,
+                                "stt_cost_user": meeting_cost_user,
+                                "stt_model": usage.get("model") or "google/gemini",
                                 "error_message": ""
                             })
                         elif c_status == "Error":
@@ -308,9 +391,19 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     _segs, _raw, _txt, err, el_chars_used, el_chars_remaining = call_gemini_stt(
                         chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
                         language=language, num_speakers=auto_num_speakers, 
-                        custom_vocabulary=global_vocabulary, progress_callback=stt_cb
+                        custom_vocabulary=global_vocabulary, progress_callback=stt_cb,
+                        parse_log_cb=lambda c_name, lines: _append_stt_parse_log("Voice Meeting", meeting_name, lines)
                     )
                     frappe.log_error(f"Goi call_gemini_stt hoan tat. Err={err}", "Transcribe Debug")
+                    total_prompt_tokens = int(el_chars_used or 0)
+                    total_completion_tokens = int(el_chars_remaining or 0)
+                    _sync_meeting_stt_usage(
+                        meeting_name,
+                        meeting_cost_user,
+                        fallback_prompt_tokens=total_prompt_tokens,
+                        fallback_completion_tokens=total_completion_tokens,
+                    )
+                    frappe.db.commit()
                 
                 segments = []
                 raw_words = []
@@ -350,13 +443,19 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 with suppress(FileNotFoundError):
                     shutil.rmtree(frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name))
             else:
-                segments, raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, language, num_speakers=auto_num_speakers, custom_vocabulary=global_vocabulary)
-                if err:
-                    frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err}); frappe.db.commit(); return
+                err = "STT mode không hỗ trợ. Hệ thống chỉ dùng Google Gemini."
+                frappe.db.set_value("Voice Meeting", meeting_name, {"status": "Error", "error_message": err})
+                frappe.db.commit()
+                return
     
             stt_label = "Google Gemini" if stt_mode == "google" else "ElevenLabs"
             el_speakers = set(s["speaker_id"] for s in segments)
             print(f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}")
+            _append_stt_parse_log(
+                "Voice Meeting",
+                meeting_name,
+                f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}",
+            )
     
             # ── EXTRACT ALL SEGMENT EMBEDDINGS (BATCH) ──
             update_progress(100, "Đã dịch xong văn bản!", 10, "Đang trích xuất đặc trưng cho từng câu thoại...")
@@ -434,6 +533,13 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             spk_ranked = {}  # speaker_id -> [(name, score, email, user_info), ...]
             for spk, emb in spk_embeddings.items():
                 spk_ranked[spk] = spk_db.identify_ranked(emb, allowed_names=allowed)
+                ranked_preview = ", ".join(f"{name}={score:.3f}" for name, score, _email, _user_info in spk_ranked[spk][:5])
+                _append_stt_parse_log(
+                    "Voice Meeting",
+                    meeting_name,
+                    f"[Speaker] {spk}: candidates>=threshold {len(spk_ranked[spk])}"
+                    + (f" | {ranked_preview}" if ranked_preview else ""),
+                )
     
             is_single_chunk = not any(spk.startswith("c") and "_" in spk for spk in spk_embeddings)
             spk_identified = {}
@@ -480,6 +586,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             # Log kết quả greedy assignment
             summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
             print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
+            _append_stt_parse_log("Voice Meeting", meeting_name, f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
     
             # Gộp các "Người lạ" có giọng giống nhau giữa các chunk.
             # Vì nhiều chunk trả ra nhiều speaker độc lập, nên phải so khớp để gán chung
@@ -840,11 +947,11 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             })
             frappe.db.commit()
     
-            # Log AI call (ElevenLabs)
+            # Log AI call (Gemini STT)
             try:
                 session_name = frappe.db.get_value("VOICE Session", {"session_id": session_id_header}, "name") if session_id_header else ""
                 if session_name:
-                    ai_model_log = "google/speech-to-text" if stt_mode == "google" else "elevenlabs/scribe_v2"
+                    ai_model_log = "google/gemini"
                     action_name = _logger.start_action(session_name, action_type="transcribe_audio", input_summary=f"Transcribe with {stt_label}")
                     if stt_mode == "google":
                         _logger.log_ai_call(
@@ -878,7 +985,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 if getattr(frappe.db, "_cursor", None):
                     frappe.db._cursor.execute("ROLLBACK")
                 frappe.db.rollback()
-                frappe.log_error(str(log_ex), "Log ElevenLabs AI Call Error")
+                frappe.log_error(str(log_ex), "Log Gemini STT AI Call Error")
     
             result_data = {
                 "status": "success",
@@ -1503,7 +1610,7 @@ def download_meeting_file():
 
 @frappe.whitelist(allow_guest=False)
 def get_elevenlabs_info():
-    return {"balance": check_elevenlabs_balance()}
+    return {"balance": "ElevenLabs STT đã tắt. Hệ thống đang dùng Google Gemini."}
 
 @frappe.whitelist(allow_guest=False)
 def enroll_voice():
@@ -1984,8 +2091,17 @@ def _voice_to_task_async(file_path, existing_task=None, user=None, session_id=""
             return {"status": "error", "message": err}
 
         send_progress(30, "Đang trích xuất văn bản (STT)...")
-        # Gọi ElevenLabs Speech-to-Text
-        segments, _raw_words, full_text, err, el_chars_used, el_chars_remaining = call_elevenlabs_stt(wav, "vi")
+        segments, _raw_words, full_text, err, _prompt_tokens, _completion_tokens = call_gemini_stt(
+            chunks_info=[{
+                "name": "",
+                "idx": 0,
+                "wav": wav,
+                "offset": 0,
+                "mappings": [],
+                "status": "Pending",
+            }],
+            language="vi",
+        )
         if err:
             frappe.publish_realtime("v2t_result", {"status": "error", "message": err}, user=user, after_commit=False)
             return {"status": "error", "message": err}
@@ -2255,7 +2371,7 @@ def resume_transcription(meeting_name):
             language=meeting_doc.language or "vi",
             filter_speakers=meeting_doc.filter_speakers,
             meeting_name=meeting_name,
-            stt_mode=meeting_doc.stt_mode or "elevenlabs",
+            stt_mode="google",
             num_speakers=meeting_doc.num_speakers,
             custom_vocabulary=meeting_doc.custom_vocabulary or ""
         )
