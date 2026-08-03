@@ -1,0 +1,170 @@
+stages:
+  - deploy
+
+before_script:
+  - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+  - eval $(ssh-agent -s)
+  - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+  - mkdir -p ~/.ssh
+  - chmod 700 ~/.ssh
+  - ssh-keyscan -H 192.168.90.241 192.168.90.239 192.168.90.240 >> ~/.ssh/known_hosts
+
+deploy-dev:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+  script:
+    - ssh -o StrictHostKeyChecking=no pai@192.168.90.241 "
+        export PATH=\$PATH:/home/frappe/.local/bin &&
+        source /home/frappe/frappe-env/bin/activate &&
+        APP_DIR=/home/frappe/frappe-bench/apps/$CI_PROJECT_NAME &&
+        SITE_NAME=devapp.ctpai.vn &&
+        BRANCH=dev &&
+        
+        if [ ! -d \"\$APP_DIR\" ]; then
+            echo '🚀 Repository $CI_PROJECT_NAME chưa tồn tại. Đang tự động clone và cài đặt vào DEV...';
+            cd /home/frappe/frappe-bench &&
+            bench get-app --branch \$BRANCH https://oauth2:${GITLAB_PAT}@gitlab.ctgroupvietnam.com/ctpai/$CI_PROJECT_NAME.git --resolve-deps || true;
+        fi &&
+        
+        HOOKS_FILE=\$(find \"\$APP_DIR\" -maxdepth 3 -name \"hooks.py\" | head -n 1) &&
+        if [ -n \"\$HOOKS_FILE\" ]; then
+            MODULE_NAME=\$(basename \$(dirname \"\$HOOKS_FILE\"));
+        else
+            MODULE_NAME=\"$CI_PROJECT_NAME\";
+        fi &&
+        echo \"📌 Detected Repo Dir: $CI_PROJECT_NAME | Module Name: \$MODULE_NAME\" &&
+        
+        cd \"/home/frappe/frappe-bench\" &&
+        bench --site \$SITE_NAME install-app \$MODULE_NAME 2>/dev/null || true &&
+        
+        cd \"\$APP_DIR\" &&
+        git remote set-url origin https://oauth2:${GITLAB_PAT}@gitlab.ctgroupvietnam.com/ctpai/$CI_PROJECT_NAME.git || true &&
+        git clean -fd &&
+        git fetch origin \$BRANCH || true &&
+        git reset --hard origin/\$BRANCH || true &&
+        
+        sed -i \"/^\\s*\$/d\" /home/frappe/frappe-bench/sites/apps.txt || true &&
+        if ! grep -q \"^\\s*\$MODULE_NAME\\s*\$\" /home/frappe/frappe-bench/sites/apps.txt; then echo \"\$MODULE_NAME\" >> /home/frappe/frappe-bench/sites/apps.txt; fi &&
+        if ! grep -q \"^\\s*$CI_PROJECT_NAME\\s*\$\" /home/frappe/frappe-bench/sites/apps.txt; then echo \"$CI_PROJECT_NAME\" >> /home/frappe/frappe-bench/sites/apps.txt; fi &&
+        sed -i \"/^\\s*\$/d\" /home/frappe/frappe-bench/sites/apps.txt || true &&
+        
+        FRONTEND_DIR=\"\$APP_DIR/frontend\" &&
+        if [ -d \"\$FRONTEND_DIR\" ]; then
+            echo '📦 Phát hiện thư mục frontend độc lập, đang build...';
+            cd \"\$FRONTEND_DIR\" &&
+            npm install &&
+            npm run build &&
+            cd /home/frappe/frappe-bench &&
+            sudo -u frappe bench build --app $CI_PROJECT_NAME;
+        fi &&
+        
+        sudo -u frappe bench --site \$SITE_NAME migrate &&
+        sudo -u frappe bench --site \$SITE_NAME clear-cache"
+
+deploy-uat:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "uat"
+  script:
+    - ssh -o StrictHostKeyChecking=no pai@192.168.90.239 "
+        export PATH=\$PATH:/home/frappe/.local/bin &&
+        source /home/frappe/frappe-env/bin/activate &&
+        APP_DIR=/home/frappe/frappe-bench/apps/$CI_PROJECT_NAME &&
+        SITE_NAME=uatapp.ctpai.vn &&
+        BRANCH=uat &&
+        
+        if [ ! -d \"\$APP_DIR\" ]; then
+            echo '🚀 Repository $CI_PROJECT_NAME chưa tồn tại. Đang tự động clone và cài đặt vào UAT...';
+            cd /home/frappe/frappe-bench &&
+            bench get-app --branch \$BRANCH https://oauth2:${GITLAB_PAT}@gitlab.ctgroupvietnam.com/ctpai/$CI_PROJECT_NAME.git --resolve-deps || true;
+        fi &&
+        
+        HOOKS_FILE=\$(find \"\$APP_DIR\" -maxdepth 3 -name \"hooks.py\" | head -n 1) &&
+        if [ -n \"\$HOOKS_FILE\" ]; then
+            MODULE_NAME=\$(basename \$(dirname \"\$HOOKS_FILE\"));
+        else
+            MODULE_NAME=\"$CI_PROJECT_NAME\";
+        fi &&
+        echo \"�� Detected Repo Dir: $CI_PROJECT_NAME | Module Name: \$MODULE_NAME\" &&
+        
+        cd \"/home/frappe/frappe-bench\" &&
+        bench --site \$SITE_NAME install-app \$MODULE_NAME 2>/dev/null || true &&
+        
+        cd \"\$APP_DIR\" &&
+        git remote set-url origin https://oauth2:${GITLAB_PAT}@gitlab.ctgroupvietnam.com/ctpai/$CI_PROJECT_NAME.git || true &&
+        git clean -fd &&
+        git fetch origin \$BRANCH || true &&
+        git reset --hard origin/\$BRANCH || true &&
+        
+        sed -i \"/^\\s*\$/d\" /home/frappe/frappe-bench/sites/apps.txt || true &&
+        if ! grep -q \"^\\s*\$MODULE_NAME\\s*\$\" /home/frappe/frappe-bench/sites/apps.txt; then echo \"\$MODULE_NAME\" >> /home/frappe/frappe-bench/sites/apps.txt; fi &&
+        if ! grep -q \"^\\s*$CI_PROJECT_NAME\\s*\$\" /home/frappe/frappe-bench/sites/apps.txt; then echo \"$CI_PROJECT_NAME\" >> /home/frappe/frappe-bench/sites/apps.txt; fi &&
+        sed -i \"/^\\s*\$/d\" /home/frappe/frappe-bench/sites/apps.txt || true &&
+        
+        FRONTEND_DIR=\"\$APP_DIR/frontend\" &&
+        if [ -d \"\$FRONTEND_DIR\" ]; then
+            echo '📦 Phát hiện thư mục frontend độc lập, đang build...';
+            cd \"\$FRONTEND_DIR\" &&
+            npm install &&
+            npm run build &&
+            cd /home/frappe/frappe-bench &&
+            sudo -u frappe bench build --app $CI_PROJECT_NAME;
+        fi &&
+        
+        sudo -u frappe bench --site \$SITE_NAME migrate &&
+        sudo -u frappe bench --site \$SITE_NAME clear-cache"
+
+deploy-prod:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: manual
+  script:
+    - ssh -o StrictHostKeyChecking=no pai@192.168.90.240 "
+        export PATH=\$PATH:/home/frappe/.local/bin &&
+        source /home/frappe/frappe-env/bin/activate &&
+        APP_DIR=/home/frappe/frappe-bench/apps/$CI_PROJECT_NAME &&
+        SITE_NAME=app.ctpai.vn &&
+        BRANCH=master &&
+        
+        if [ ! -d \"\$APP_DIR\" ]; then
+            echo '🚀 Repository $CI_PROJECT_NAME chưa tồn tại. Đang tự động clone và cài đặt vào PROD...';
+            cd /home/frappe/frappe-bench &&
+            bench get-app --branch \$BRANCH https://oauth2:${GITLAB_PAT}@gitlab.ctgroupvietnam.com/ctpai/$CI_PROJECT_NAME.git --resolve-deps || true;
+        fi &&
+        
+        HOOKS_FILE=\$(find \"\$APP_DIR\" -maxdepth 3 -name \"hooks.py\" | head -n 1) &&
+        if [ -n \"\$HOOKS_FILE\" ]; then
+            MODULE_NAME=\$(basename \$(dirname \"\$HOOKS_FILE\"));
+        else
+            MODULE_NAME=\"$CI_PROJECT_NAME\";
+        fi &&
+        echo \"📌 Detected Repo Dir: $CI_PROJECT_NAME | Module Name: \$MODULE_NAME\" &&
+        
+        cd \"/home/frappe/frappe-bench\" &&
+        bench --site \$SITE_NAME install-app \$MODULE_NAME 2>/dev/null || true &&
+        
+        cd \"\$APP_DIR\" &&
+        git remote set-url origin https://oauth2:${GITLAB_PAT}@gitlab.ctgroupvietnam.com/ctpai/$CI_PROJECT_NAME.git || true &&
+        git clean -fd &&
+        git fetch origin \$BRANCH || true &&
+        git reset --hard origin/\$BRANCH || true &&
+        
+        sed -i \"/^\\s*\$/d\" /home/frappe/frappe-bench/sites/apps.txt || true &&
+        if ! grep -q \"^\\s*\$MODULE_NAME\\s*\$\" /home/frappe/frappe-bench/sites/apps.txt; then echo \"\$MODULE_NAME\" >> /home/frappe/frappe-bench/sites/apps.txt; fi &&
+        if ! grep -q \"^\\s*$CI_PROJECT_NAME\\s*\$\" /home/frappe/frappe-bench/sites/apps.txt; then echo \"$CI_PROJECT_NAME\" >> /home/frappe/frappe-bench/sites/apps.txt; fi &&
+        sed -i \"/^\\s*\$/d\" /home/frappe/frappe-bench/sites/apps.txt || true &&
+        
+        FRONTEND_DIR=\"\$APP_DIR/frontend\" &&
+        if [ -d \"\$FRONTEND_DIR\" ]; then
+            echo '📦 Phát hiện thư mục frontend độc lập, đang build...';
+            cd \"\$FRONTEND_DIR\" &&
+            npm install &&
+            npm run build &&
+            cd /home/frappe/frappe-bench &&
+            sudo -u frappe bench build --app $CI_PROJECT_NAME;
+        fi &&
+        
+        sudo -u frappe bench --site \$SITE_NAME migrate &&
+        sudo -u frappe bench --site \$SITE_NAME clear-cache"
