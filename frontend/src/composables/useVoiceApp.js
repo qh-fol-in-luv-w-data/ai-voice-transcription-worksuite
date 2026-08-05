@@ -1,5 +1,5 @@
 import { ref, watch, onMounted } from 'vue'
-import { transcribeAudio, extractTasks, syncTasksToERP, enrollVoice, getEnrolledSpeakers, getMeetingHistory } from '../api'
+import { transcribeAudio, extractTasks, syncTasksToERP, enrollVoice, getEnrolledSpeakers, getMeetingHistory, getMeetingDetail } from '../api'
 
 // Global UI State
 const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -216,16 +216,23 @@ export const loadHistory = async () => {
   }
 }
 
-export const loadPastMeeting = (meeting) => {
-  currentMeeting.value = meeting
+export const loadPastMeeting = async (meeting) => {
+  let detail = meeting
+  if (meeting?.name && !meeting.raw_results && !meeting.transcript) {
+    const res = await getMeetingDetail(meeting.name)
+    if (res?.status === 'success' && res.meeting) {
+      detail = res.meeting
+    }
+  }
+  currentMeeting.value = detail
   activeTab.value = 'view_meeting'
-  meetingSummary.value = meeting.meeting_summary || ''
-  meetingConclusion.value = meeting.conclusion || ''
-  if (meeting.tasks_json) {
+  meetingSummary.value = detail.meeting_summary || ''
+  meetingConclusion.value = detail.conclusion || ''
+  if (detail.tasks_json) {
     try {
-      tasks.value = typeof meeting.tasks_json === 'string'
-        ? JSON.parse(meeting.tasks_json)
-        : meeting.tasks_json
+      tasks.value = typeof detail.tasks_json === 'string'
+        ? JSON.parse(detail.tasks_json)
+        : detail.tasks_json
     } catch (e) {
       console.error("Failed to parse tasks_json", e)
       tasks.value = []

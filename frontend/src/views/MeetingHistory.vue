@@ -115,23 +115,29 @@ const startEditSpeaker = (idx) => {
   editingSpeaker.value = idx
   editingSpeakerName.value = localSegments.value[idx][2]
   newSpeakerEmployee.value = ''
+  newSpeakerQuery.value = ''
 }
 const saveEditSpeaker = async (idx) => {
-  const finalName = newSpeakerEmployee.value
-  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  const finalName = (newSpeakerEmployee.value || newSpeakerQuery.value || '').trim()
+  if (!finalName) { editingSpeaker.value = null; return }
   const oldName = localSegments.value[idx][2]
   saveState()
   for (const seg of localSegments.value) {
-    if (seg[2] === oldName) seg[2] = finalName.trim()
+    if (seg[2] === oldName) seg[2] = finalName
   }
   editingSpeaker.value = null
+  newSpeakerEmployee.value = ''
+  newSpeakerQuery.value = ''
   if (props.meeting?.name) {
     await updateMeetingResults(props.meeting.name, localSegments.value)
   }
 }
 const saveAndRescanSpeaker = async (idx) => {
-  const finalName = newSpeakerEmployee.value
-  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  const finalName = (newSpeakerEmployee.value || newSpeakerQuery.value || '').trim()
+  if (!finalName) {
+    ElMessage.warning('Chọn hoặc nhập tên người nói trước khi quét lại')
+    return
+  }
   if (!props.meeting?.name) { alert('Không tìm thấy meeting!'); return }
 
   editingSpeaker.value = null
@@ -139,9 +145,11 @@ const saveAndRescanSpeaker = async (idx) => {
   rescanMessage.value = 'Đang trích xuất đặc trưng giọng nói...'
 
   try {
-    const res = await reassignSpeakerFromSegment(props.meeting.name, idx, finalName.trim())
+    const res = await reassignSpeakerFromSegment(props.meeting.name, idx, finalName)
     if (res && res.status === 'success') {
       localSegments.value = res.results
+      newSpeakerEmployee.value = ''
+      newSpeakerQuery.value = ''
       rescanMessage.value = res.message || 'Quét lại thành công!'
       setTimeout(() => { rescanMessage.value = '' }, 3000)
     } else {
@@ -199,11 +207,41 @@ const uniqueSpeakers = computed(() => {
   return Array.from(speakers)
 })
 
+const speakerStats = computed(() => {
+  const known = new Set()
+  const unknownGroups = new Set()
+  let unknownSegments = 0
+  for (const seg of localSegments.value) {
+    const speaker = seg[2] || ''
+    if (!speaker) continue
+    if (speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
+      unknownGroups.add(speaker)
+      unknownSegments += 1
+    } else {
+      known.add(speaker)
+    }
+  }
+  return {
+    knownCount: known.size,
+    unknownGroupCount: unknownGroups.size,
+    unknownSegments
+  }
+})
+
+const formatEmployeeOption = (emp) => {
+  const name = emp.employee_name || emp.user_id || ''
+  const isVoiceSpeaker = emp.designation === 'Voice Speaker'
+  const parts = [name]
+  if (emp.user_id && emp.user_id !== name) parts.push(emp.user_id)
+  if (emp.designation && !(isVoiceSpeaker && name.includes('Voice Speaker'))) parts.push(emp.designation)
+  return parts.filter(Boolean).join(' - ')
+}
+
 const employeeOptions = computed(() =>
-  dbEmployees.value.map(emp => ({
-    value: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - '),
-    label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
-  }))
+  dbEmployees.value.map(emp => {
+    const label = formatEmployeeOption(emp)
+    return { value: label, label }
+  })
 )
 
 const speakerQueries = ref({})
@@ -231,7 +269,7 @@ const filteredNewSpeakerOptions = computed(() => {
   return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
 })
 const onNewSpeakerSelectVisibleChange = (visible) => {
-  if (!visible) newSpeakerQuery.value = ''
+  if (visible) newSpeakerQuery.value = ''
 }
 
 const assignStrangerNames = async () => {
@@ -265,15 +303,19 @@ const enrollMapped = async () => {
     let msg = `✅ Đã cập nhật tên.`
     if (enrolled.length) msg += ` Đăng ký giọng: ${enrolled.join(', ')}.`
     if (skipped.length) msg += ` Đã có sẵn: ${skipped.join(', ')}.`
+    if (res?.reassigned_count !== undefined) msg += ` Quét lại: ${res.reassigned_count} đoạn.`
     if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
     alert(msg)
     
     saveState()
-    for (const seg of localSegments.value) {
-      if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
+    if (res?.results) {
+      localSegments.value = res.results
+    } else {
+      for (const seg of localSegments.value) {
+        if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
+      }
+      await updateMeetingResults(props.meeting.name, localSegments.value)
     }
-    
-    await updateMeetingResults(props.meeting.name, localSegments.value)
     speakerMapping.value = {}
   } catch(e) {
     alert('❌ Lỗi: ' + e.message)
@@ -599,7 +641,7 @@ const removeTask = (idx) => {
             <span class="material-symbols-outlined">person_add</span>
             Sửa / Gán tên người tham dự
           </h3>
-          <p class="font-body-md text-body-md text-gray-500 dark:text-on-surface-variant">Phát hiện <strong>{{ uniqueSpeakers.length }}</strong> người tham gia. Chọn tên để gán lại nếu cần thiết và đăng ký vào hệ thống.</p>
+          <p class="font-body-md text-body-md text-gray-500 dark:text-on-surface-variant">Đã nhận diện <strong>{{ speakerStats.knownCount }}</strong> người, còn <strong>{{ speakerStats.unknownGroupCount }}</strong> nhóm người lạ / <strong>{{ speakerStats.unknownSegments }}</strong> đoạn người lạ.</p>
         </div>
         <span v-if="isAdmin" class="text-[10px] font-bold text-error bg-error/10 px-2 py-0.5 rounded-full border border-error/30 self-start mt-1">ADMIN MODE</span>
       </div>
@@ -652,7 +694,7 @@ const removeTask = (idx) => {
             class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm" 
             :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
             <span class="material-symbols-outlined text-[18px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
-            {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Đăng ký giọng' }}
+            {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Quét lại AI' }}
           </button>
         </div>
       </div>
@@ -680,7 +722,7 @@ const removeTask = (idx) => {
             
             <div class="flex items-center gap-2 mb-1 flex-wrap">
               <template v-if="editingSpeaker === idx">
-                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override" @change="saveEditSpeaker(idx)" :filter-method="filterNewSpeakerEmployee" @visible-change="onNewSpeakerSelectVisibleChange">
+                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override" :filter-method="filterNewSpeakerEmployee" @visible-change="onNewSpeakerSelectVisibleChange">
                   <el-option v-for="opt in filteredNewSpeakerOptions" :key="opt.value" :label="opt.label" :value="opt.value">
                     <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
                   </el-option>

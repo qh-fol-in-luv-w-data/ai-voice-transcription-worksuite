@@ -187,7 +187,10 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_c
 
     chunks = []
     frames_per_sec = sample_rate * sample_width
+    chunk_length_sec = max(1.0, float(chunk_length_sec))
+    max_chunk_sec = max(chunk_length_sec, float(max_chunk_sec))
     ideal_chunk_bytes = int(chunk_length_sec * frames_per_sec)
+    max_chunk_bytes = int(max_chunk_sec * frames_per_sec)
     
     start_byte = 0
     total_bytes = len(raw_data)
@@ -199,7 +202,11 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_c
         else:
             # Tìm khoảng lặng trong vùng [-30s, +30s] quanh điểm cắt mục tiêu
             search_start = max(start_byte + int(ideal_chunk_bytes * 0.5), target_byte - int(30 * frames_per_sec))
-            search_end = min(total_bytes, target_byte + int(30 * frames_per_sec))
+            search_end = min(
+                total_bytes,
+                start_byte + max_chunk_bytes,
+                target_byte + int(30 * frames_per_sec),
+            )
             
             search_start_idx = search_start // frame_size
             search_end_idx = search_end // frame_size
@@ -223,11 +230,17 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_c
                 
             # Nếu tìm được khoảng lặng dài hơn 0.3s (10 frames)
             if max_silence_run >= 10:
-                end_byte = best_split_idx * frame_size
+                end_byte = min(best_split_idx * frame_size, start_byte + max_chunk_bytes)
             else:
                 # Nếu không có khoảng lặng nào đủ dài, cắt cứng (nhưng đảm bảo byte alignment)
                 block_align = sample_width
                 end_byte = (target_byte // block_align) * block_align
+
+        # max_chunk_sec trước đây chỉ có trong signature nhưng không được áp
+        # dụng, khiến chunk có thể dài hơn giới hạn mà caller yêu cầu.
+        end_byte = min(end_byte, start_byte + max_chunk_bytes, total_bytes)
+        if end_byte <= start_byte:
+            end_byte = min(total_bytes, start_byte + ideal_chunk_bytes)
 
         chunk_data = raw_data[start_byte:end_byte]
         

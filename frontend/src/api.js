@@ -47,6 +47,13 @@ export async function getMeetingHistory() {
   return res.data.message
 }
 
+export async function getMeetingDetail(meetingName) {
+  const res = await api.get('/api/method/voice_app.api.get_meeting_detail', {
+    params: { meeting_name: meetingName }
+  })
+  return res.data.message
+}
+
 export async function renameMeeting(meetingName, newTitle) {
   const res = await api.post('/api/method/voice_app.meeting_api.rename_meeting', {
     meeting_name: meetingName,

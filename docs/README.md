@@ -28,6 +28,10 @@ Tất cả thành viên dự án và bên nghiệm thu.
 
 ### Directory navigation
 
+| Tài liệu nhanh | Nội dung |
+|---|---|
+| [SYSTEM-DOCUMENTATION.md](SYSTEM-DOCUMENTATION.md) | Tài liệu hệ thống tổng hợp, bám theo source hiện tại: kiến trúc, luồng nghiệp vụ, API, DocType, cấu hình, bảo mật, vận hành và các giả định cần xác minh. |
+
 | Thư mục | Nội dung |
 |---|---|
 | `01. QUẢN TRỊ ĐIỀU PHỐI` | Charter, scope, risk, issue, communication. |
@@ -68,4 +72,3 @@ Tất cả thành viên dự án và bên nghiệm thu.
 | Ngày | Phiên bản | Thay đổi | Tác giả |
 |---|---:|---|---|
 | 2026-07-28 | 0.1 | AI bổ sung tài liệu ban đầu từ source code. | Codex |
-
