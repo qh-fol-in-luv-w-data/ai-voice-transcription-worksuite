@@ -267,12 +267,42 @@ const uniqueSpeakers = computed(() => {
   return Array.from(speakers)
 })
 
+const speakerStats = computed(() => {
+  const known = new Set()
+  const unknownGroups = new Set()
+  let unknownSegments = 0
+  for (const seg of transcriptResults.value) {
+    const speaker = seg[2] || ''
+    if (!speaker) continue
+    if (speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
+      unknownGroups.add(speaker)
+      unknownSegments += 1
+    } else {
+      known.add(speaker)
+    }
+  }
+  return {
+    knownCount: known.size,
+    unknownGroupCount: unknownGroups.size,
+    unknownSegments
+  }
+})
+
+const formatEmployeeOption = (emp) => {
+  const name = emp.employee_name || emp.user_id || ''
+  const isVoiceSpeaker = emp.designation === 'Voice Speaker'
+  const parts = [name]
+  if (emp.user_id && emp.user_id !== name) parts.push(emp.user_id)
+  if (emp.designation && !(isVoiceSpeaker && name.includes('Voice Speaker'))) parts.push(emp.designation)
+  return parts.filter(Boolean).join(' - ')
+}
+
 const employeeOptions = computed(() =>
   dbEmployees.value.map(emp => {
-    const fullString = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
+    const label = formatEmployeeOption(emp)
     return {
-      value: fullString,
-      label: fullString
+      value: label,
+      label
     }
   })
 )
@@ -307,8 +337,15 @@ const enrollMapped = async () => {
       let msg = '✅ Đã cập nhật tên.'
       if (enrolled.length) msg += ` Đăng ký giọng: ${enrolled.join(', ')}.`
       if (skipped.length) msg += ` Đã có sẵn: ${skipped.join(', ')}.`
+      if (res?.reassigned_count !== undefined) msg += ` Quét lại: ${res.reassigned_count} đoạn.`
       if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
       alert(msg)
+      if (res?.results) {
+        saveState()
+        transcriptResults.value = res.results
+        speakerMapping.value = {}
+        return
+      }
     }
     saveState()
     for (const seg of transcriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
@@ -631,7 +668,7 @@ const startExtractTasks = async () => {
           <span class="material-symbols-outlined text-[20px]">person_add</span>
           Sửa / Gán tên người tham dự
         </h3>
-        <p class="text-sm text-gray-600 dark:text-on-surface-variant">Phát hiện <strong>{{ uniqueSpeakers.length }}</strong> người tham gia. Bạn có thể chọn tên để gán lại nếu cần thiết.</p>
+        <p class="text-sm text-gray-600 dark:text-on-surface-variant">Đã nhận diện <strong>{{ speakerStats.knownCount }}</strong> người, còn <strong>{{ speakerStats.unknownGroupCount }}</strong> nhóm người lạ / <strong>{{ speakerStats.unknownSegments }}</strong> đoạn người lạ.</p>
       </div>
       <span v-if="isAdmin" class="text-[10px] font-bold text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 rounded-full border border-orange-300 self-start mt-1">ADMIN MODE</span>
     </div>
@@ -674,7 +711,7 @@ const startExtractTasks = async () => {
           class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm"
           :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
           <span class="material-symbols-outlined text-[18px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
-          {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Đăng ký giọng' }}
+          {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Quét lại AI' }}
         </button>
       </div>
     </div>

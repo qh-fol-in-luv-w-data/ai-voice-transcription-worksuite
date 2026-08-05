@@ -4,7 +4,7 @@ project: "2AS WorkSuite - AI Voice Transcription & Task Automation"
 version: "0.1"
 status: "Draft"
 owner: "TODO"
-last_updated: "2026-07-28"
+last_updated: "2026-07-29"
 source_of_truth: "Source code and project configuration"
 ---
 
@@ -71,16 +71,19 @@ Source:
 | `POST /api/method/voice_app.api.sync_tasks_to_erp` | Đồng bộ task sang Worksuite. | `voice_app/api.py` — `sync_tasks_to_erp()` |
 | `POST /api/method/voice_app.api.enroll_voice` | Đăng ký voice embedding cho user hiện tại. | `voice_app/api.py` — `enroll_voice()` |
 | `POST /api/method/voice_app.api.voice_to_task` | Tạo/tinh chỉnh task trực tiếp từ voice. | `voice_app/api.py` — `voice_to_task()` |
-| `POST /api/method/voice_app.api.proctoring_webhook` | Nhận alert proctoring, allow_guest. | `voice_app/api.py` — `proctoring_webhook()` |
+| `POST /api/method/voice_app.api.resume_transcription` | Tiếp tục xử lý meeting lỗi hoặc lỗi một phần. | `voice_app/api.py` — `resume_transcription()` |
+| `GET /api/method/voice_app.api.get_context` | Tạo app session và trả CSRF/session/user cho SPA. | `voice_app/api.py` — `get_context()` |
+
+NOT FOUND: Không tìm thấy `proctoring_webhook()` trong source hiện tại.
 
 ### Database chính
 
 | DocType | Vai trò |
 |---|---|
-| `Voice Meeting` | Cuộc họp, file audio, transcript, raw_results, DOCX/XLSX, summary, conclusion, tasks_json. |
+| `Voice Meeting` | Cuộc họp, file audio, transcript, raw_results, DOCX/XLSX, summary, conclusion, tasks_json, token/cost STT. |
 | `Voice Meeting Chunk` | Chunk audio khi STT dài, trạng thái từng chunk, raw_segments. |
 | `Voice Speaker` | Speaker enrollment, email, user_info, embedding. |
-| `Voice App Settings` | API key/config singleton. |
+| `Voice App Settings` | API key/config singleton cho Gemini, OpenAI, HuggingFace, embedding API và Worksuite. |
 | `VOICE Session`, `VOICE Action Log`, `VOICE AI Call Log` | Audit, usage, token và AI call logging. |
 | `Voice Task` | Local task entity rất mỏng, chưa thấy dùng như luồng chính. |
 
@@ -90,6 +93,7 @@ Source:
 - Backend: `bench start` trong Frappe Bench.
 - Production: TODO: Cần xác nhận phương thức deploy thực tế.
 - Scheduled job: daily `voice_app.api.cleanup_old_chunks` được khai báo trong `voice_app/hooks.py`; NOT FOUND: không thấy function này trong `voice_app/api.py`, cần kiểm tra runtime.
+- Luồng STT thực tế: `voice_app/api.py` ép `stt_mode = "google"`; ElevenLabs client còn trong code nhưng endpoint `get_elevenlabs_info()` báo ElevenLabs STT đã tắt.
 
 ### Tài liệu hiện có
 
@@ -130,6 +134,8 @@ Source:
 
 - TODO: Cần xác nhận owner tài liệu, người phê duyệt, SLA/SLO, RTO/RPO và môi trường production chính thức.
 - NOT FOUND: Không tìm thấy CI/CD workflow, Dockerfile, Kubernetes manifest hoặc `.env.example` trong workspace hiện tại.
+- TODO: Cần xử lý drift giữa code và schema: `Voice Meeting.status` trong code có dùng `Partial Error` nhưng schema chưa khai báo giá trị này.
+- TODO: Cần rà soát duplicate function `reassign_speaker_from_segment()` trong `voice_app/api.py`; định nghĩa sau cùng là định nghĩa có hiệu lực runtime.
 
 
 ## Tài Liệu Liên Quan
@@ -143,4 +149,3 @@ Source:
 | Ngày | Phiên bản | Thay đổi | Tác giả |
 |---|---:|---|---|
 | 2026-07-28 | 0.1 | AI bổ sung tài liệu ban đầu từ source code. | Codex |
-

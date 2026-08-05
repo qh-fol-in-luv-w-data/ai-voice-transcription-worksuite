@@ -2,13 +2,15 @@ import os
 import time
 import json
 import re
+from collections import Counter, defaultdict
+from difflib import SequenceMatcher
 import secrets
 import threading
 import requests as _requests
 import concurrent.futures
 from contextlib import suppress
 from .audio_utils import get_duration
-from .constants import get_gemini_api_key, get_gemini_model
+from .constants import get_gemini_api_key, get_gemini_model, get_gemini_stt_max_output_tokens
 
 UPLOAD_URL      = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -480,6 +482,147 @@ def _parse_time(val):
         return 0.0
 
 
+def _timeline_validation_errors(segments, file_duration):
+    """Return reasons a Gemini timeline is unsafe for cutting speaker audio."""
+    duration = max(0.0, float(file_duration or 0.0))
+    parsed = []
+    errors = []
+
+    for index, seg in enumerate(segments or []):
+        if not isinstance(seg, dict):
+            continue
+        start = _parse_time(seg.get("start", 0))
+        end = _parse_time(seg.get("end", start))
+        text = " ".join(str(seg.get("text") or "").split())
+        words = text.split()
+        seg_duration = end - start
+        parsed.append((index, start, end, seg_duration, len(words), text))
+
+        if start < -0.25 or end > duration + 1.0:
+            errors.append(f"segment {index} nằm ngoài chunk ({start:.2f}-{end:.2f}/{duration:.2f}s)")
+        if words and seg_duration <= 0:
+            errors.append(f"segment {index} có text nhưng start>=end ({start:.2f}-{end:.2f})")
+
+        # Prompt yêu cầu mỗi entry chỉ vài câu. Một entry chiếm quá nhiều
+        # thời gian thường là Gemini tự phân bổ timestamp theo lượng text.
+        long_limit = max(45.0, duration * 0.22)
+        if words and seg_duration > long_limit:
+            errors.append(f"segment {index} dài bất thường {seg_duration:.2f}s")
+
+        # Dưới 0.45 từ/giây trong một segment đủ dài là dấu hiệu mốc thời
+        # gian bị kéo giãn, không phải tốc độ nói thực tế.
+        if len(words) >= 8 and seg_duration >= 15.0 and (len(words) / seg_duration) < 0.45:
+            errors.append(
+                f"segment {index} bị kéo giãn ({len(words)} từ/{seg_duration:.2f}s)"
+            )
+
+    if not parsed:
+        return ["chunk không có segment hợp lệ"]
+
+    # Gemini đôi lúc dồn nhiều entry vào đúng mép cuối, thậm chí tạo entry
+    # start=end nhưng vẫn chứa một đoạn văn dài.
+    near_tail = [row for row in parsed if duration > 0 and row[2] >= duration - 0.15]
+    if len(near_tail) >= 2:
+        errors.append(f"{len(near_tail)} segment bị dồn vào cuối chunk")
+    last = parsed[-1]
+    if duration > 0 and last[2] >= duration - 0.15 and last[3] <= 0.15 and last[4] >= 5:
+        errors.append("segment cuối có text dài nhưng thời lượng gần bằng 0")
+
+    return list(dict.fromkeys(errors))
+
+
+def _normalized_text_tokens(text):
+    value = re.sub(r"[^\w\s]", " ", str(text or "").casefold(), flags=re.UNICODE)
+    return [token for token in value.split() if token]
+
+
+def _text_alignment_score(repaired_text, parent_text):
+    repaired = _normalized_text_tokens(repaired_text)
+    parent = _normalized_text_tokens(parent_text)
+    if not repaired or not parent:
+        return 0.0
+
+    repaired_counts = Counter(repaired)
+    parent_counts = Counter(parent)
+    overlap = sum((repaired_counts & parent_counts).values()) / max(1, len(repaired))
+    sequence = SequenceMatcher(None, repaired, parent, autojunk=False).ratio()
+    return 0.75 * overlap + 0.25 * sequence
+
+
+def _inherit_repaired_speakers(repaired_segments, parent_segments):
+    """Map retry-window speaker IDs back to stable IDs from the parent chunk."""
+    if not repaired_segments or not parent_segments:
+        return {}, list(repaired_segments or [])
+
+    votes = defaultdict(lambda: defaultdict(float))
+    best_parent_by_segment = {}
+
+    for repaired_index, repaired in enumerate(repaired_segments):
+        repaired_speaker = repaired.get("speaker_id") or repaired.get("speaker") or ""
+        best_score = 0.0
+        best_parent_speaker = ""
+        for parent in parent_segments:
+            score = _text_alignment_score(repaired.get("text"), parent.get("text"))
+            if score <= best_score:
+                continue
+            best_score = score
+            best_parent_speaker = parent.get("speaker_id") or parent.get("speaker") or ""
+        if best_parent_speaker and best_score >= 0.22:
+            weight = max(1, len(_normalized_text_tokens(repaired.get("text")))) * best_score
+            votes[repaired_speaker][best_parent_speaker] += weight
+            best_parent_by_segment[repaired_index] = best_parent_speaker
+
+    speaker_map = {}
+    for repaired_speaker, candidates in votes.items():
+        if candidates:
+            speaker_map[repaired_speaker] = max(candidates.items(), key=lambda item: item[1])[0]
+
+    aligned = []
+    for index, seg in enumerate(repaired_segments):
+        seg = dict(seg)
+        repaired_speaker = seg.get("speaker_id") or seg.get("speaker") or ""
+        parent_speaker = speaker_map.get(repaired_speaker) or best_parent_by_segment.get(index)
+        if parent_speaker:
+            seg["speaker_id"] = parent_speaker
+            seg["speaker"] = parent_speaker
+        aligned.append(seg)
+
+    return speaker_map, aligned
+
+
+def _has_speech_after(wav_path, start_sec, min_speech_sec=0.3):
+    """Use local VAD to avoid treating a genuinely silent tail as missing STT."""
+    try:
+        import wave
+
+        import webrtcvad
+
+        with wave.open(wav_path, "rb") as wav_file:
+            sample_rate = wav_file.getframerate()
+            sample_width = wav_file.getsampwidth()
+            channels = wav_file.getnchannels()
+            if channels != 1 or sample_rate not in (8000, 16000, 32000, 48000):
+                return True
+            start_frame = max(0, int(float(start_sec or 0.0) * sample_rate))
+            wav_file.setpos(min(start_frame, wav_file.getnframes()))
+            data = wav_file.readframes(wav_file.getnframes() - wav_file.tell())
+
+        frame_ms = 30
+        frame_bytes = int(sample_rate * frame_ms / 1000) * sample_width
+        required_frames = max(1, int(float(min_speech_sec) * 1000 / frame_ms))
+        speech_frames = 0
+        vad = webrtcvad.Vad(1)
+        for offset in range(0, len(data) - frame_bytes + 1, frame_bytes):
+            if vad.is_speech(data[offset : offset + frame_bytes], sample_rate):
+                speech_frames += 1
+                if speech_frames >= required_frames:
+                    return True
+        return False
+    except Exception:
+        # Nếu VAD không đọc được file, ưu tiên không bỏ sót nội dung.
+        return True
+
+
 def _segments_to_raw_words(segments, file_duration=None, log_cb=None):
     """Convert Gemini segments → raw_words format tương thích pipeline."""
     segments = [s for s in segments if isinstance(s, dict)]
@@ -558,6 +701,10 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
             with suppress(Exception):
                 parse_log_cb("", f"[Gemini STT] Xử lý {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
+        max_output_tokens = get_gemini_stt_max_output_tokens()
+        if parse_log_cb:
+            with suppress(Exception):
+                parse_log_cb("", f"[Gemini STT] maxOutputTokens/chunk={max_output_tokens}")
 
         chunks = chunks_info
         if progress_callback:
@@ -583,6 +730,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
 
         def _process_single_chunk(chunk_dict, is_subchunk=False, dense_subchunk_offset=0.0):
             idx = chunk_dict.get("idx", 0)
+            chunk_display = idx + 1 if isinstance(idx, int) else idx
             original_chunk_wav = chunk_dict.get("wav")
             current_wav = original_chunk_wav
             offset = chunk_dict.get("offset", 0.0)
@@ -616,10 +764,10 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 chunk_error = None
                 try:
                     gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(
-                        file_uri, api_key, prompt, model_name, max_tokens=65536, log_cb=append_chunk_log
+                        file_uri, api_key, prompt, model_name, max_tokens=max_output_tokens, log_cb=append_chunk_log
                     )
                     if chunk_error and chunk_error != "HALLUCINATION_DETECTED":
-                        chunk_log(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
+                        chunk_log(f"[Gemini STT] Error on chunk {chunk_display}: {chunk_error}")
                 finally:
                     # Luôn xóa remote file sau khi xong
                     _delete_file(file_name, api_key, log_cb=append_chunk_log)
@@ -683,7 +831,24 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 if not clean_segments:
                     return idx, [], [], "", chunk_usage, None, parse_logs
 
-                raw_words = _segments_to_raw_words(clean_segments, file_duration=chunk_duration, log_cb=append_chunk_log)
+                timeline_errors = _timeline_validation_errors(clean_segments, chunk_duration)
+                last_valid_ts = _parse_time(clean_segments[-1].get("end", 0)) if clean_segments else 0.0
+                tail_gap = max(0.0, chunk_duration - last_valid_ts)
+                if tail_gap > 15.0 and _has_speech_after(current_wav, last_valid_ts):
+                    timeline_errors.append(
+                        f"còn tiếng nói trong {tail_gap:.2f}s cuối nhưng transcript đã dừng"
+                    )
+
+                if is_subchunk and timeline_errors:
+                    detail = "; ".join(timeline_errors[:6])
+                    chunk_log(f"[Gemini STT] Cửa sổ sửa timeline vẫn lỗi: {detail}")
+                    return idx, None, None, None, chunk_usage, f"Timeline repair invalid: {detail}", parse_logs
+
+                raw_words = _segments_to_raw_words(
+                    clean_segments,
+                    file_duration=chunk_duration,
+                    log_cb=append_chunk_log,
+                )
                 
                 # Hàm map thời gian đặc ruột về thời gian gốc
                 def map_time(t_val):
@@ -717,41 +882,123 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
 
                 chunk_text = " ".join(s.get("text", "") for s in clean_segments)
 
-                # Smart Resume: nếu bị hallucination hoặc AI lười biếng bỏ sót đoạn cuối (miss > 15s), cắt phần còn lại chạy tiếp
-                if not is_subchunk:
-                    last_valid_ts = _parse_time(clean_segments[-1].get("end", 0)) if clean_segments else 0
-                    if chunk_duration - last_valid_ts > 15:
-                        reason = "ảo giác (MAX_TOKENS)" if chunk_error == "HALLUCINATION_DETECTED" else "lười biếng bỏ sót"
-                        chunk_log(f"[Gemini STT] ⚠️ Chunk {idx+1} bị {reason} ở giây {last_valid_ts:.1f}/{chunk_duration:.1f}s. Kích hoạt Smart Resume...")
-                        import pydub
-                        audio = pydub.AudioSegment.from_wav(current_wav)
-                        resume_audio = audio[int(last_valid_ts * 1000):]
-                        resume_wav = current_wav.replace(".wav", f"_{idx}_resume.wav")
-                        resume_audio.export(resume_wav, format="wav")
+                # Không resume từ last_valid_ts vì timestamp đó cũng do Gemini
+                # ước lượng. Chỉ chunk lỗi mới được chia nội bộ và chạy lại.
+                if not is_subchunk and timeline_errors:
+                    import shutil
+                    import tempfile
 
-                        _, r_segs, r_words, r_txt, r_use, r_err, r_logs = _process_single_chunk(
-                            {"idx": f"{idx}_resume", "wav": resume_wav, "offset": offset, "mappings": mappings, "name": chunk_name}, 
-                            is_subchunk=True, dense_subchunk_offset=last_valid_ts
+                    from .audio_utils import split_audio_by_silence
+
+                    detail = "; ".join(timeline_errors[:6])
+                    chunk_log(
+                        f"[Gemini STT] Chunk {idx + 1} có timeline không an toàn: {detail}. "
+                        "Chạy lại riêng chunk bằng cửa sổ sửa timeline."
+                    )
+                    repair_dir = tempfile.mkdtemp(prefix=f"voice_timeline_repair_{idx}_")
+                    repaired_segments = []
+                    repaired_words = []
+                    repaired_text_parts = []
+                    repair_usage = {key: 0 for key in (chunk_usage or {})}
+                    repair_error = None
+
+                    try:
+                        repair_chunks = split_audio_by_silence(
+                            current_wav,
+                            chunk_length_sec=75.0,
+                            max_chunk_sec=90.0,
+                            output_dir=repair_dir,
                         )
-                        parse_logs.extend(r_logs or [])
+                        for repair_index, repair_chunk in enumerate(repair_chunks):
+                            repair_wav, repair_offset = repair_chunk[0], repair_chunk[1]
+                            (
+                                _repair_idx,
+                                window_segments,
+                                window_words,
+                                window_text,
+                                window_usage,
+                                window_error,
+                                window_logs,
+                            ) = _process_single_chunk(
+                                {
+                                    "idx": f"{idx}_repair{repair_index}",
+                                    "wav": repair_wav,
+                                    "offset": offset,
+                                    "mappings": mappings,
+                                    "name": chunk_name,
+                                },
+                                is_subchunk=True,
+                                dense_subchunk_offset=repair_offset,
+                            )
+                            parse_logs.extend(window_logs or [])
+                            if window_error or window_segments is None:
+                                repair_error = window_error or f"repair window {repair_index} không có kết quả"
+                                break
+                            repaired_segments.extend(window_segments or [])
+                            repaired_words.extend(window_words or [])
+                            if window_text:
+                                repaired_text_parts.append(window_text)
+                            if window_usage:
+                                for key, value in window_usage.items():
+                                    if isinstance(value, (int, float)):
+                                        repair_usage[key] = repair_usage.get(key, 0) + value
+                    finally:
+                        shutil.rmtree(repair_dir, ignore_errors=True)
 
-                        with suppress(FileNotFoundError):
-                            os.remove(resume_wav)
+                    if repair_error or not repaired_segments:
+                        message = repair_error or "không có segment sau khi sửa timeline"
+                        return idx, None, None, None, chunk_usage, f"Timeline repair failed: {message}", parse_logs
 
-                        if r_use:
-                            for k in chunk_usage:
-                                if k in r_use: chunk_usage[k] += r_use.get(k, 0)
+                    parent_segments = segments
+                    speaker_map, repaired_segments = _inherit_repaired_speakers(
+                        repaired_segments,
+                        parent_segments,
+                    )
+                    repaired_speaker_ids = {
+                        seg.get("speaker_id") or seg.get("speaker") or ""
+                        for seg in repaired_segments
+                    }
+                    repair_namespace_ids = {
+                        speaker_id
+                        for speaker_id in repaired_speaker_ids
+                        if "_repair" in speaker_id
+                    }
+                    if repair_namespace_ids:
+                        detail = ", ".join(sorted(repair_namespace_ids)[:8])
+                        return (
+                            idx,
+                            None,
+                            None,
+                            None,
+                            chunk_usage,
+                            f"Timeline repair không nối được speaker về chunk cha: {detail}",
+                            parse_logs,
+                        )
 
-                        if r_segs: segments.extend(r_segs)
-                        if r_words: raw_words.extend(r_words)
-                        if r_txt:   chunk_text += " " + r_txt
+                    for word in repaired_words:
+                        original_speaker = word.get("speaker_id") or ""
+                        if original_speaker in speaker_map:
+                            word["speaker_id"] = speaker_map[original_speaker]
+
+                    segments = sorted(repaired_segments, key=lambda seg: seg.get("start", 0))
+                    raw_words = sorted(repaired_words, key=lambda word: word.get("start", 0))
+                    chunk_text = " ".join(repaired_text_parts)
+                    if chunk_usage:
+                        for key, value in repair_usage.items():
+                            if isinstance(value, (int, float)):
+                                chunk_usage[key] = chunk_usage.get(key, 0) + value
+                    chunk_log(
+                        f"[Gemini STT] Đã sửa timeline chunk {idx + 1}: "
+                        f"{len(repair_chunks)} cửa sổ, {len(segments)} segments, "
+                        f"giữ {len(set(speaker_map.values()))} speaker ID từ chunk cha."
+                    )
 
                 return idx, segments, raw_words, chunk_text, chunk_usage, None, parse_logs
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                chunk_log(f"[Gemini STT] Exception chunk {idx+1}: {e}")
+                chunk_log(f"[Gemini STT] Exception chunk {chunk_display}: {e}")
                 return idx, None, None, None, None, str(e), parse_logs
 
         # Chạy tất cả chunk song song
