@@ -232,6 +232,22 @@ class SpeakerDB:
         scores = [(n, s, e, u) for n, s, e, u in all_scores if s >= SIMILARITY_THRESHOLD]
         return scores
 
+    def rank_all(self, embedding, allowed_names=None):
+        """Return every candidate sorted by cosine score, without threshold filtering."""
+        if not self.speakers:
+            return []
+
+        candidates = list(self.speakers.items())
+        if allowed_names:
+            candidates = [(n, v) for n, v in candidates if n in allowed_names]
+
+        scores = []
+        for name, info in candidates:
+            sim = 1 - cosine(embedding, info["embedding"])
+            scores.append((name, sim, info["email"], info.get("user_info")))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores
+
 # ── EMBEDDING CACHE (process-level, tránh gọi subprocess trùng lặp) ─────────
 _embedding_cache: dict = {}   # key: (wav_path, start_rounded, end_rounded)
 _CACHE_MAX = 64               # giới hạn tối đa số entry để tránh OOM
@@ -319,32 +335,58 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
     Trả về: list các np.ndarray hoặc None
     """
     import requests
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from threading import Lock
+    from contextlib import suppress
 
     api_url = _get_embedding_api_url()
     if not api_url:
         print("Chưa cấu hình embedding service, fallback sang local subprocess")
         return _extract_embeddings_from_files_local(files_list)
     endpoint_url = f"{api_url}/extract"
-    final_results = []
-    
-    for item in files_list:
+    failure_notes = []
+    failure_lock = Lock()
+
+    def _remember_failure(message):
+        with failure_lock:
+            if len(failure_notes) < 8:
+                failure_notes.append(str(message)[:1200])
+
+    def _extract_one(index, item):
         wav_path = item.get("wav_path")
         start = item.get("start")
         end = item.get("end")
+        post_path = wav_path
+        cleanup_path = None
         
         if not wav_path or not os.path.exists(wav_path):
-            final_results.append(None)
-            continue
+            _remember_failure(f"missing wav_path index={index} path={wav_path}")
+            return index, None
             
         try:
-            with open(wav_path, "rb") as f:
+            if start is not None and end is not None:
+                try:
+                    duration = float(end) - float(start)
+                except Exception:
+                    duration = 0
+                if duration > 0:
+                    from voice_app.audio_utils import extract_segment_ffmpeg
+
+                    clip_path = extract_segment_ffmpeg(wav_path, float(start), float(end), padding=0.1)
+                    if clip_path and os.path.exists(clip_path):
+                        post_path = clip_path
+                        cleanup_path = clip_path
+
+            with open(post_path, "rb") as f:
                 files = {
-                    "file": (os.path.basename(wav_path), f, "audio/wav")
+                    "file": (os.path.basename(post_path), f, "audio/wav")
                 }
                 data = {}
-                if start is not None:
+                # Nếu đã cắt clip local thì gửi nguyên clip ngắn, tránh upload
+                # lại cả file meeting lớn cho từng segment.
+                if cleanup_path is None and start is not None:
                     data["start"] = str(start)
-                if end is not None:
+                if cleanup_path is None and end is not None:
                     data["end"] = str(end)
                 if task:
                     data["task"] = task
@@ -357,19 +399,70 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
                     emb_data = result_json.get("embedding") if isinstance(result_json, dict) else result_json
                     
                     if isinstance(emb_data, list):
-                        final_results.append(np.array(emb_data))
-                    else:
-                        print(f"API không trả về embedding hợp lệ: {result_json}")
-                        final_results.append(None)
-                else:
-                    print(f"Lỗi API external (status {response.status_code}): {response.text}")
-                    final_results.append(None)
+                        return index, np.array(emb_data)
+                    msg = f"API không trả về embedding hợp lệ index={index}: {result_json}"
+                    print(msg)
+                    _remember_failure(msg)
+                    return index, None
+                msg = f"Lỗi API external index={index} status={response.status_code}: {response.text[:1000]}"
+                print(msg)
+                _remember_failure(msg)
+                return index, None
         except Exception as e:
-            print(f"Lỗi khi gọi API external cho {wav_path}: {e}")
-            final_results.append(None)
+            msg = f"Lỗi khi gọi API external index={index} file={wav_path} start={start} end={end}: {e}"
+            print(msg)
+            _remember_failure(msg)
+            return index, None
+        finally:
+            if cleanup_path:
+                with suppress(FileNotFoundError):
+                    os.remove(cleanup_path)
+
+    final_results = [None] * len(files_list)
+    try:
+        import frappe
+        max_workers = int(
+            frappe.conf.get("voice_embedding_parallel_workers")
+            or frappe.conf.get("embedding_parallel_workers")
+            or os.getenv("VOICE_EMBEDDING_PARALLEL_WORKERS")
+            or 4
+        )
+    except Exception:
+        max_workers = int(os.getenv("VOICE_EMBEDDING_PARALLEL_WORKERS") or 4)
+    max_workers = max(1, min(max_workers, 8, len(files_list) or 1))
+
+    if len(files_list) <= 1 or max_workers == 1:
+        for idx, item in enumerate(files_list):
+            _, emb = _extract_one(idx, item)
+            final_results[idx] = emb
+    else:
+        print(f"Embedding API parallel extraction: {len(files_list)} segments, workers={max_workers}")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(_extract_one, idx, item): idx
+                for idx, item in enumerate(files_list)
+            }
+            for future in as_completed(future_map):
+                idx = future_map[future]
+                try:
+                    _, emb = future.result()
+                    final_results[idx] = emb
+                except Exception as e:
+                    print(f"Lỗi parallel embedding index={idx}: {e}")
+                    final_results[idx] = None
             
     if files_list and not any(emb is not None for emb in final_results):
         print("Embedding API không trả về embedding nào, fallback sang local subprocess")
+        if failure_notes:
+            try:
+                import frappe
+
+                frappe.log_error(
+                    "\n".join(failure_notes),
+                    "Embedding API returned no embeddings",
+                )
+            except Exception:
+                pass
         return _extract_embeddings_from_files_local(files_list)
 
     return final_results
