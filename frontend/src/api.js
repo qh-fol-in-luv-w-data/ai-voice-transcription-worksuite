@@ -180,6 +180,20 @@ export async function reassignSpeakerFromSegment(meetingName, segmentIndex, newS
   return res.data.message
 }
 
+export async function rescanMeetingFromCurrentLabels(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.rescan_meeting_from_current_labels', {
+    meeting_name: meetingName
+  })
+  return res.data.message
+}
+
+export async function normalizeMeetingTranscript(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.normalize_meeting_transcript', {
+    meeting_name: meetingName
+  })
+  return res.data.message
+}
+
 export async function enrollSpeakerFromSegment(meetingName, segmentIndex, newSpeakerName) {
   const res = await api.post('/api/method/voice_app.api.enroll_speaker_from_segment', {
     meeting_name: meetingName,
