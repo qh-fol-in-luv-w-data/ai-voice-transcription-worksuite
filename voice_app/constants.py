@@ -113,6 +113,21 @@ def get_gemini_model():
         _log_config_error("Voice App Gemini singleton model lookup failed", exc)
     return ""
 
+def get_gemini_stt_max_output_tokens():
+    """Maximum Gemini output tokens per STT chunk."""
+    default = 10000
+    try:
+        if frappe.db:
+            val = frappe.db.get_single_value("Voice App Settings", "gemini_stt_max_output_tokens")
+            if val:
+                return max(4000, int(val))
+    except Exception as exc:
+        _log_config_error("Voice App Gemini STT token cap lookup failed", exc)
+    try:
+        return max(4000, int(os.getenv("GEMINI_STT_MAX_OUTPUT_TOKENS", default)))
+    except (TypeError, ValueError):
+        return default
+
 def get_worksuite_url():
     val = None
     try:
@@ -175,7 +190,7 @@ MAX_SPEAKERS = 8
 DEFAULT_LANG = "vi"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SPEAKER_DB_PATH = os.path.join(BASE_DIR, "speaker_db.json")
-SIMILARITY_THRESHOLD = 0.65  # Nhận diện speaker từ DB khi similarity >= 0.5
+SIMILARITY_THRESHOLD = 0.30  # Nhận diện speaker từ DB khi similarity >= 0.30
 # ==============================================================================
 # NGƯỠNG GỘP NHÓM (CLUSTERING THRESHOLD)
 # - Dùng khi gộp các Speaker không có trong DB (Người lạ) thành các cụm.

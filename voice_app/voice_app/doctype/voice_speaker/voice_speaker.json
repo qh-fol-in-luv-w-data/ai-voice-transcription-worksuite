@@ -9,6 +9,7 @@
  "field_order": [
   "speaker_name",
   "email",
+  "sample_audio",
   "embedding"
  ],
  "fields": [
@@ -29,6 +30,11 @@
    "fieldname": "user_info",
    "fieldtype": "JSON",
    "label": "Thông tin User"
+  },
+  {
+   "fieldname": "sample_audio",
+   "fieldtype": "Attach",
+   "label": "Audio mẫu"
   },
   {
    "fieldname": "embedding",

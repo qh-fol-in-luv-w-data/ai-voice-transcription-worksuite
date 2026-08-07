@@ -47,6 +47,13 @@ export async function getMeetingHistory() {
   return res.data.message
 }
 
+export async function getMeetingDetail(meetingName) {
+  const res = await api.get('/api/method/voice_app.api.get_meeting_detail', {
+    params: { meeting_name: meetingName }
+  })
+  return res.data.message
+}
+
 export async function renameMeeting(meetingName, newTitle) {
   const res = await api.post('/api/method/voice_app.meeting_api.rename_meeting', {
     meeting_name: meetingName,
@@ -169,6 +176,20 @@ export async function reassignSpeakerFromSegment(meetingName, segmentIndex, newS
     meeting_name: meetingName,
     segment_index: segmentIndex,
     new_speaker_name: newSpeakerName
+  })
+  return res.data.message
+}
+
+export async function rescanMeetingFromCurrentLabels(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.rescan_meeting_from_current_labels', {
+    meeting_name: meetingName
+  })
+  return res.data.message
+}
+
+export async function normalizeMeetingTranscript(meetingName) {
+  const res = await api.post('/api/method/voice_app.api.normalize_meeting_transcript', {
+    meeting_name: meetingName
   })
   return res.data.message
 }
