@@ -18,8 +18,83 @@ from voice_app.constants import SIMILARITY_THRESHOLD
 
 _logger = ActivityLogger("VOICE", "voice_app")
 
-DIRECT_MATCH_STRONG_SCORE = 0.55
-DIRECT_MATCH_MIN_GAP = 0.10
+def _build_speaker_alias_map(speakers):
+    """Map UI display labels back to the canonical Voice Speaker name."""
+    aliases = {}
+    rows = list(speakers or [])
+    for speaker in rows:
+        name = str(speaker.get("speaker_name") or "").strip()
+        if name:
+            aliases[name] = name
+
+    # Canonical rows overwrite accidental labels such as
+    # "Name - email - Voice Speaker" created by the old dropdown value.
+    for speaker in rows:
+        name = str(speaker.get("speaker_name") or "").strip()
+        email = str(speaker.get("email") or "").strip()
+        if not name:
+            continue
+        aliases[f"{name} - Voice Speaker"] = name
+        if email and email != "Chưa cập nhật":
+            aliases[f"{name} - {email} - Voice Speaker"] = name
+            aliases[f"{name} - {email}"] = name
+    return aliases
+
+
+def _get_speaker_alias_map():
+    with suppress(Exception):
+        speakers = frappe.get_all("Voice Speaker", fields=["speaker_name", "email"])
+        return _build_speaker_alias_map(speakers)
+    return {}
+
+
+def _normalize_requested_speaker_name(value, aliases=None):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    aliases = aliases or _get_speaker_alias_map()
+    direct = aliases.get(text)
+    if direct:
+        return direct
+
+    legacy = text
+    suffix = " - Voice Speaker"
+    while legacy.endswith(suffix):
+        legacy = legacy[: -len(suffix)].strip()
+        if not legacy:
+            break
+        mapped = aliases.get(legacy)
+        if mapped:
+            return mapped
+
+    return legacy or text
+
+
+def _pick_top_ranked_match(ranked):
+    """Return the highest-scoring DB match when it passes the base threshold."""
+    ranked = list(ranked or [])
+    if not ranked:
+        return None
+    top = ranked[0]
+    return top if float(top[1]) >= SIMILARITY_THRESHOLD else None
+
+
+def _top_db_match(db, embedding, allowed_names=None, aliases=None):
+    aliases = aliases or _get_speaker_alias_map()
+    allowed = None
+    if allowed_names:
+        allowed = {_normalize_requested_speaker_name(name, aliases) for name in allowed_names}
+
+    ranked = []
+    for row in db.rank_all(embedding, allowed_names=allowed):
+        name = row[0]
+        canonical = aliases.get(name, name)
+        # Ignore an accidental composite duplicate when its canonical record is
+        # already present; its sample must not compete with the real DB row.
+        if canonical != name and canonical in db.speakers:
+            continue
+        ranked.append(row)
+    return _pick_top_ranked_match(ranked), ranked
 
 def _can_access_meeting(meeting_owner, user=None):
     user = user or frappe.session.user
@@ -87,6 +162,76 @@ def _audio_file_url_to_path(file_url):
     if clean_url.startswith("files/"):
         return frappe.get_site_path("public", clean_url)
     return frappe.get_site_path(clean_url)
+
+
+def _ensure_file_attachment(file_url, attached_to_doctype, attached_to_name, file_name=None, is_private=None):
+    clean_url = str(file_url or "").strip()
+    if not clean_url or not attached_to_doctype or not attached_to_name:
+        return None
+
+    existing_name = frappe.db.get_value(
+        "File",
+        {
+            "file_url": clean_url,
+            "attached_to_doctype": attached_to_doctype,
+            "attached_to_name": attached_to_name,
+        },
+        "name",
+    )
+    if existing_name:
+        return frappe.get_doc("File", existing_name)
+
+    source_name = frappe.db.get_value("File", {"file_url": clean_url}, "name")
+    if source_name:
+        source = frappe.get_doc("File", source_name)
+        if not source.attached_to_doctype and not source.attached_to_name:
+            source.attached_to_doctype = attached_to_doctype
+            source.attached_to_name = attached_to_name
+            if is_private is not None:
+                source.is_private = int(bool(is_private))
+            source.save(ignore_permissions=True)
+            return source
+
+        clone = frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_name": file_name or source.file_name or os.path.basename(clean_url),
+                "file_url": clean_url,
+                "folder": source.folder,
+                "file_size": source.file_size,
+                "content_hash": source.content_hash,
+                "is_private": int(bool(source.is_private if is_private is None else is_private)),
+                "attached_to_doctype": attached_to_doctype,
+                "attached_to_name": attached_to_name,
+            }
+        )
+        clone.insert(ignore_permissions=True)
+        return clone
+
+    doc = frappe.get_doc(
+        {
+            "doctype": "File",
+            "file_name": file_name or os.path.basename(clean_url),
+            "file_url": clean_url,
+            "is_private": int(bool(is_private if is_private is not None else clean_url.startswith("/private/"))),
+            "attached_to_doctype": attached_to_doctype,
+            "attached_to_name": attached_to_name,
+        }
+    )
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
+def _missing_audio_rescan_error(meeting):
+    title = str(getattr(meeting, "title", "") or getattr(meeting, "name", "") or "").strip()
+    suffix = f" ({title})" if title else ""
+    return {
+        "status": "error",
+        "message": (
+            f"Meeting này không có file âm thanh gốc{suffix}, nên không thể quét lại AI / trích giọng."
+            " Hãy dùng meeting có audio gốc hoặc upload lại audio để chạy luồng này."
+        ),
+    }
 
 
 def _seg_set_embedding_value(seg, value):
@@ -234,7 +379,7 @@ def _clean_speaker_sample_embedding(wav_path, start, end, fallback_embedding=Non
 
     kept_indexes = sorted(
         idx for idx, emb_np in valid
-        if float(1 - cosine(medoid, emb_np)) >= 0.55
+        if float(1 - cosine(medoid, emb_np)) >= 0.50
     )
     if not kept_indexes:
         kept_indexes = [medoid_idx]
@@ -274,29 +419,170 @@ def _clean_speaker_sample_embedding(wav_path, start, end, fallback_embedding=Non
     }
 
 
+def _raw_result_speaker_label(original_seg, idx=0, fallback_by_source=None):
+    raw_label = str(
+        _seg_get(original_seg, "raw_speaker", None, "")
+        or _seg_get(original_seg, "speaker", 2, "")
+        or ""
+    ).strip()
+    if raw_label:
+        if raw_label.startswith("👤 ") and not any(
+            marker in raw_label for marker in ("Người lạ", "Unknown", "Không tên")
+        ):
+            return raw_label[2:].strip()
+        return raw_label
+
+    source = str(
+        _seg_get(original_seg, "source_speaker", None, "")
+        or _seg_get(original_seg, "speaker_id", None, "")
+        or _seg_get(original_seg, "source", None, "")
+        or f"segment_{idx + 1}"
+    ).strip()
+    if fallback_by_source is None:
+        return source or f"segment_{idx + 1}"
+    if source not in fallback_by_source:
+        fallback_by_source[source] = f"👤 Người lạ {len(fallback_by_source) + 1} [{source}]"
+    return fallback_by_source[source]
+
+
+def _is_unknown_label_text(label):
+    text = str(label or "").strip()
+    if not text:
+        return True
+    return any(marker in text for marker in ("Người lạ", "Unknown", "Không tên"))
+
+
+def _merge_adjacent_same_speaker_segments(results, original_results):
+    """
+    Merge only transcript segments that are already adjacent and already share
+    the same final speaker label. This is a final formatting pass for rescans,
+    not a diarization heuristic.
+    """
+    results = list(results or [])
+    original_results = list(original_results or [])
+    if not results:
+        return results, original_results, 0
+
+    def _as_original_dict(seg):
+        if isinstance(seg, dict):
+            row = dict(seg)
+        else:
+            row = {
+                "start": _seg_get(seg, "start", 0, 0),
+                "end": _seg_get(seg, "end", 1, 0),
+                "speaker": _seg_get(seg, "speaker", 2, ""),
+                "text": _seg_get(seg, "text", 3, ""),
+                "embedding": _seg_get(seg, "embedding", 4, None),
+            }
+        row["_embedding_duration"] = _segment_duration(seg) if _has_segment_embedding(seg) else 0.0
+        if "raw_speaker" not in row:
+            row["raw_speaker"] = str(row.get("speaker") or "").strip()
+        return row
+
+    def _result_clone(seg, speaker, text, end):
+        if isinstance(seg, dict):
+            row = dict(seg)
+            row["speaker"] = speaker
+            row["text"] = text
+            row["end"] = end
+            return row
+        row = list(seg) if isinstance(seg, (list, tuple)) else [0, 0, "", ""]
+        while len(row) < 4:
+            row.append("")
+        row[2] = speaker
+        row[3] = text
+        if len(row) > 1:
+            row[1] = end
+        return row
+
+    def _join_text(left, right):
+        left_text = str(left or "").strip()
+        right_text = str(right or "").strip()
+        if not left_text:
+            return right_text
+        if not right_text:
+            return left_text
+        if right_text[:1] in ",.;:!?)]}":
+            return f"{left_text}{right_text}"
+        return f"{left_text} {right_text}"
+
+    if len(original_results) < len(results):
+        original_results.extend(results[len(original_results):])
+
+    merged_results = []
+    merged_original_results = []
+    merged_count = 0
+
+    for idx, display_seg in enumerate(results):
+        current_label = str(_seg_get(display_seg, "speaker", 2, "") or "").strip()
+        original_seg = _as_original_dict(
+            original_results[idx] if idx < len(original_results) else display_seg
+        )
+        original_seg["speaker"] = str(original_seg.get("speaker") or "").strip()
+        original_seg["raw_speaker"] = str(
+            original_seg.get("raw_speaker") or original_seg.get("speaker") or ""
+        ).strip()
+
+        if not merged_results:
+            merged_results.append(_result_clone(display_seg, current_label, _segment_text(display_seg), float(_seg_get(display_seg, "end", 1, 0) or 0)))
+            merged_original_results.append(original_seg)
+            continue
+
+        previous_label = str(_seg_get(merged_results[-1], "speaker", 2, "") or "").strip()
+        if not current_label or current_label != previous_label:
+            merged_results.append(_result_clone(display_seg, current_label, _segment_text(display_seg), float(_seg_get(display_seg, "end", 1, 0) or 0)))
+            merged_original_results.append(original_seg)
+            continue
+
+        merged_count += 1
+        previous_result = merged_results[-1]
+        previous_original = merged_original_results[-1]
+
+        new_end = float(_seg_get(display_seg, "end", 1, _seg_get(previous_result, "end", 1, 0)) or 0)
+        new_text = _join_text(_segment_text(previous_result), _segment_text(display_seg))
+
+        if isinstance(previous_result, dict):
+            previous_result["end"] = new_end
+            previous_result["text"] = new_text
+        else:
+            previous_result[1] = new_end
+            previous_result[3] = new_text
+
+        previous_original["end"] = float(original_seg.get("end") or previous_original.get("end") or 0)
+        previous_original["text"] = _join_text(previous_original.get("text"), original_seg.get("text"))
+
+        prev_raw = str(previous_original.get("raw_speaker") or previous_original.get("speaker") or "").strip()
+        curr_raw = str(original_seg.get("raw_speaker") or original_seg.get("speaker") or "").strip()
+        if prev_raw != curr_raw:
+            previous_original["raw_speaker"] = current_label
+            previous_original["speaker"] = current_label
+
+        for key in ("source_speaker", "speaker_id", "source", "source_chunk", "chunk"):
+            prev_val = str(previous_original.get(key) or "").strip()
+            curr_val = str(original_seg.get(key) or "").strip()
+            if prev_val != curr_val:
+                previous_original[key] = ""
+
+        prev_emb_dur = float(previous_original.get("_embedding_duration") or 0.0)
+        curr_emb_dur = float(original_seg.get("_embedding_duration") or 0.0)
+        if curr_emb_dur > prev_emb_dur and _has_segment_embedding(original_seg):
+            previous_original["embedding"] = original_seg.get("embedding")
+            previous_original["_embedding_duration"] = curr_emb_dur
+
+    for row in merged_original_results:
+        row.pop("_embedding_duration", None)
+
+    return merged_results, merged_original_results, merged_count
+
+
 def _restore_result_speakers_from_original(results, original_results):
     """Reset display labels to Gemini/chunk raw labels before applying DB matches."""
     restored = 0
     fallback_by_source = {}
 
-    def _raw_unknown_label(idx, original_seg):
-        raw_label = str(_seg_get(original_seg, "speaker", 2, "") or "").strip()
-        if raw_label:
-            return raw_label
-
-        source = str(
-            _seg_get(original_seg, "source_speaker", None, "")
-            or _seg_get(original_seg, "speaker_id", None, "")
-            or _seg_get(original_seg, "source", None, "")
-            or f"segment_{idx + 1}"
-        ).strip()
-        if source not in fallback_by_source:
-            fallback_by_source[source] = f"👤 Người lạ {len(fallback_by_source) + 1} [{source}]"
-        return fallback_by_source[source]
-
     for idx, display_seg in enumerate(results or []):
         original_seg = original_results[idx] if idx < len(original_results or []) else display_seg
-        raw_label = _raw_unknown_label(idx, original_seg)
+        raw_label = _raw_result_speaker_label(original_seg, idx, fallback_by_source)
         if isinstance(original_seg, dict) and not str(original_seg.get("speaker") or "").strip():
             original_seg["speaker"] = raw_label
         current = str(_seg_get(display_seg, "speaker", 2, "") or "").strip()
@@ -372,6 +658,40 @@ def _build_manual_assignment_from_segment(results, original_results, segment_ind
     return assignments
 
 
+def _build_manual_assignments_from_current_results(results, original_results, aliases=None):
+    assignments = {}
+    sample_indexes = {}
+    sample_durations = {}
+    fallback_by_source = {}
+    aliases = aliases or _get_speaker_alias_map()
+
+    for idx, display_seg in enumerate(results or []):
+        current_label = _normalize_requested_speaker_name(
+            _seg_get(display_seg, "speaker", 2, ""),
+            aliases,
+        )
+        if _is_unknown_label_text(current_label):
+            continue
+
+        original_seg = original_results[idx] if idx < len(original_results or []) else display_seg
+        original_label = _raw_result_speaker_label(original_seg, idx, fallback_by_source)
+        if current_label == original_label:
+            continue
+
+        source_key = _segment_source_key(original_seg, current_label)
+        if source_key:
+            assignments[source_key] = current_label
+
+        start = float(_seg_get(original_seg, "start", 0, 0) or 0)
+        end = float(_seg_get(original_seg, "end", 1, start) or start)
+        duration = max(0.0, end - start)
+        if duration > sample_durations.get(current_label, 0.0):
+            sample_durations[current_label] = duration
+            sample_indexes[current_label] = idx
+
+    return assignments, sample_indexes
+
+
 def _apply_manual_speaker_assignments(results, original_results, assignments):
     if not assignments:
         return {"count": 0, "by_speaker": {}}
@@ -438,12 +758,17 @@ def _assign_by_source_winners(results, original_results, matched_indexes):
         if idx in matched_indexes:
             continue
         original_seg = original_results[idx] if idx < len(original_results or []) else display_seg
+        current = str(_seg_get(display_seg, "speaker", 2, "") or "").strip()
+        # Inheritance is only a rescue path for unresolved/raw stranger labels.
+        # A known label may still be overwritten by its own accepted embedding,
+        # but never by another segment's source/chunk vote.
+        if _is_known_label(current):
+            continue
         source_key = _segment_source_key(original_seg, _seg_get(display_seg, "speaker", 2, ""))
         chunk_key = _segment_chunk_key(original_seg)
         winner = source_winners.get(source_key) or chunk_winners.get(chunk_key)
         if not winner:
             continue
-        current = str(_seg_get(display_seg, "speaker", 2, "") or "").strip()
         if current == winner:
             continue
         _seg_set_speaker_value(display_seg, winner)
@@ -465,11 +790,13 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
 
     stt_mode = "google"
     audio_file = frappe.request.files['file']
+    from datetime import datetime
     
-    # Tính hash để phát hiện upload lại cùng 1 file
-    import hashlib
+    # Dùng cùng thuật toán hash với File.content_hash của Frappe.
+    # Frappe hiện lưu MD5; tự tính SHA-256 sẽ không bao giờ match file cũ.
+    from frappe.utils.file_manager import get_content_hash
     content = audio_file.read()
-    content_hash = hashlib.sha256(content).hexdigest()
+    content_hash = get_content_hash(content)
     audio_file.seek(0)
     
     # Tìm xem file này đã upload chưa
@@ -478,19 +805,58 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
         file_url = existing_file
         file_path = frappe.get_site_path(file_url.strip('/'))
 
-        # Tìm meeting history cũ
-        existing_meeting = frappe.get_all("Voice Meeting", filters={"audio_file": file_url}, fields=["name", "status"], order_by="creation desc", limit=1)
-        if existing_meeting:
-            m = existing_meeting[0]
-            if m.status in ("Error", "Partial Error", "Processing", "Pending"):
-                # Resume
-                frappe.db.set_value("Voice Meeting", m.name, "status", "Processing")
-                frappe.db.commit()
-                meeting_doc = frappe.get_doc("Voice Meeting", m.name)
-            else:
-                return check_meeting_status(m.name)
+        # Ưu tiên kết quả đã hoàn tất của cùng file, kể cả khi một
+        # lần upload trùng sau đó bị lỗi hoặc bị ngắt giữa chừng.
+        existing_meetings = frappe.get_all(
+            "Voice Meeting",
+            filters={"audio_file": file_url},
+            fields=["name", "status"],
+            order_by="creation desc",
+        )
+        completed_meeting = next(
+            (m for m in existing_meetings if m.status in ("Completed", "Analyzed", "Synced")),
+            None,
+        )
+        if completed_meeting:
+            _ensure_file_attachment(
+                file_url,
+                "Voice Meeting",
+                completed_meeting.name,
+                file_name=audio_file.filename,
+                is_private=1,
+            )
+            return check_meeting_status(completed_meeting.name)
+
+        active_meeting = next(
+            (m for m in existing_meetings if m.status in ("Processing", "Pending")),
+            None,
+        )
+        if active_meeting:
+            _ensure_file_attachment(
+                file_url,
+                "Voice Meeting",
+                active_meeting.name,
+                file_name=audio_file.filename,
+                is_private=1,
+            )
+            return check_meeting_status(active_meeting.name)
+
+        retryable_meeting = next(
+            (m for m in existing_meetings if m.status in ("Error", "Partial Error")),
+            None,
+        )
+        if retryable_meeting:
+            frappe.db.set_value("Voice Meeting", retryable_meeting.name, "status", "Processing")
+            frappe.db.commit()
+            meeting_doc = frappe.get_doc("Voice Meeting", retryable_meeting.name)
+            _ensure_file_attachment(
+                file_url,
+                "Voice Meeting",
+                meeting_doc.name,
+                file_name=audio_file.filename,
+                is_private=1,
+            )
         else:
-            from datetime import datetime
             meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             meeting_doc = frappe.get_doc({
                 "doctype": "Voice Meeting",
@@ -505,19 +871,15 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
                 "filter_speakers": filter_speakers
             })
             meeting_doc.insert(ignore_permissions=True)
+            _ensure_file_attachment(
+                file_url,
+                "Voice Meeting",
+                meeting_doc.name,
+                file_name=audio_file.filename,
+                is_private=1,
+            )
             frappe.db.commit()
     else:
-        file_doc = frappe.get_doc({
-            "doctype": "File",
-            "file_name": audio_file.filename,
-            "is_private": 1,
-            "content": content
-        })
-        file_doc.insert(ignore_permissions=True)
-        file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
-        file_url = file_doc.file_url
-        
-        from datetime import datetime
         meeting_title = f"Meeting - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
         meeting_doc = frappe.get_doc({
             "doctype": "Voice Meeting",
@@ -528,10 +890,14 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
             "language": language,
             "stt_mode": stt_mode,
             "num_speakers": num_speakers,
-            "custom_vocabulary": custom_vocabulary,
-            "filter_speakers": filter_speakers
+                "custom_vocabulary": custom_vocabulary,
+                "filter_speakers": filter_speakers
         })
         meeting_doc.insert(ignore_permissions=True)
+        file_doc = save_file(audio_file.filename, content, "Voice Meeting", meeting_doc.name, is_private=1)
+        file_path = frappe.get_site_path(file_doc.file_url.strip('/'))
+        file_url = file_doc.file_url
+        meeting_doc.db_set("audio_file", file_url, update_modified=False)
         frappe.db.commit()
     
     session_id_header = frappe.request.headers.get("X-App-Session-Id", "")
@@ -540,6 +906,8 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
         'voice_app.api._transcribe_audio_async',
         queue='long',
         timeout=3600,
+        job_id=f"voice-transcribe-{meeting_doc.name}",
+        deduplicate=True,
         file_path=file_path,
         file_url=file_url,
         filter_speakers=filter_speakers,
@@ -811,14 +1179,20 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
 
                 err, el_chars_used, el_chars_remaining = None, 0, 0
                 if chunks_to_process:
-                    frappe.log_error(f"Bat dau chay {len(chunks_to_process)} chunks vao call_gemini_stt", "Transcribe Debug")
+                    frappe.log_error(
+                        title="Transcribe Debug",
+                        message=f"Bat dau chay {len(chunks_to_process)} chunks vao call_gemini_stt",
+                    )
                     _segs, _raw, _txt, err, el_chars_used, el_chars_remaining = call_gemini_stt(
                         chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
                         language=language, num_speakers=auto_num_speakers, 
                         custom_vocabulary=global_vocabulary, progress_callback=stt_cb,
                         parse_log_cb=lambda c_name, lines: _append_stt_parse_log("Voice Meeting", meeting_name, lines)
                     )
-                    frappe.log_error(f"Goi call_gemini_stt hoan tat. Err={err}", "Transcribe Debug")
+                    frappe.log_error(
+                        title="Transcribe Debug",
+                        message=f"Goi call_gemini_stt hoan tat. Err={err}",
+                    )
                     total_prompt_tokens = int(el_chars_used or 0)
                     total_completion_tokens = int(el_chars_remaining or 0)
                     _sync_meeting_stt_usage(
@@ -839,7 +1213,13 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     if c.status != "Completed":
                         has_error = True
                         err = f"Lỗi ở chunk: {c.error_message}" if not err else err
-                        frappe.log_error(f"Phat hien chunk {c.name} (index {c.get('chunk_index', 'N/A')}) chua completed. Status={c.status}, Error={c.error_message}", "Transcribe Debug")
+                        frappe.log_error(
+                            title="Transcribe Debug",
+                            message=(
+                                f"Phat hien chunk {c.name} (index {c.get('chunk_index', 'N/A')}) "
+                                f"chua completed. Status={c.status}, Error={c.error_message}"
+                            ),
+                        )
                         break
                     if c.raw_segments:
                         try:
@@ -948,20 +1328,26 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         os.remove(item["wav_path"])
 
             update_progress(100, "Đã dịch xong văn bản!", 95, "Đang đối chiếu dữ liệu nhân sự...")
-            # Greedy assignment: mỗi tên chỉ gán cho 1 speaker (score cao nhất giành trước)
-            # identify_ranked() đã filter >= SIMILARITY_THRESHOLD rồi
-            # → fallback candidate nào cũng đảm bảo trên ngưỡng, không cần check lại
+            # Greedy assignment: score cao nhất được xử lý trước.
             allowed = json.loads(filter_speakers) if filter_speakers else None
     
-            # Lấy ranked candidates cho mỗi speaker (tất cả đều >= threshold)
+            speaker_aliases = _get_speaker_alias_map()
+
+            # Mỗi speaker nhận top-1 nếu đạt ngưỡng chung; không xét gap top-2.
             spk_ranked = {}  # speaker_id -> [(name, score, email, user_info), ...]
             for spk, emb in spk_embeddings.items():
-                spk_ranked[spk] = spk_db.identify_ranked(emb, allowed_names=allowed)
-                ranked_preview = ", ".join(f"{name}={score:.3f}" for name, score, _email, _user_info in spk_ranked[spk][:5])
+                top_match, ranked_all = _top_db_match(
+                    spk_db,
+                    emb,
+                    allowed_names=allowed,
+                    aliases=speaker_aliases,
+                )
+                spk_ranked[spk] = [top_match] if top_match else []
+                ranked_preview = ", ".join(f"{name}={score:.3f}" for name, score, _email, _user_info in ranked_all[:5])
                 _append_stt_parse_log(
                     "Voice Meeting",
                     meeting_name,
-                    f"[Speaker] {spk}: candidates>=threshold {len(spk_ranked[spk])}"
+                    f"[Speaker] {spk}: accepted={bool(top_match)}"
                     + (f" | {ranked_preview}" if ranked_preview else ""),
                 )
     
@@ -1015,10 +1401,14 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             for spk, info in list(spk_identified.items()):
                 if info[0] != "Người lạ" or spk not in spk_embeddings:
                     continue
-                ranked_all = spk_db.identify_ranked(spk_embeddings[spk], allowed_names=None)
-                if not ranked_all:
+                top_match, _ranked = _top_db_match(
+                    spk_db,
+                    spk_embeddings[spk],
+                    aliases=speaker_aliases,
+                )
+                if not top_match:
                     continue
-                name, score, email, user_info = ranked_all[0]
+                name, score, email, user_info = top_match
                 spk_identified[spk] = (name, score, email, user_info)
                 rematched_strangers.append(f"{spk}→'{name}'({score:.3f})")
             if rematched_strangers:
@@ -1488,7 +1878,11 @@ def _extract_tasks_async(payload, user, session_id_header):
         )
         
         with open(docx_filename, "rb") as f:
-            file_doc = save_file(docx_filename, f.read(), None, None, is_private=0)
+            if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
+                file_doc = save_file(docx_filename, f.read(), "Voice Meeting", meeting_name, is_private=0)
+                file_doc = _ensure_file_attachment(file_doc.file_url, "Voice Meeting", meeting_name, file_name=os.path.basename(docx_filename), is_private=0) or file_doc
+            else:
+                file_doc = save_file(docx_filename, f.read(), None, None, is_private=0)
             docx_url = file_doc.file_url
 
         items, hr_projects_map, errors, employees, task_usage, meeting_summary, conclusion = extract_tasks_only(docx_filename, model_type="gpt-4o-mini")
@@ -1514,7 +1908,11 @@ def _extract_tasks_async(payload, user, session_id_header):
             df.to_excel(excel_filename, index=False)
             
             with open(excel_filename, "rb") as f:
-                excel_doc = save_file(excel_filename, f.read(), None, None, is_private=0)
+                if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
+                    excel_doc = save_file(excel_filename, f.read(), "Voice Meeting", meeting_name, is_private=0)
+                    excel_doc = _ensure_file_attachment(excel_doc.file_url, "Voice Meeting", meeting_name, file_name=excel_filename, is_private=0) or excel_doc
+                else:
+                    excel_doc = save_file(excel_filename, f.read(), None, None, is_private=0)
                 excel_url = excel_doc.file_url
             if os.path.exists(excel_filename): os.remove(excel_filename)
 
@@ -1624,11 +2022,14 @@ def get_employees():
                 for speaker in speakers
                 if (speaker.get("speaker_name") or "").strip()
             }
+            speaker_aliases = _build_speaker_alias_map(speakers)
             for speaker in speakers:
                 name = (speaker.get("speaker_name") or "").strip()
                 email = (speaker.get("email") or "").strip()
                 if email == "Chưa cập nhật":
                     email = ""
+                if speaker_aliases.get(name, name) != name:
+                    continue
                 if name.endswith(" - Voice Speaker") and name[: -len(" - Voice Speaker")] in speaker_names:
                     continue
                 key = email or name
@@ -1912,7 +2313,7 @@ def enroll_voice():
                 designation = emp.get("designation") or ""
                 break
                 
-        speaker_name = " - ".join([x for x in [full_name, email, designation] if x])
+        speaker_name = full_name or email
         
         from voice_app.speaker_manager import enroll_new_speaker
         success = enroll_new_speaker(speaker_name, wav, email=email, user_info=user_info)
@@ -1938,8 +2339,9 @@ def map_and_enroll_speakers():
     data = frappe.request.get_data()
     payload = json.loads(data)
     meeting_name = payload.get("meeting_name")
+    speaker_aliases = _get_speaker_alias_map()
     mappings = {
-        str(old).strip(): str(new).strip()
+        str(old).strip(): _normalize_requested_speaker_name(new, speaker_aliases)
         for old, new in (payload.get("mappings", {}) or {}).items()
         if str(old).strip() and str(new).strip()
     }
@@ -2152,14 +2554,19 @@ def map_and_enroll_speakers():
         reassigned_count = 0
         matched_by_speaker = {}
         matched_indexes = set()
+        speaker_aliases = _get_speaker_alias_map()
         for i, seg in enumerate(original_results):
             emb = _seg_get(seg, "embedding", 4, None)
             if not _has_embedding(emb):
                 continue
-            ranked = db.identify_ranked(_normalize_embedding(emb), allowed_names=None)
-            if not ranked:
+            top_match, _ranked = _top_db_match(
+                db,
+                _normalize_embedding(emb),
+                aliases=speaker_aliases,
+            )
+            if not top_match:
                 continue
-            matched_name, similarity, email, user_info = ranked[0]
+            matched_name, similarity, email, user_info = top_match
             if i < len(results):
                 _seg_set_speaker(results[i], matched_name)
                 matched_indexes.add(i)
@@ -2170,6 +2577,7 @@ def map_and_enroll_speakers():
         manual_assigned = _apply_manual_speaker_assignments(results, original_results, manual_assignments)
         inherited_by_source = {}
         dropped_unidentifiable = []
+        merged_adjacent_count = 0
         final_text = _build_plain_transcript(results)
         frappe.db.set_value("Voice Meeting", meeting_name, {
             "raw_results": json.dumps(results, ensure_ascii=False),
@@ -2198,6 +2606,7 @@ def map_and_enroll_speakers():
         "inherited_by_source": inherited_by_source,
         "dropped_unidentifiable_count": len(dropped_unidentifiable),
         "dropped_unidentifiable_preview": dropped_unidentifiable[:20],
+        "merged_adjacent_count": merged_adjacent_count,
         "message": f"Đã đăng ký/cập nhật {len(enrolled)} giọng, quét lại {reassigned_count} đoạn, gán theo nhóm {source_assigned['count']} đoạn, gán tay {manual_assigned['count']} đoạn"
     }
 
@@ -2221,7 +2630,8 @@ def reassign_speaker_from_segment():
     payload = json.loads(data)
     meeting_name = payload.get("meeting_name")
     segment_index = int(payload.get("segment_index", -1))
-    new_speaker_name = (payload.get("new_speaker_name") or "").strip()
+    speaker_aliases = _get_speaker_alias_map()
+    new_speaker_name = _normalize_requested_speaker_name(payload.get("new_speaker_name"), speaker_aliases)
 
     if not meeting_name or segment_index < 0 or not new_speaker_name:
         return {"status": "error", "message": "Thiếu meeting_name, segment_index hoặc new_speaker_name"}
@@ -2232,6 +2642,8 @@ def reassign_speaker_from_segment():
 
     if not _can_access_meeting(meeting.owner):
         return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+    if not str(meeting.audio_file or "").strip():
+        return _missing_audio_rescan_error(meeting)
 
     results = json.loads(meeting.raw_results)
 
@@ -2407,19 +2819,25 @@ def reassign_speaker_from_segment():
         if sample_emb_np is None:
             sample_emb_np = _normalize_embedding(sample_embedding)
 
-        # Bước 2: Đăng ký/cập nhật mẫu giọng vào DB theo tên user vừa nhập.
+        # Bước 2: Với luồng quét lại từ 1 segment, nếu tên đã có trong DB thì
+        # không overwrite embedding/sample_audio cũ nữa. Ta chỉ dùng Voice DB
+        # hiện có để quét lại toàn meeting, tránh lỡ một segment bẩn làm hỏng
+        # luôn mẫu giọng đã enroll trước đó.
         db = SpeakerDB()
-        db.add_speaker(new_speaker_name, sample_emb_np, email="", user_info=None)
-        known_speaker_names = set(SpeakerDB().speakers.keys())
+        existing_entry = db.speakers.get(new_speaker_name)
+        speaker_db_updated = not bool(existing_entry)
+        sample_audio_url = ""
 
-        # Lưu lại đúng đoạn sạch tương ứng với embedding mới, tránh sample_audio
-        # cũ lệch với vector DB sau khi overwrite.
-        sample_audio_url = _save_sample_audio(
-            new_speaker_name,
-            wav_path,
-            clean_sample.get("start") or sample_start,
-            clean_sample.get("end") or sample_end,
-        )
+        if speaker_db_updated:
+            db.add_speaker(new_speaker_name, sample_emb_np, email="", user_info=None)
+            sample_audio_url = _save_sample_audio(
+                new_speaker_name,
+                wav_path,
+                clean_sample.get("start") or sample_start,
+                clean_sample.get("end") or sample_end,
+            )
+
+        known_speaker_names = set(SpeakerDB().speakers.keys())
 
         # Bổ sung embedding cho các segment còn thiếu để quét lại được rộng hơn.
         if meeting.audio_file:
@@ -2460,6 +2878,7 @@ def reassign_speaker_from_segment():
         matched_by_speaker = {}
         matched_indexes = set()
 
+        speaker_aliases = _get_speaker_alias_map()
         for i, seg in enumerate(original_results):
             seg_emb = _seg_get(seg, "embedding", 4, None)
             if not _has_embedding(seg_emb):
@@ -2469,11 +2888,15 @@ def reassign_speaker_from_segment():
             if seg_emb_np is None:
                 continue
 
-            ranked = db.identify_ranked(seg_emb_np, allowed_names=None)
-            if not ranked:
+            top_match, _ranked = _top_db_match(
+                db,
+                seg_emb_np,
+                aliases=speaker_aliases,
+            )
+            if not top_match:
                 continue
 
-            matched_name, similarity, email, user_info = ranked[0]
+            matched_name, similarity, email, user_info = top_match
             if i < len(results):
                 _seg_set_speaker(results[i], matched_name)
                 matched_indexes.add(i)
@@ -2487,6 +2910,7 @@ def reassign_speaker_from_segment():
         # Bước 5: Lưu lại kết quả mới. Segment không match DB vẫn giữ nhãn
         # raw Gemini theo speaker trong chunk, để user còn thấy đúng nhóm lạ.
         dropped_unidentifiable = []
+        merged_adjacent_count = 0
         final_text = _build_plain_transcript(results)
         frappe.db.set_value("Voice Meeting", meeting_name, {
             "raw_results": json.dumps(results, ensure_ascii=False),
@@ -2509,8 +2933,19 @@ def reassign_speaker_from_segment():
             "inherited_by_source": inherited_by_source,
             "dropped_unidentifiable_count": len(dropped_unidentifiable),
             "dropped_unidentifiable_preview": dropped_unidentifiable[:20],
+            "merged_adjacent_count": merged_adjacent_count,
+            "speaker_db_updated": speaker_db_updated,
             "sample_audio": sample_audio_url,
-            "message": f"Đã quét lại DB giọng nói, gán {reassigned_count} đoạn, gán theo nhóm {source_assigned['count']} đoạn, gán tay {manual_assigned['count']} đoạn"
+            "message": (
+                f"Đã quét lại DB giọng nói, gán {reassigned_count} đoạn, "
+                f"gán theo nhóm {source_assigned['count']} đoạn, "
+                f"gán tay {manual_assigned['count']} đoạn"
+                + (
+                    f", đã thêm mẫu giọng mới cho {new_speaker_name}"
+                    if speaker_db_updated else
+                    f", giữ nguyên mẫu giọng hiện có của {new_speaker_name}"
+                )
+            )
         }
 
     except Exception as e:
@@ -2522,6 +2957,361 @@ def reassign_speaker_from_segment():
                 os.remove(converted_wav)
         except Exception:
             pass
+
+
+@frappe.whitelist(allow_guest=False)
+def rescan_meeting_from_current_labels():
+    """
+    Dùng nhãn speaker hiện tại trong transcript (sau khi user sửa ở phần dưới)
+    làm manual/source assignments, enroll những tên chưa có trong DB, rồi quét
+    lại toàn bộ meeting đúng một lần.
+    """
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+
+    if not meeting_name:
+        return {"status": "error", "message": "Thiếu meeting_name"}
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not meeting or not meeting.raw_results:
+        return {"status": "error", "message": "Không tìm thấy meeting hoặc dữ liệu raw_results"}
+    if not _can_access_meeting(meeting.owner):
+        return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+    if not str(meeting.audio_file or "").strip():
+        return _missing_audio_rescan_error(meeting)
+
+    results = json.loads(meeting.raw_results)
+    original_results = json.loads(meeting.original_raw_results) if meeting.original_raw_results else []
+
+    def _seg_set_embedding(seg, value):
+        emb_list = value.tolist() if hasattr(value, "tolist") else value
+        if isinstance(seg, dict):
+            seg["embedding"] = emb_list
+        elif len(seg) > 4:
+            seg[4] = emb_list
+        else:
+            while len(seg) < 4:
+                seg.append("")
+            seg.append(emb_list)
+
+    def _has_embedding(emb):
+        if emb is None:
+            return False
+        if isinstance(emb, (list, tuple)) and not emb:
+            return False
+        return True
+
+    def _normalize_embedding(emb):
+        return _normalize_np_embedding(emb)
+
+    def _audio_file_path(file_url):
+        clean_url = (file_url or "").lstrip("/")
+        if not clean_url:
+            return ""
+        if clean_url.startswith("files/"):
+            return frappe.get_site_path("public", clean_url)
+        return frappe.get_site_path(clean_url)
+
+    def _save_sample_audio(speaker_name, wav_path, start, end):
+        if not wav_path or not os.path.exists(wav_path):
+            return ""
+        if not frappe.db.has_column("Voice Speaker", "sample_audio"):
+            return ""
+        sample_path = extract_segment_ffmpeg(wav_path, start, end, padding=0.1)
+        if not sample_path:
+            return ""
+        try:
+            safe_name = "".join(ch if ch.isalnum() or ch in (" ", "-", "_") else "_" for ch in speaker_name).strip()
+            filename = f"{safe_name or 'speaker'}_{int(time.time())}.wav"
+            with open(sample_path, "rb") as f:
+                file_doc = save_file(filename, f.read(), "Voice Speaker", speaker_name, is_private=1)
+            frappe.db.set_value("Voice Speaker", speaker_name, "sample_audio", file_doc.file_url)
+            return file_doc.file_url
+        finally:
+            with suppress(FileNotFoundError):
+                os.remove(sample_path)
+
+    if not original_results:
+        original_results = [
+            {
+                "start": _seg_get(seg, "start", 0, 0),
+                "end": _seg_get(seg, "end", 1, 0),
+                "speaker": _seg_get(seg, "speaker", 2, ""),
+                "text": _seg_get(seg, "text", 3, ""),
+                "embedding": _seg_get(seg, "embedding", 4, None),
+            }
+            for seg in results
+        ]
+
+    speaker_aliases = _get_speaker_alias_map()
+    manual_assignments, candidate_sample_indexes = _build_manual_assignments_from_current_results(
+        results,
+        original_results,
+        aliases=speaker_aliases,
+    )
+    if not manual_assignments:
+        return {"status": "error", "message": "Chưa có tên đã sửa ở transcript để quét lại AI."}
+
+    enrolled = []
+    skipped = []
+    errors = []
+    db = SpeakerDB()
+    sample_indexes = {}
+
+    for speaker_name, idx in candidate_sample_indexes.items():
+        current = frappe.get_all("Voice Speaker", filters={"speaker_name": speaker_name}, fields=["name", "embedding"])
+        if current and current[0].get("embedding"):
+            skipped.append(speaker_name)
+        else:
+            sample_indexes[speaker_name] = idx
+
+    wav_path = ""
+    segment_embedding_rebuild = {"rebuilt": 0, "skipped_short": 0}
+    restored_raw_count = 0
+    reassigned_count = 0
+    matched_by_speaker = {}
+    source_assigned = {"count": 0, "by_speaker": {}}
+    manual_assigned = {"count": 0, "by_speaker": {}}
+    dropped_unidentifiable = []
+    new_sample_audio = {}
+
+    try:
+        from voice_app.speaker_manager import _extract_embeddings_from_files_remote
+
+        def _ensure_wav():
+            nonlocal wav_path
+            if wav_path:
+                return wav_path
+            audio_path = _audio_file_path(meeting.audio_file)
+            if not audio_path or not os.path.exists(audio_path):
+                raise RuntimeError("Không tìm thấy file âm thanh gốc để trích xuất giọng nói.")
+            wav_path, err = convert_to_wav(audio_path)
+            if err:
+                raise RuntimeError(f"Lỗi xử lý file âm thanh: {err}")
+            return wav_path
+
+        segment_embedding_rebuild = _rebuild_segment_embeddings_from_audio(
+            meeting,
+            original_results,
+            force=True,
+            min_duration=0.8,
+            task="Rebuild từng segment khi quét lại từ transcript",
+        )
+        if segment_embedding_rebuild.get("error"):
+            return {"status": "error", "message": segment_embedding_rebuild["error"]}
+
+        missing_samples = []
+        missing_sample_names = []
+        for speaker_name, idx in sample_indexes.items():
+            seg = original_results[idx] if idx < len(original_results) else results[idx]
+            emb = _seg_get(seg, "embedding", 4, None)
+            if _has_embedding(emb):
+                continue
+            start = float(_seg_get(seg, "start", 0, 0) or 0)
+            end = float(_seg_get(seg, "end", 1, start) or start)
+            missing_sample_names.append(speaker_name)
+            missing_samples.append({"wav_path": _ensure_wav(), "start": start, "end": end})
+        if missing_samples:
+            emb_results = _extract_embeddings_from_files_remote(
+                missing_samples,
+                task="Đăng ký giọng từ transcript đã sửa",
+            )
+            for speaker_name, emb in zip(missing_sample_names, emb_results):
+                idx = sample_indexes[speaker_name]
+                if emb is not None and idx < len(original_results):
+                    _seg_set_embedding(original_results[idx], emb)
+
+        for speaker_name, idx in sample_indexes.items():
+            seg = original_results[idx] if idx < len(original_results) else results[idx]
+            emb = _seg_get(seg, "embedding", 4, None)
+            if not _has_embedding(emb):
+                errors.append(f"{speaker_name} (Không trích được embedding)")
+                continue
+            start = float(_seg_get(seg, "start", 0, 0) or 0)
+            end = float(_seg_get(seg, "end", 1, start) or start)
+            if end - start < 2.0:
+                errors.append(f"{speaker_name} (Audio quá ngắn, cần > 2s)")
+                continue
+
+            clean_sample = _clean_speaker_sample_embedding(
+                _ensure_wav(),
+                start,
+                end,
+                fallback_embedding=emb,
+                task="Lọc sample khi quét lại từ transcript",
+            )
+            clean_emb = clean_sample.get("embedding") or _normalize_embedding(emb)
+            db.add_speaker(speaker_name, clean_emb, email="", user_info=None)
+            enrolled.append(speaker_name)
+            new_sample_audio[speaker_name] = _save_sample_audio(
+                speaker_name,
+                _ensure_wav(),
+                clean_sample.get("start") or start,
+                clean_sample.get("end") or end,
+            )
+
+        db = SpeakerDB()
+
+        missing_items = []
+        missing_indexes = []
+        for i, seg in enumerate(original_results):
+            if _has_embedding(_seg_get(seg, "embedding", 4, None)):
+                continue
+            start = float(_seg_get(seg, "start", 0, 0) or 0)
+            end = float(_seg_get(seg, "end", 1, start) or start)
+            if end - start < 0.8:
+                continue
+            missing_indexes.append(i)
+            missing_items.append({"wav_path": _ensure_wav(), "start": start, "end": end})
+        if missing_items:
+            emb_results = _extract_embeddings_from_files_remote(
+                missing_items,
+                task="Bổ sung embedding khi quét lại từ transcript",
+            )
+            for idx, emb in zip(missing_indexes, emb_results):
+                if emb is not None:
+                    _seg_set_embedding(original_results[idx], emb)
+
+        restored_raw_count = _restore_result_speakers_from_original(results, original_results)
+        matched_indexes = set()
+        for i, seg in enumerate(original_results):
+            emb = _seg_get(seg, "embedding", 4, None)
+            if not _has_embedding(emb):
+                continue
+            top_match, _ranked = _top_db_match(
+                db,
+                _normalize_embedding(emb),
+                aliases=speaker_aliases,
+            )
+            if not top_match:
+                continue
+            matched_name, similarity, email, user_info = top_match
+            if i < len(results):
+                _seg_set_speaker(results[i], matched_name)
+                matched_indexes.add(i)
+            matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
+            reassigned_count += 1
+
+        source_assigned = _assign_by_source_winners(results, original_results, matched_indexes)
+        manual_assigned = _apply_manual_speaker_assignments(results, original_results, manual_assignments)
+
+        merged_adjacent_count = 0
+        final_text = _build_plain_transcript(results)
+        frappe.db.set_value("Voice Meeting", meeting_name, {
+            "raw_results": json.dumps(results, ensure_ascii=False),
+            "original_raw_results": json.dumps(original_results, ensure_ascii=False),
+            "transcript": final_text,
+        })
+        frappe.db.commit()
+
+        return {
+            "status": "success",
+            "results": results,
+            "enrolled": enrolled,
+            "skipped": skipped,
+            "errors": errors,
+            "restored_raw_count": restored_raw_count,
+            "reassigned_count": reassigned_count,
+            "source_assigned_count": source_assigned["count"],
+            "source_assigned_by_speaker": source_assigned["by_speaker"],
+            "manual_assigned_count": manual_assigned["count"],
+            "manual_assigned_by_speaker": manual_assigned["by_speaker"],
+            "segment_embedding_rebuild": segment_embedding_rebuild,
+            "matched_by_speaker": matched_by_speaker,
+            "dropped_unidentifiable_count": len(dropped_unidentifiable),
+            "dropped_unidentifiable_preview": dropped_unidentifiable[:20],
+            "merged_adjacent_count": merged_adjacent_count,
+            "new_sample_audio": new_sample_audio,
+            "message": (
+                f"Đã quét lại theo tên đã sửa, gán {reassigned_count} đoạn, "
+                f"gán theo nhóm {source_assigned['count']} đoạn, "
+                f"gán tay {manual_assigned['count']} đoạn"
+                + (f", đăng ký giọng mới: {', '.join(enrolled)}" if enrolled else "")
+                + (f", giữ nguyên giọng có sẵn: {', '.join(skipped)}" if skipped else "")
+            ),
+        }
+    except Exception as e:
+        frappe.log_error(traceback.format_exc(), "Rescan Meeting From Current Labels Error")
+        return {"status": "error", "message": str(e)}
+    finally:
+        if wav_path and os.path.exists(wav_path):
+            with suppress(FileNotFoundError):
+                os.remove(wav_path)
+
+
+@frappe.whitelist(allow_guest=False)
+def normalize_meeting_transcript():
+    """
+    Chuẩn hoá transcript sau khi user đã chốt speaker/text:
+    chỉ gộp các đoạn liền kề đã cùng speaker final và nối câu nhẹ nhàng.
+    """
+    if frappe.session.user == "Guest":
+        return {"status": "error", "message": "Vui lòng đăng nhập"}
+
+    data = frappe.request.get_data()
+    payload = json.loads(data)
+    meeting_name = payload.get("meeting_name")
+
+    if not meeting_name:
+        return {"status": "error", "message": "Thiếu meeting_name"}
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not meeting or not meeting.raw_results:
+        return {"status": "error", "message": "Không tìm thấy meeting hoặc dữ liệu raw_results"}
+    if not _can_access_meeting(meeting.owner):
+        return {"status": "error", "message": "Không có quyền chỉnh sửa meeting này"}
+
+    results = json.loads(meeting.raw_results)
+    original_results = json.loads(meeting.original_raw_results) if meeting.original_raw_results else []
+    if not original_results:
+        original_results = [
+            {
+                "start": _seg_get(seg, "start", 0, 0),
+                "end": _seg_get(seg, "end", 1, 0),
+                "speaker": _seg_get(seg, "speaker", 2, ""),
+                "text": _seg_get(seg, "text", 3, ""),
+                "embedding": _seg_get(seg, "embedding", 4, None),
+            }
+            for seg in results
+        ]
+
+    unknown_labels = []
+    for seg in results:
+        label = str(_seg_get(seg, "speaker", 2, "") or "").strip()
+        if _is_unknown_label_text(label):
+            unknown_labels.append(label or "Không tên")
+    if unknown_labels:
+        remaining = sorted(set(unknown_labels))
+        return {
+            "status": "error",
+            "message": "Vẫn còn người lạ trong transcript. Hãy gán hết tên trước khi chuẩn hoá hội thoại.",
+            "remaining_unknown_labels": remaining,
+            "remaining_unknown_count": len(remaining),
+        }
+
+    merged_results, merged_original_results, merged_adjacent_count = _merge_adjacent_same_speaker_segments(
+        results,
+        original_results,
+    )
+    final_text = _build_plain_transcript(merged_results)
+    frappe.db.set_value("Voice Meeting", meeting_name, {
+        "raw_results": json.dumps(merged_results, ensure_ascii=False),
+        "original_raw_results": json.dumps(merged_original_results, ensure_ascii=False),
+        "transcript": final_text,
+    })
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "results": merged_results,
+        "merged_adjacent_count": merged_adjacent_count,
+        "message": (
+            f"Đã chuẩn hoá hội thoại, gộp {merged_adjacent_count} đoạn liền kề cùng người nói."
+            if merged_adjacent_count
+            else "Đã chuẩn hoá hội thoại, không có đoạn nào cần gộp thêm."
+        ),
+    }
 
 @frappe.whitelist(allow_guest=False)
 def enroll_speaker_from_segment():
@@ -2632,6 +3422,13 @@ def get_enrolled_speakers():
             fields=["speaker_name", "email"],
             order_by="speaker_name asc"
         )
+        aliases = _build_speaker_alias_map(speakers)
+        speakers = [
+            speaker
+            for speaker in speakers
+            if aliases.get((speaker.get("speaker_name") or "").strip(), (speaker.get("speaker_name") or "").strip())
+            == (speaker.get("speaker_name") or "").strip()
+        ]
         # Enrich với designation từ CTERP nếu có email khớp
         try:
             raw_employees = get_cached_employees()
@@ -3094,19 +3891,28 @@ def resume_transcription(meeting_name):
             _transcribe_audio_async,
             queue='long',
             timeout=7200,
+            job_id=f"voice-transcribe-{meeting_name}",
+            deduplicate=True,
             file_path=local_path,
             file_url=file_url,
-            language=meeting_doc.language or "vi",
-            filter_speakers=meeting_doc.filter_speakers,
+            language=meeting_doc.get("language") or "vi",
+            filter_speakers=meeting_doc.get("filter_speakers"),
             meeting_name=meeting_name,
             stt_mode="google",
-            num_speakers=meeting_doc.num_speakers,
-            custom_vocabulary=meeting_doc.custom_vocabulary or ""
+            num_speakers=meeting_doc.get("num_speakers"),
+            custom_vocabulary=meeting_doc.get("custom_vocabulary") or ""
         )
         
         return {"status": "processing", "meeting_name": meeting_name}
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "resume_transcription_error")
+        if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
+            frappe.db.set_value(
+                "Voice Meeting",
+                meeting_name,
+                {"status": "Error", "error_message": str(e)},
+            )
+            frappe.db.commit()
         return {"status": "error", "message": str(e)}
 
 @frappe.whitelist(allow_guest=False)
@@ -3199,7 +4005,9 @@ def export_dynamic_docx(meeting_name):
         )
         
         with open(docx_filename, "rb") as f:
-            file_doc = save_file(f"{meeting.name}_Minute_{int(time.time())}.docx", f.read(), None, None, is_private=0)
+            filename = f"{meeting.name}_Minute_{int(time.time())}.docx"
+            file_doc = save_file(filename, f.read(), "Voice Meeting", meeting.name, is_private=0)
+            file_doc = _ensure_file_attachment(file_doc.file_url, "Voice Meeting", meeting.name, file_name=filename, is_private=0) or file_doc
             
         if os.path.exists(docx_filename):
             os.remove(docx_filename)

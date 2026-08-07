@@ -482,7 +482,7 @@ def _parse_time(val):
         return 0.0
 
 
-def _timeline_validation_errors(segments, file_duration):
+def _timeline_validation_errors(segments, file_duration, check_long_segments=True):
     """Return reasons a Gemini timeline is unsafe for cutting speaker audio."""
     duration = max(0.0, float(file_duration or 0.0))
     parsed = []
@@ -506,12 +506,17 @@ def _timeline_validation_errors(segments, file_duration):
         # Prompt yêu cầu mỗi entry chỉ vài câu. Một entry chiếm quá nhiều
         # thời gian thường là Gemini tự phân bổ timestamp theo lượng text.
         long_limit = max(45.0, duration * 0.22)
-        if words and seg_duration > long_limit:
+        if check_long_segments and words and seg_duration > long_limit:
             errors.append(f"segment {index} dài bất thường {seg_duration:.2f}s")
 
         # Dưới 0.45 từ/giây trong một segment đủ dài là dấu hiệu mốc thời
         # gian bị kéo giãn, không phải tốc độ nói thực tế.
-        if len(words) >= 8 and seg_duration >= 15.0 and (len(words) / seg_duration) < 0.45:
+        if (
+            check_long_segments
+            and len(words) >= 8
+            and seg_duration >= 15.0
+            and (len(words) / seg_duration) < 0.45
+        ):
             errors.append(
                 f"segment {index} bị kéo giãn ({len(words)} từ/{seg_duration:.2f}s)"
             )
@@ -529,6 +534,89 @@ def _timeline_validation_errors(segments, file_duration):
         errors.append("segment cuối có text dài nhưng thời lượng gần bằng 0")
 
     return list(dict.fromkeys(errors))
+
+
+def _vad_speech_intervals(wav_path):
+    """Return merged speech intervals using local VAD only."""
+    import wave
+
+    import webrtcvad
+
+    with wave.open(wav_path, "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        sample_width = wav_file.getsampwidth()
+        channels = wav_file.getnchannels()
+        frame_count = wav_file.getnframes()
+        data = wav_file.readframes(frame_count)
+
+    duration = frame_count / sample_rate if sample_rate else 0.0
+    if channels != 1 or sample_rate not in (8000, 16000, 32000, 48000):
+        return [(0.0, duration)] if duration > 0 else []
+
+    frame_ms = 30
+    frame_samples = int(sample_rate * frame_ms / 1000)
+    frame_bytes = frame_samples * sample_width
+    vad = webrtcvad.Vad(1)
+    raw_intervals = []
+    speech_start = None
+
+    for byte_offset in range(0, len(data) - frame_bytes + 1, frame_bytes):
+        frame_index = byte_offset // frame_bytes
+        start = frame_index * frame_ms / 1000.0
+        is_speech = vad.is_speech(data[byte_offset : byte_offset + frame_bytes], sample_rate)
+        if is_speech and speech_start is None:
+            speech_start = start
+        elif not is_speech and speech_start is not None:
+            raw_intervals.append((speech_start, start))
+            speech_start = None
+    if speech_start is not None:
+        raw_intervals.append((speech_start, duration))
+
+    if not raw_intervals:
+        return [(0.0, duration)] if duration > 0 else []
+
+    merged = []
+    for start, end in raw_intervals:
+        if merged and start - merged[-1][1] <= 0.3:
+            merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _speech_clock_to_audio_time(intervals, speech_seconds):
+    remaining = max(0.0, float(speech_seconds or 0.0))
+    for start, end in intervals:
+        interval_duration = max(0.0, end - start)
+        if remaining <= interval_duration:
+            return start + remaining
+        remaining -= interval_duration
+    return intervals[-1][1] if intervals else 0.0
+
+
+def _retime_segments_by_vad(segments, wav_path):
+    """Ignore Gemini timestamps and distribute ordered text over detected speech."""
+    segments = [dict(seg) for seg in (segments or []) if isinstance(seg, dict)]
+    if not segments:
+        return []
+
+    intervals = _vad_speech_intervals(wav_path)
+    total_speech = sum(max(0.0, end - start) for start, end in intervals)
+    if total_speech <= 0:
+        return segments
+
+    weights = [max(1, len(_normalized_text_tokens(seg.get("text")))) for seg in segments]
+    total_weight = max(1, sum(weights))
+    consumed_weight = 0
+
+    for seg, weight in zip(segments, weights):
+        start_clock = total_speech * consumed_weight / total_weight
+        consumed_weight += weight
+        end_clock = total_speech * consumed_weight / total_weight
+        seg["start"] = round(_speech_clock_to_audio_time(intervals, start_clock), 2)
+        seg["end"] = round(_speech_clock_to_audio_time(intervals, end_clock), 2)
+
+    return segments
 
 
 def _normalized_text_tokens(text):
@@ -831,7 +919,17 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 if not clean_segments:
                     return idx, [], [], "", chunk_usage, None, parse_logs
 
-                timeline_errors = _timeline_validation_errors(clean_segments, chunk_duration)
+                if is_subchunk:
+                    # Gemini vẫn có thể bịa timestamp trong cửa sổ ngắn. Ở
+                    # nhánh repair chỉ giữ thứ tự text/speaker, còn timeline
+                    # được dựng từ vùng có tiếng nói do VAD local phát hiện.
+                    clean_segments = _retime_segments_by_vad(clean_segments, current_wav)
+
+                timeline_errors = _timeline_validation_errors(
+                    clean_segments,
+                    chunk_duration,
+                    check_long_segments=not is_subchunk,
+                )
                 last_valid_ts = _parse_time(clean_segments[-1].get("end", 0)) if clean_segments else 0.0
                 tail_gap = max(0.0, chunk_duration - last_valid_ts)
                 if tail_gap > 15.0 and _has_speech_after(current_wav, last_valid_ts):
@@ -899,7 +997,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     repaired_segments = []
                     repaired_words = []
                     repaired_text_parts = []
-                    repair_usage = {key: 0 for key in (chunk_usage or {})}
+                    repair_usage = {}
                     repair_error = None
 
                     try:
@@ -985,8 +1083,9 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     chunk_text = " ".join(repaired_text_parts)
                     if chunk_usage:
                         for key, value in repair_usage.items():
-                            if isinstance(value, (int, float)):
-                                chunk_usage[key] = chunk_usage.get(key, 0) + value
+                            current_value = chunk_usage.get(key, 0)
+                            if isinstance(value, (int, float)) and isinstance(current_value, (int, float)):
+                                chunk_usage[key] = current_value + value
                     chunk_log(
                         f"[Gemini STT] Đã sửa timeline chunk {idx + 1}: "
                         f"{len(repair_chunks)} cửa sổ, {len(segments)} segments, "
