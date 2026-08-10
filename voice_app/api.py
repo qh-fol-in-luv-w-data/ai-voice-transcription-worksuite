@@ -1535,18 +1535,15 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             for seg in segments:
                 import re
                 txt = " ".join(seg["text"].split())
-                # Dọn dẹp "..." ở đầu và cuối
-                txt = re.sub(r'^(?:\.{2,}\s*)', '', txt)
-                txt = re.sub(r'(?:\s*\.{2,})$', '', txt).strip()
+                # Dọn dẹp tất cả dấu "..." hoặc ".." rác trong câu
+                txt = re.sub(r'\.{2,}', ' ', txt)
+                txt = " ".join(txt.split()).strip()
                 
-                if not txt or not is_meaningful(txt):
-                    # Nếu bỏ một segment ở giữa, không được phép merge bắc cầu
-                    # hai segment hai bên thành một cục audio lớn hơn.
+                if not txt or not _is_meaningful_transcript_text(txt):
                     omitted_segment_barrier = True
                     continue
                 
                 spk_cache_val = speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).strip()
-                # Clean up "👤 " prefix for checking
                 clean_spk = spk_cache_val.replace("👤 ", "")
                 
                 if clean_spk.startswith("Unknown_Group_"):
@@ -1563,6 +1560,12 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 emb = seg.get("embedding")
                 raw_spk_id = seg.get("speaker_id", "")
 
+                MAX_MERGE_DURATION = 20.0  # Tối đa 20s cho 1 đoạn thoại
+                MAX_MERGE_WORDS = 60       # Tối đa 60 từ cho 1 đoạn thoại
+                
+                prev_duration = (seg["end"] - merged_segments[-1][0]) if merged_segments else 0.0
+                prev_words = len(merged_segments[-1][3].split()) if merged_segments else 0
+
                 if (
                         merged_segments
                         and not omitted_segment_barrier
@@ -1570,6 +1573,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         and len(merged_segments[-1]) > 5
                         and merged_segments[-1][5] == raw_spk_id
                         and seg["start"] - merged_segments[-1][1] <= MERGE_GAP
+                        and prev_duration <= MAX_MERGE_DURATION
+                        and prev_words <= MAX_MERGE_WORDS
                 ):
                     # Gộp vào segment trước của CÙNG 1 người nói gốc
                     prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
@@ -3379,8 +3384,8 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
     for seg in segments:
         import re
         txt = " ".join(str(seg.get("text", "")).split())
-        txt = re.sub(r'^(?:\.{2,}\s*)', '', txt)
-        txt = re.sub(r'(?:\s*\.{2,})$', '', txt).strip()
+        txt = re.sub(r'\.{2,}', ' ', txt)
+        txt = " ".join(txt.split()).strip()
 
         if not txt or not _is_meaningful_transcript_text(txt):
             omitted_segment_barrier = True
@@ -3395,6 +3400,12 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
         seg_start = float(seg.get("start", 0) or 0)
         seg_end = float(seg.get("end", 0) or 0)
 
+        MAX_MERGE_DURATION = 20.0  # Tối đa 20s cho 1 đoạn thoại
+        MAX_MERGE_WORDS = 60       # Tối đa 60 từ cho 1 đoạn thoại
+
+        prev_duration = (seg_end - float(merged_segments[-1][0] or 0)) if merged_segments else 0.0
+        prev_words = len(merged_segments[-1][3].split()) if merged_segments else 0
+
         if (
             merged_segments
             and not omitted_segment_barrier
@@ -3402,6 +3413,8 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
             and len(merged_segments[-1]) > 5
             and merged_segments[-1][5] == raw_spk_id
             and seg_start - float(merged_segments[-1][1] or 0) <= MERGE_GAP
+            and prev_duration <= MAX_MERGE_DURATION
+            and prev_words <= MAX_MERGE_WORDS
         ):
             prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
             merged_segments[-1] = (prev_s, seg_end, prev_spk, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
