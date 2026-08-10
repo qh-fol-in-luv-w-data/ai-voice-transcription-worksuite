@@ -1504,9 +1504,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     if norm > 0: emb_np = emb_np / norm
                     seg["embedding"] = emb_np.tolist()
 
-            # Nếu 2 segment liên tiếp của cùng 1 speaker và khoảng gap < 1.5s → gộp lại
-            MERGE_GAP = 0.7  # giây
-            MAX_MERGED_SEGMENT_SEC = 8.0  # Không gom speaker thành cục quá dài
+            # Nếu 2 segment liên tiếp của CÙNG 1 speaker và khoảng ngắt nghỉ <= 2.0s → gộp lại
+            MERGE_GAP = 2.0  # giây (cho phép ngắt nghỉ tự nhiên 2.0s)
     
             merged_segments = []
             omitted_segment_barrier = False
@@ -1551,7 +1550,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         and not omitted_segment_barrier
                         and merged_segments[-1][2] == spk_label
                         and seg["start"] - merged_segments[-1][1] <= MERGE_GAP
-                        and (float(seg["end"]) - float(merged_segments[-1][0])) <= MAX_MERGED_SEGMENT_SEC
                 ):
                     # Gộp vào segment trước, giữ embedding
                     prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1][:4]
