@@ -675,6 +675,13 @@ def _build_manual_assignment_from_segment(results, original_results, segment_ind
     return assignments
 
 
+def _is_unknown_label_text(label):
+    text = str(label or "").strip()
+    if not text:
+        return True
+    return any(marker in text for marker in ("Người lạ", "Unknown", "Không tên"))
+
+
 def _build_manual_assignments_from_current_results(results, original_results, aliases=None):
     assignments = {}
     sample_indexes = {}
@@ -923,7 +930,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
         queue='long',
         timeout=3600,
         job_id=f"voice-transcribe-{meeting_doc.name}",
-        deduplicate=True,
+        deduplicate=False,
         file_path=file_path,
         file_url=file_url,
         filter_speakers=filter_speakers,
@@ -1570,7 +1577,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 ):
                     # Gộp vào segment trước của CÙNG 1 người nói gốc
                     prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
-                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
+                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb if prev_emb is not None else emb, raw_spk_id)
                 else:
                     merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb, raw_spk_id))
                 omitted_segment_barrier = False
@@ -1633,7 +1640,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     new_label = remap.get(label, label)
                     if cleaned and cleaned[-1][2] == new_label and len(cleaned[-1]) > 5 and cleaned[-1][5] == raw_spk_id and s - cleaned[-1][1] <= 1.5:
                         prev_s, prev_e, prev_label, prev_txt, prev_emb, _prev_raw = cleaned[-1]
-                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
+                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb if prev_emb is not None else emb, raw_spk_id)
                     else:
                         cleaned.append((s, e, new_label, txt, emb, raw_spk_id))
                 return cleaned
@@ -3037,6 +3044,7 @@ def rescan_meeting_from_current_labels():
             return ""
         if not frappe.db.has_column("Voice Speaker", "sample_audio"):
             return ""
+        from voice_app.audio_utils import extract_segment_ffmpeg
         sample_path = extract_segment_ffmpeg(wav_path, start, end, padding=0.1)
         if not sample_path:
             return ""
@@ -3160,7 +3168,8 @@ def rescan_meeting_from_current_labels():
                 fallback_embedding=emb,
                 task="Lọc sample khi quét lại từ transcript",
             )
-            clean_emb = clean_sample.get("embedding") or _normalize_embedding(emb)
+            clean_emb_tmp = clean_sample.get("embedding")
+            clean_emb = clean_emb_tmp if clean_emb_tmp is not None else _normalize_embedding(emb)
             db.add_speaker(speaker_name, clean_emb, email="", user_info=None)
             enrolled.append(speaker_name)
             new_sample_audio[speaker_name] = _save_sample_audio(
@@ -3207,7 +3216,7 @@ def rescan_meeting_from_current_labels():
                 continue
             matched_name, similarity, email, user_info = top_match
             if i < len(results):
-                _seg_set_speaker(results[i], matched_name)
+                _seg_set_speaker_value(results[i], matched_name)
                 matched_indexes.add(i)
             matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
             reassigned_count += 1
@@ -3413,12 +3422,6 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
         seg_start = float(seg.get("start", 0) or 0)
         seg_end = float(seg.get("end", 0) or 0)
 
-        MAX_MERGE_DURATION = 60.0  # Tối đa 60s cho 1 đoạn thoại theo yêu cầu
-        MAX_MERGE_WORDS = 180      # Tối đa 180 từ cho 1 đoạn thoại
-
-        prev_duration = (seg_end - float(merged_segments[-1][0] or 0)) if merged_segments else 0.0
-        prev_words = len(merged_segments[-1][3].split()) if merged_segments else 0
-
         if (
             merged_segments
             and not omitted_segment_barrier
@@ -3426,11 +3429,9 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
             and len(merged_segments[-1]) > 5
             and merged_segments[-1][5] == raw_spk_id
             and seg_start - float(merged_segments[-1][1] or 0) <= MERGE_GAP
-            and prev_duration <= MAX_MERGE_DURATION
-            and prev_words <= MAX_MERGE_WORDS
         ):
             prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
-            merged_segments[-1] = (prev_s, seg_end, prev_spk, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
+            merged_segments[-1] = (prev_s, seg_end, prev_spk, prev_txt + " " + txt, prev_emb if prev_emb is not None else emb, raw_spk_id)
         else:
             merged_segments.append((seg_start, seg_end, spk_label, txt, emb, raw_spk_id))
         omitted_segment_barrier = False
@@ -4046,7 +4047,7 @@ def resume_transcription(meeting_name):
             queue='long',
             timeout=7200,
             job_id=f"voice-transcribe-{meeting_name}",
-            deduplicate=True,
+            deduplicate=False,
             file_path=local_path,
             file_url=file_url,
             language=meeting_doc.get("language") or "vi",
