@@ -341,17 +341,17 @@ def _clean_speaker_sample_embedding(wav_path, start, end, fallback_embedding=Non
     duration = max(0.0, float(end or start) - float(start or 0))
     fallback = _normalize_np_embedding(fallback_embedding)
 
-    if not wav_path or not os.path.exists(wav_path) or duration < 2.5:
+    if not wav_path or not os.path.exists(wav_path) or duration < 1.5:
         return {"embedding": fallback, "start": start, "end": end, "windows": 0, "kept_windows": 0}
 
-    win = 3.0
-    step = 1.5
+    win = 2.0
+    step = 1.0
     max_sample_duration = 12.0
     windows = []
     pos = float(start)
-    while pos + 2.5 <= float(end):
+    while pos + 1.5 <= float(end):
         w_end = min(float(end), pos + win)
-        if w_end - pos >= 2.5:
+        if w_end - pos >= 1.5:
             windows.append({"wav_path": wav_path, "start": pos, "end": w_end})
         pos += step
     if not windows:
