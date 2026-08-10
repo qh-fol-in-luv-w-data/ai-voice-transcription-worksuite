@@ -463,6 +463,15 @@ def _is_meaningful_transcript_text(text):
         "cảm ơn",
         "hết",
         "chào các bạn",
+        "ừ",
+        "ừm",
+        "ờ",
+        "ok",
+        "dạ",
+        "vâng",
+        "dạ vâng",
+        "à",
+        "ờm",
     }
     if t_lower in hallucinations and len(t_clean.split()) <= 5:
         return False
