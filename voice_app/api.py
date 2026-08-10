@@ -675,6 +675,13 @@ def _build_manual_assignment_from_segment(results, original_results, segment_ind
     return assignments
 
 
+def _is_unknown_label_text(label):
+    text = str(label or "").strip()
+    if not text:
+        return True
+    return any(marker in text for marker in ("Người lạ", "Unknown", "Không tên"))
+
+
 def _build_manual_assignments_from_current_results(results, original_results, aliases=None):
     assignments = {}
     sample_indexes = {}
@@ -923,7 +930,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
         queue='long',
         timeout=3600,
         job_id=f"voice-transcribe-{meeting_doc.name}",
-        deduplicate=True,
+        deduplicate=False,
         file_path=file_path,
         file_url=file_url,
         filter_speakers=filter_speakers,
@@ -4046,7 +4053,7 @@ def resume_transcription(meeting_name):
             queue='long',
             timeout=7200,
             job_id=f"voice-transcribe-{meeting_name}",
-            deduplicate=True,
+            deduplicate=False,
             file_path=local_path,
             file_url=file_url,
             language=meeting_doc.get("language") or "vi",
