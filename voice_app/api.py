@@ -1521,8 +1521,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     if norm > 0: emb_np = emb_np / norm
                     seg["embedding"] = emb_np.tolist()
 
-            # Nếu 2 segment liên tiếp của CÙNG 1 speaker và khoảng ngắt nghỉ <= 2.0s → gộp lại
-            MERGE_GAP = 2.0  # giây (cho phép ngắt nghỉ tự nhiên 2.0s)
+            # Nếu 2 segment liên tiếp của CÙNG 1 speaker và khoảng ngắt nghỉ <= 1.5s → gộp lại
+            MERGE_GAP = 1.5  # giây
     
             merged_segments = []
             omitted_segment_barrier = False
@@ -1560,12 +1560,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 emb = seg.get("embedding")
                 raw_spk_id = seg.get("speaker_id", "")
 
-                MAX_MERGE_DURATION = 60.0  # Tối đa 60s cho 1 đoạn thoại theo yêu cầu người dùng
-                MAX_MERGE_WORDS = 180      # Tối đa 180 từ cho 1 đoạn thoại
-                
-                prev_duration = (seg["end"] - merged_segments[-1][0]) if merged_segments else 0.0
-                prev_words = len(merged_segments[-1][3].split()) if merged_segments else 0
-
                 if (
                         merged_segments
                         and not omitted_segment_barrier
@@ -1573,8 +1567,6 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         and len(merged_segments[-1]) > 5
                         and merged_segments[-1][5] == raw_spk_id
                         and seg["start"] - merged_segments[-1][1] <= MERGE_GAP
-                        and prev_duration <= MAX_MERGE_DURATION
-                        and prev_words <= MAX_MERGE_WORDS
                 ):
                     # Gộp vào segment trước của CÙNG 1 người nói gốc
                     prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
@@ -3398,7 +3390,7 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
                 actual_stranger_counter += 1
             speaker_cache[raw_id] = f"👤 {real_stranger_map[raw_id]}"
 
-    MERGE_GAP = 2.0
+    MERGE_GAP = 1.5
     merged_segments = []
     omitted_segment_barrier = False
 
