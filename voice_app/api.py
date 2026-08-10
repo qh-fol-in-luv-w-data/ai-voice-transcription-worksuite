@@ -3044,6 +3044,7 @@ def rescan_meeting_from_current_labels():
             return ""
         if not frappe.db.has_column("Voice Speaker", "sample_audio"):
             return ""
+        from voice_app.audio_utils import extract_segment_ffmpeg
         sample_path = extract_segment_ffmpeg(wav_path, start, end, padding=0.1)
         if not sample_path:
             return ""
