@@ -799,7 +799,7 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
     content_hash = get_content_hash(content)
     audio_file.seek(0)
     
-    # Tìm xem file này đã upload chưa
+    # Tìm xem file này đã upload chưa (Deduplication)
     existing_file = frappe.db.get_value("File", {"content_hash": content_hash}, "file_url")
     if existing_file:
         file_url = existing_file
@@ -886,12 +886,11 @@ def transcribe_audio(language="vi", filter_speakers=None, stt_mode="google", num
             "title": meeting_title,
             "date": frappe.utils.now(),
             "status": "Processing",
-            "audio_file": file_url,
             "language": language,
             "stt_mode": stt_mode,
             "num_speakers": num_speakers,
-                "custom_vocabulary": custom_vocabulary,
-                "filter_speakers": filter_speakers
+            "custom_vocabulary": custom_vocabulary,
+            "filter_speakers": filter_speakers
         })
         meeting_doc.insert(ignore_permissions=True)
         file_doc = save_file(audio_file.filename, content, "Voice Meeting", meeting_doc.name, is_private=1)
@@ -3982,10 +3981,12 @@ def export_dynamic_docx(meeting_name):
         # Try to get designations
         speaker_roles = {}
         try:
-            employees = frappe.get_all("Employee", filters={"status": "Active"}, fields=["name", "employee_name", "designation"])
-            for e in employees:
-                if e.employee_name and e.designation:
-                    speaker_roles[e.employee_name.lower()] = e.designation
+            raw_employees = get_cached_employees()
+            for e in raw_employees:
+                emp_name = (e.get("employee_name") or "").strip()
+                desg = (e.get("designation") or "").strip()
+                if emp_name and desg:
+                    speaker_roles[emp_name.lower()] = desg
         except Exception as exc:
             frappe.log_error(str(exc), "Export DOCX Speaker Roles Error")
 
@@ -4028,15 +4029,17 @@ def save_meeting_draft(meeting_name, summary=None, conclusion=None, tasks_json_s
     doc = frappe.get_doc("Voice Meeting", meeting_name)
     if not _can_access_meeting(doc.owner):
         frappe.throw("Không có quyền chỉnh sửa meeting này", frappe.PermissionError)
+    update_dict = {}
     if summary is not None:
-        doc.meeting_summary = summary
+        update_dict["meeting_summary"] = summary
     if conclusion is not None:
-        doc.conclusion = conclusion
+        update_dict["conclusion"] = conclusion
     if tasks_json_str is not None:
-        doc.tasks_json = tasks_json_str
+        update_dict["tasks_json"] = tasks_json_str
         
-    doc.save()
-    frappe.db.commit()
+    if update_dict:
+        frappe.db.set_value("Voice Meeting", meeting_name, update_dict, update_modified=False)
+        frappe.db.commit()
     
     return {"status": "success", "message": "Đã lưu bản nháp thành công"}
 

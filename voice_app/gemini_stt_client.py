@@ -660,6 +660,8 @@ def _inherit_repaired_speakers(repaired_segments, parent_segments):
             votes[repaired_speaker][best_parent_speaker] += weight
             best_parent_by_segment[repaired_index] = best_parent_speaker
 
+    import re
+
     speaker_map = {}
     for repaired_speaker, candidates in votes.items():
         if candidates:
@@ -670,9 +672,16 @@ def _inherit_repaired_speakers(repaired_segments, parent_segments):
         seg = dict(seg)
         repaired_speaker = seg.get("speaker_id") or seg.get("speaker") or ""
         parent_speaker = speaker_map.get(repaired_speaker) or best_parent_by_segment.get(index)
+        
+        # Nếu không khớp theo văn bản, làm sạch prefix _repair để giữ thành 1 Speaker riêng biệt (không gộp lộn vào Speaker khác)
+        if not parent_speaker:
+            parent_speaker = re.sub(r"_repair\d*_", "_", str(repaired_speaker))
+            parent_speaker = re.sub(r"_repair\d*", "", parent_speaker)
+
         if parent_speaker:
             seg["speaker_id"] = parent_speaker
             seg["speaker"] = parent_speaker
+            speaker_map[repaired_speaker] = parent_speaker
         aligned.append(seg)
 
     return speaker_map, aligned
