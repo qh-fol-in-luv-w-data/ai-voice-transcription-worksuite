@@ -445,11 +445,28 @@ def _raw_result_speaker_label(original_seg, idx=0, fallback_by_source=None):
     return fallback_by_source[source]
 
 
-def _is_unknown_label_text(label):
-    text = str(label or "").strip()
-    if not text:
-        return True
-    return any(marker in text for marker in ("Người lạ", "Unknown", "Không tên"))
+def _is_meaningful_transcript_text(text):
+    import re
+    t = str(text or "").strip()
+    t_clean = re.sub(r'^(?:\.{2,}\s*)|(?:\s*\.{2,})$', '', t).strip()
+    if not t_clean:
+        return False
+    if re.fullmatch(r'[\W\d]+', t_clean):
+        return False
+    t_lower = " ".join(t_clean.lower().split())
+    hallucinations = {
+        "xong rồi gì nữa",
+        "em xích lên cho",
+        "cảm ơn các bạn",
+        "xin chào",
+        "tạm biệt",
+        "cảm ơn",
+        "hết",
+        "chào các bạn",
+    }
+    if t_lower in hallucinations and len(t_clean.split()) <= 5:
+        return False
+    return True
 
 
 def _merge_adjacent_same_speaker_segments(results, original_results):
@@ -1504,8 +1521,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     if norm > 0: emb_np = emb_np / norm
                     seg["embedding"] = emb_np.tolist()
 
-            # Nếu 2 segment liên tiếp của CÙNG 1 speaker và khoảng ngắt nghỉ <= 2.0s → gộp lại
-            MERGE_GAP = 2.0  # giây (cho phép ngắt nghỉ tự nhiên 2.0s)
+            # Nếu 2 segment liên tiếp của CÙNG 1 speaker và khoảng ngắt nghỉ <= 1.5s → gộp lại
+            MERGE_GAP = 1.5  # giây
     
             merged_segments = []
             omitted_segment_barrier = False
@@ -1518,18 +1535,15 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             for seg in segments:
                 import re
                 txt = " ".join(seg["text"].split())
-                # Dọn dẹp "..." ở đầu và cuối
-                txt = re.sub(r'^(?:\.{2,}\s*)', '', txt)
-                txt = re.sub(r'(?:\s*\.{2,})$', '', txt).strip()
+                # Dọn dẹp tất cả dấu "..." hoặc ".." rác trong câu
+                txt = re.sub(r'\.{2,}', ' ', txt)
+                txt = " ".join(txt.split()).strip()
                 
-                if not txt or not is_meaningful(txt):
-                    # Nếu bỏ một segment ở giữa, không được phép merge bắc cầu
-                    # hai segment hai bên thành một cục audio lớn hơn.
+                if not txt or not _is_meaningful_transcript_text(txt):
                     omitted_segment_barrier = True
                     continue
                 
                 spk_cache_val = speaker_cache.get(seg["speaker_id"], seg["speaker_id"]).strip()
-                # Clean up "👤 " prefix for checking
                 clean_spk = spk_cache_val.replace("👤 ", "")
                 
                 if clean_spk.startswith("Unknown_Group_"):
@@ -1544,26 +1558,29 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         
                 spk_label = " ".join(spk_label.split())
                 emb = seg.get("embedding")
+                raw_spk_id = seg.get("speaker_id", "")
 
                 if (
                         merged_segments
                         and not omitted_segment_barrier
                         and merged_segments[-1][2] == spk_label
+                        and len(merged_segments[-1]) > 5
+                        and merged_segments[-1][5] == raw_spk_id
                         and seg["start"] - merged_segments[-1][1] <= MERGE_GAP
                 ):
-                    # Gộp vào segment trước, giữ embedding
-                    prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1][:4]
-                    prev_emb = merged_segments[-1][4] if len(merged_segments[-1]) > 4 else emb
-                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb)
+                    # Gộp vào segment trước của CÙNG 1 người nói gốc
+                    prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
+                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
                 else:
-                    merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb))
+                    merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb, raw_spk_id))
                 omitted_segment_barrier = False
 
             def collapse_short_stranger_labels(items):
                 from collections import defaultdict
 
                 stats = defaultdict(lambda: {"segments": 0, "duration": 0.0})
-                for s, e, label, _txt, _emb in items:
+                for row in items:
+                    s, e, label, _txt, _emb = row[:5]
                     stats[label]["segments"] += 1
                     stats[label]["duration"] += max(0.0, float(e or s) - float(s or 0))
 
@@ -1580,7 +1597,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     return items
 
                 remap = {}
-                for idx, (s, e, label, _txt, _emb) in enumerate(items):
+                for idx, row in enumerate(items):
+                    s, e, label = row[0], row[1], row[2]
                     if label not in short_labels:
                         continue
                     best_label = None
@@ -1609,17 +1627,16 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 frappe.logger("voice_app").error(f"[LABEL CLEANUP] Short stranger remap: {remap}")
 
                 cleaned = []
-                for s, e, label, txt, emb in items:
+                for row in items:
+                    s, e, label, txt, emb = row[:5]
+                    raw_spk_id = row[5] if len(row) > 5 else ""
                     new_label = remap.get(label, label)
-                    if cleaned and cleaned[-1][2] == new_label and s - cleaned[-1][1] <= 1.5:
-                        prev_s, prev_e, prev_label, prev_txt, prev_emb = cleaned[-1]
-                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb or emb)
+                    if cleaned and cleaned[-1][2] == new_label and len(cleaned[-1]) > 5 and cleaned[-1][5] == raw_spk_id and s - cleaned[-1][1] <= 1.5:
+                        prev_s, prev_e, prev_label, prev_txt, prev_emb, _prev_raw = cleaned[-1]
+                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
                     else:
-                        cleaned.append((s, e, new_label, txt, emb))
+                        cleaned.append((s, e, new_label, txt, emb, raw_spk_id))
                 return cleaned
-
-            # Không cleanup/merge label "Người lạ" ngắn; UAT cần thấy nguyên
-            # từng nhóm để sửa/enroll thủ công.
 
             def renumber_stranger_labels(items):
                 import re
@@ -1627,13 +1644,15 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 remap = {}
                 next_idx = 1
                 renumbered = []
-                for s, e, label, txt, emb in items:
+                for row in items:
+                    s, e, label, txt, emb = row[:5]
+                    raw_spk_id = row[5] if len(row) > 5 else ""
                     if re.match(r"^👤 Người lạ \d+$", str(label)):
                         if label not in remap:
                             remap[label] = f"👤 Người lạ {next_idx}"
                             next_idx += 1
                         label = remap[label]
-                    renumbered.append((s, e, label, txt, emb))
+                    renumbered.append((s, e, label, txt, emb, raw_spk_id))
                 return renumbered
 
             merged_segments = renumber_stranger_labels(merged_segments)
@@ -1641,14 +1660,17 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             # Format results
             ui_results = []
             original_results = []
-            for s, e, spk_label, txt, emb in merged_segments:
+            for row in merged_segments:
+                s, e, spk_label, txt, emb = row[:5]
+                raw_spk_id = row[5] if len(row) > 5 else ""
                 ui_results.append((s, e, spk_label, txt))
                 original_results.append({
                     "start": s,
                     "end": e,
                     "speaker": spk_label,
                     "text": txt,
-                    "embedding": emb
+                    "embedding": emb,
+                    "speaker_id": raw_spk_id
                 })
 
             final_output_text = ""
@@ -3308,6 +3330,141 @@ def normalize_meeting_transcript():
             if merged_adjacent_count
             else "Đã chuẩn hoá hội thoại, không có đoạn nào cần gộp thêm."
         ),
+    }
+
+@frappe.whitelist(allow_guest=False)
+def reprocess_meeting_from_raw_chunks(meeting_name=None):
+    """
+    Chạy lại luồng gộp thoại và đối soát người nói từ raw_segments của các chunk trong DB
+    MÀ KHÔNG CẦN TỐN CHI PHÍ / THỜI GIAN GỌI LẠI GEMINI STT API.
+    """
+    if not meeting_name:
+        with suppress(Exception):
+            data = frappe.request.get_data()
+            if data:
+                payload = json.loads(data)
+                meeting_name = payload.get("meeting_name")
+
+    if not meeting_name:
+        frappe.throw("Thiếu meeting_name")
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not _can_access_meeting(meeting.owner):
+        frappe.throw("Không có quyền chỉnh sửa meeting này", frappe.PermissionError)
+
+    chunk_docs = frappe.get_all("Voice Meeting Chunk", filters={"meeting": meeting_name}, fields=["name", "raw_segments"], order_by="chunk_index asc")
+    if not chunk_docs:
+        frappe.throw("Không tìm thấy các chunk gốc của cuộc họp này")
+
+    segments = []
+    for c in chunk_docs:
+        if c.raw_segments:
+            with suppress(Exception):
+                data = json.loads(c.raw_segments)
+                if data.get("segments"):
+                    segments.extend(data["segments"])
+
+    if not segments:
+        frappe.throw("Không tìm thấy dữ liệu raw_segments trong các chunk")
+
+    segments.sort(key=lambda x: float(x.get("start", 0) or 0))
+
+    # ── SPEAKER DB SCANNING & IDENTIFICATION ─────────────────────────────
+    speaker_cache = {}
+    import re
+    if meeting.stt_parse_log:
+        for line in meeting.stt_parse_log.splitlines():
+            if '[Speaker] Greedy result' in line or 'Stranger DB rematch' in line:
+                matches = re.findall(r'(\w+_\w+)\s*(?:→|->)\s*\'([^\']+)\'', line)
+                for raw_id, name in matches:
+                    if name and name != 'Người lạ':
+                        speaker_cache[raw_id] = f'👤 {name}'
+
+    actual_stranger_counter = 1
+    real_stranger_map = {}
+    for seg in segments:
+        raw_id = str(seg.get("speaker_id") or "").strip()
+        if raw_id and raw_id not in speaker_cache:
+            if raw_id not in real_stranger_map:
+                real_stranger_map[raw_id] = f"Người lạ {actual_stranger_counter}"
+                actual_stranger_counter += 1
+            speaker_cache[raw_id] = f"👤 {real_stranger_map[raw_id]}"
+
+    MERGE_GAP = 1.5
+    merged_segments = []
+    omitted_segment_barrier = False
+
+    for seg in segments:
+        import re
+        txt = " ".join(str(seg.get("text", "")).split())
+        txt = re.sub(r'\.{2,}', ' ', txt)
+        txt = " ".join(txt.split()).strip()
+
+        if not txt or not _is_meaningful_transcript_text(txt):
+            omitted_segment_barrier = True
+            continue
+
+        raw_spk_id = str(seg.get("speaker_id") or "").strip()
+        spk_label = speaker_cache.get(raw_spk_id) or str(seg.get("speaker") or seg.get("speaker_id") or "Người lạ").strip()
+        if not spk_label.startswith("👤 "):
+            spk_label = f"👤 {spk_label}"
+
+        emb = seg.get("embedding")
+        seg_start = float(seg.get("start", 0) or 0)
+        seg_end = float(seg.get("end", 0) or 0)
+
+        MAX_MERGE_DURATION = 60.0  # Tối đa 60s cho 1 đoạn thoại theo yêu cầu
+        MAX_MERGE_WORDS = 180      # Tối đa 180 từ cho 1 đoạn thoại
+
+        prev_duration = (seg_end - float(merged_segments[-1][0] or 0)) if merged_segments else 0.0
+        prev_words = len(merged_segments[-1][3].split()) if merged_segments else 0
+
+        if (
+            merged_segments
+            and not omitted_segment_barrier
+            and merged_segments[-1][2] == spk_label
+            and len(merged_segments[-1]) > 5
+            and merged_segments[-1][5] == raw_spk_id
+            and seg_start - float(merged_segments[-1][1] or 0) <= MERGE_GAP
+            and prev_duration <= MAX_MERGE_DURATION
+            and prev_words <= MAX_MERGE_WORDS
+        ):
+            prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
+            merged_segments[-1] = (prev_s, seg_end, prev_spk, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
+        else:
+            merged_segments.append((seg_start, seg_end, spk_label, txt, emb, raw_spk_id))
+        omitted_segment_barrier = False
+
+    ui_results = []
+    original_results = []
+    for row in merged_segments:
+        s, e, spk_label, txt, emb = row[:5]
+        raw_spk_id = row[5] if len(row) > 5 else ""
+        ui_results.append((s, e, spk_label, txt))
+        original_results.append({
+            "start": s,
+            "end": e,
+            "speaker": spk_label,
+            "text": txt,
+            "embedding": emb,
+            "speaker_id": raw_spk_id
+        })
+
+    final_text = _build_plain_transcript(ui_results)
+
+    frappe.db.set_value("Voice Meeting", meeting_name, {
+        "raw_results": json.dumps(ui_results, ensure_ascii=False),
+        "original_raw_results": json.dumps(original_results, ensure_ascii=False),
+        "transcript": final_text,
+    }, update_modified=False)
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "meeting_name": meeting_name,
+        "results": ui_results,
+        "final_text": final_text,
+        "message": f"Đã gộp thoại lại thành công cho {meeting_name} (Miễn phí 100%, không gọi lại Gemini STT API)."
     }
 
 @frappe.whitelist(allow_guest=False)
