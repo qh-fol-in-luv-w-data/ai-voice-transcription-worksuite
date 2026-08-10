@@ -1504,9 +1504,9 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     if norm > 0: emb_np = emb_np / norm
                     seg["embedding"] = emb_np.tolist()
 
-            # Nếu 2 segment liên tiếp của cùng 1 speaker và khoảng gap < 1.5s → gộp lại
-            MERGE_GAP = 0.7  # giây
-            MAX_MERGED_SEGMENT_SEC = 8.0  # Không gom speaker thành cục quá dài
+            # Nếu 2 segment liên tiếp của cùng 1 speaker và khoảng gap <= 3.5s → gộp lại
+            MERGE_GAP = 3.5  # giây (cho phép nghỉ ngơi tự nhiên giữa các câu)
+            MAX_MERGED_SEGMENT_SEC = 60.0  # Gộp câu thoại liên tục của 1 người tối đa đến 60s
     
             merged_segments = []
             omitted_segment_barrier = False
