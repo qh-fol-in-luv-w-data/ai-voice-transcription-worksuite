@@ -3216,7 +3216,7 @@ def rescan_meeting_from_current_labels():
                 continue
             matched_name, similarity, email, user_info = top_match
             if i < len(results):
-                _seg_set_speaker(results[i], matched_name)
+                _seg_set_speaker_value(results[i], matched_name)
                 matched_indexes.add(i)
             matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
             reassigned_count += 1
