@@ -445,11 +445,28 @@ def _raw_result_speaker_label(original_seg, idx=0, fallback_by_source=None):
     return fallback_by_source[source]
 
 
-def _is_unknown_label_text(label):
-    text = str(label or "").strip()
-    if not text:
-        return True
-    return any(marker in text for marker in ("Người lạ", "Unknown", "Không tên"))
+def _is_meaningful_transcript_text(text):
+    import re
+    t = str(text or "").strip()
+    t_clean = re.sub(r'^(?:\.{2,}\s*)|(?:\s*\.{2,})$', '', t).strip()
+    if not t_clean:
+        return False
+    if re.fullmatch(r'[\W\d]+', t_clean):
+        return False
+    t_lower = " ".join(t_clean.lower().split())
+    hallucinations = {
+        "xong rồi gì nữa",
+        "em xích lên cho",
+        "cảm ơn các bạn",
+        "xin chào",
+        "tạm biệt",
+        "cảm ơn",
+        "hết",
+        "chào các bạn",
+    }
+    if t_lower in hallucinations and len(t_clean.split()) <= 5:
+        return False
+    return True
 
 
 def _merge_adjacent_same_speaker_segments(results, original_results):
@@ -3316,6 +3333,112 @@ def normalize_meeting_transcript():
             if merged_adjacent_count
             else "Đã chuẩn hoá hội thoại, không có đoạn nào cần gộp thêm."
         ),
+    }
+
+@frappe.whitelist(allow_guest=False)
+def reprocess_meeting_from_raw_chunks(meeting_name=None):
+    """
+    Chạy lại luồng gộp thoại và đối soát người nói từ raw_segments của các chunk trong DB
+    MÀ KHÔNG CẦN TỐN CHI PHÍ / THỜI GIAN GỌI LẠI GEMINI STT API.
+    """
+    if not meeting_name:
+        with suppress(Exception):
+            data = frappe.request.get_data()
+            if data:
+                payload = json.loads(data)
+                meeting_name = payload.get("meeting_name")
+
+    if not meeting_name:
+        frappe.throw("Thiếu meeting_name")
+
+    meeting = frappe.get_doc("Voice Meeting", meeting_name)
+    if not _can_access_meeting(meeting.owner):
+        frappe.throw("Không có quyền chỉnh sửa meeting này", frappe.PermissionError)
+
+    chunk_docs = frappe.get_all("Voice Meeting Chunk", filters={"meeting": meeting_name}, fields=["name", "raw_segments"], order_by="chunk_index asc")
+    if not chunk_docs:
+        frappe.throw("Không tìm thấy các chunk gốc của cuộc họp này")
+
+    segments = []
+    for c in chunk_docs:
+        if c.raw_segments:
+            with suppress(Exception):
+                data = json.loads(c.raw_segments)
+                if data.get("segments"):
+                    segments.extend(data["segments"])
+
+    if not segments:
+        frappe.throw("Không tìm thấy dữ liệu raw_segments trong các chunk")
+
+    segments.sort(key=lambda x: float(x.get("start", 0) or 0))
+
+    MERGE_GAP = 2.0
+    merged_segments = []
+    omitted_segment_barrier = False
+
+    for seg in segments:
+        import re
+        txt = " ".join(str(seg.get("text", "")).split())
+        txt = re.sub(r'^(?:\.{2,}\s*)', '', txt)
+        txt = re.sub(r'(?:\s*\.{2,})$', '', txt).strip()
+
+        if not txt or not _is_meaningful_transcript_text(txt):
+            omitted_segment_barrier = True
+            continue
+
+        raw_spk_id = str(seg.get("speaker_id") or "").strip()
+        spk_label = str(seg.get("speaker") or seg.get("speaker_id") or "Người lạ").strip()
+        if not spk_label.startswith("👤 "):
+            spk_label = f"👤 {spk_label}"
+
+        emb = seg.get("embedding")
+        seg_start = float(seg.get("start", 0) or 0)
+        seg_end = float(seg.get("end", 0) or 0)
+
+        if (
+            merged_segments
+            and not omitted_segment_barrier
+            and merged_segments[-1][2] == spk_label
+            and len(merged_segments[-1]) > 5
+            and merged_segments[-1][5] == raw_spk_id
+            and seg_start - float(merged_segments[-1][1] or 0) <= MERGE_GAP
+        ):
+            prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
+            merged_segments[-1] = (prev_s, seg_end, prev_spk, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
+        else:
+            merged_segments.append((seg_start, seg_end, spk_label, txt, emb, raw_spk_id))
+        omitted_segment_barrier = False
+
+    ui_results = []
+    original_results = []
+    for row in merged_segments:
+        s, e, spk_label, txt, emb = row[:5]
+        raw_spk_id = row[5] if len(row) > 5 else ""
+        ui_results.append((s, e, spk_label, txt))
+        original_results.append({
+            "start": s,
+            "end": e,
+            "speaker": spk_label,
+            "text": txt,
+            "embedding": emb,
+            "speaker_id": raw_spk_id
+        })
+
+    final_text = _build_plain_transcript(ui_results)
+
+    frappe.db.set_value("Voice Meeting", meeting_name, {
+        "raw_results": json.dumps(ui_results, ensure_ascii=False),
+        "original_raw_results": json.dumps(original_results, ensure_ascii=False),
+        "transcript": final_text,
+    }, update_modified=False)
+    frappe.db.commit()
+
+    return {
+        "status": "success",
+        "meeting_name": meeting_name,
+        "results": ui_results,
+        "final_text": final_text,
+        "message": f"Đã gộp thoại lại thành công cho {meeting_name} (Miễn phí 100%, không gọi lại Gemini STT API)."
     }
 
 @frappe.whitelist(allow_guest=False)
