@@ -1544,26 +1544,29 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         
                 spk_label = " ".join(spk_label.split())
                 emb = seg.get("embedding")
+                raw_spk_id = seg.get("speaker_id", "")
 
                 if (
                         merged_segments
                         and not omitted_segment_barrier
                         and merged_segments[-1][2] == spk_label
+                        and len(merged_segments[-1]) > 5
+                        and merged_segments[-1][5] == raw_spk_id
                         and seg["start"] - merged_segments[-1][1] <= MERGE_GAP
                 ):
-                    # Gộp vào segment trước, giữ embedding
-                    prev_s, prev_e, prev_spk, prev_txt = merged_segments[-1][:4]
-                    prev_emb = merged_segments[-1][4] if len(merged_segments[-1]) > 4 else emb
-                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb)
+                    # Gộp vào segment trước của CÙNG 1 người nói gốc
+                    prev_s, prev_e, prev_spk, prev_txt, prev_emb, _prev_raw = merged_segments[-1]
+                    merged_segments[-1] = (prev_s, seg["end"], prev_spk, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
                 else:
-                    merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb))
+                    merged_segments.append((seg["start"], seg["end"], spk_label, txt, emb, raw_spk_id))
                 omitted_segment_barrier = False
 
             def collapse_short_stranger_labels(items):
                 from collections import defaultdict
 
                 stats = defaultdict(lambda: {"segments": 0, "duration": 0.0})
-                for s, e, label, _txt, _emb in items:
+                for row in items:
+                    s, e, label, _txt, _emb = row[:5]
                     stats[label]["segments"] += 1
                     stats[label]["duration"] += max(0.0, float(e or s) - float(s or 0))
 
@@ -1580,7 +1583,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     return items
 
                 remap = {}
-                for idx, (s, e, label, _txt, _emb) in enumerate(items):
+                for idx, row in enumerate(items):
+                    s, e, label = row[0], row[1], row[2]
                     if label not in short_labels:
                         continue
                     best_label = None
@@ -1609,17 +1613,16 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 frappe.logger("voice_app").error(f"[LABEL CLEANUP] Short stranger remap: {remap}")
 
                 cleaned = []
-                for s, e, label, txt, emb in items:
+                for row in items:
+                    s, e, label, txt, emb = row[:5]
+                    raw_spk_id = row[5] if len(row) > 5 else ""
                     new_label = remap.get(label, label)
-                    if cleaned and cleaned[-1][2] == new_label and s - cleaned[-1][1] <= 1.5:
-                        prev_s, prev_e, prev_label, prev_txt, prev_emb = cleaned[-1]
-                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb or emb)
+                    if cleaned and cleaned[-1][2] == new_label and len(cleaned[-1]) > 5 and cleaned[-1][5] == raw_spk_id and s - cleaned[-1][1] <= 1.5:
+                        prev_s, prev_e, prev_label, prev_txt, prev_emb, _prev_raw = cleaned[-1]
+                        cleaned[-1] = (prev_s, e, prev_label, prev_txt + " " + txt, prev_emb or emb, raw_spk_id)
                     else:
-                        cleaned.append((s, e, new_label, txt, emb))
+                        cleaned.append((s, e, new_label, txt, emb, raw_spk_id))
                 return cleaned
-
-            # Không cleanup/merge label "Người lạ" ngắn; UAT cần thấy nguyên
-            # từng nhóm để sửa/enroll thủ công.
 
             def renumber_stranger_labels(items):
                 import re
@@ -1627,13 +1630,15 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 remap = {}
                 next_idx = 1
                 renumbered = []
-                for s, e, label, txt, emb in items:
+                for row in items:
+                    s, e, label, txt, emb = row[:5]
+                    raw_spk_id = row[5] if len(row) > 5 else ""
                     if re.match(r"^👤 Người lạ \d+$", str(label)):
                         if label not in remap:
                             remap[label] = f"👤 Người lạ {next_idx}"
                             next_idx += 1
                         label = remap[label]
-                    renumbered.append((s, e, label, txt, emb))
+                    renumbered.append((s, e, label, txt, emb, raw_spk_id))
                 return renumbered
 
             merged_segments = renumber_stranger_labels(merged_segments)
@@ -1641,14 +1646,17 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             # Format results
             ui_results = []
             original_results = []
-            for s, e, spk_label, txt, emb in merged_segments:
+            for row in merged_segments:
+                s, e, spk_label, txt, emb = row[:5]
+                raw_spk_id = row[5] if len(row) > 5 else ""
                 ui_results.append((s, e, spk_label, txt))
                 original_results.append({
                     "start": s,
                     "end": e,
                     "speaker": spk_label,
                     "text": txt,
-                    "embedding": emb
+                    "embedding": emb,
+                    "speaker_id": raw_spk_id
                 })
 
             final_output_text = ""
