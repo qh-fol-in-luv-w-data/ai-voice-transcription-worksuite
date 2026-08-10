@@ -1560,8 +1560,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 emb = seg.get("embedding")
                 raw_spk_id = seg.get("speaker_id", "")
 
-                MAX_MERGE_DURATION = 20.0  # Tối đa 20s cho 1 đoạn thoại
-                MAX_MERGE_WORDS = 60       # Tối đa 60 từ cho 1 đoạn thoại
+                MAX_MERGE_DURATION = 60.0  # Tối đa 60s cho 1 đoạn thoại theo yêu cầu người dùng
+                MAX_MERGE_WORDS = 180      # Tối đa 180 từ cho 1 đoạn thoại
                 
                 prev_duration = (seg["end"] - merged_segments[-1][0]) if merged_segments else 0.0
                 prev_words = len(merged_segments[-1][3].split()) if merged_segments else 0
@@ -3377,6 +3377,27 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
 
     segments.sort(key=lambda x: float(x.get("start", 0) or 0))
 
+    # ── SPEAKER DB SCANNING & IDENTIFICATION ─────────────────────────────
+    speaker_cache = {}
+    import re
+    if meeting.stt_parse_log:
+        for line in meeting.stt_parse_log.splitlines():
+            if '[Speaker] Greedy result' in line or 'Stranger DB rematch' in line:
+                matches = re.findall(r'(\w+_\w+)\s*(?:→|->)\s*\'([^\']+)\'', line)
+                for raw_id, name in matches:
+                    if name and name != 'Người lạ':
+                        speaker_cache[raw_id] = f'👤 {name}'
+
+    actual_stranger_counter = 1
+    real_stranger_map = {}
+    for seg in segments:
+        raw_id = str(seg.get("speaker_id") or "").strip()
+        if raw_id and raw_id not in speaker_cache:
+            if raw_id not in real_stranger_map:
+                real_stranger_map[raw_id] = f"Người lạ {actual_stranger_counter}"
+                actual_stranger_counter += 1
+            speaker_cache[raw_id] = f"👤 {real_stranger_map[raw_id]}"
+
     MERGE_GAP = 2.0
     merged_segments = []
     omitted_segment_barrier = False
@@ -3392,7 +3413,7 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
             continue
 
         raw_spk_id = str(seg.get("speaker_id") or "").strip()
-        spk_label = str(seg.get("speaker") or seg.get("speaker_id") or "Người lạ").strip()
+        spk_label = speaker_cache.get(raw_spk_id) or str(seg.get("speaker") or seg.get("speaker_id") or "Người lạ").strip()
         if not spk_label.startswith("👤 "):
             spk_label = f"👤 {spk_label}"
 
@@ -3400,8 +3421,8 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
         seg_start = float(seg.get("start", 0) or 0)
         seg_end = float(seg.get("end", 0) or 0)
 
-        MAX_MERGE_DURATION = 20.0  # Tối đa 20s cho 1 đoạn thoại
-        MAX_MERGE_WORDS = 60       # Tối đa 60 từ cho 1 đoạn thoại
+        MAX_MERGE_DURATION = 60.0  # Tối đa 60s cho 1 đoạn thoại theo yêu cầu
+        MAX_MERGE_WORDS = 180      # Tối đa 180 từ cho 1 đoạn thoại
 
         prev_duration = (seg_end - float(merged_segments[-1][0] or 0)) if merged_segments else 0.0
         prev_words = len(merged_segments[-1][3].split()) if merged_segments else 0
