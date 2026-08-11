@@ -53,7 +53,7 @@ export async function initSession(contextUrl) {
       removeSplash()
       const redirectTarget = encodeURIComponent(import.meta.env.DEV ? window.location.href : window.location.pathname)
       if (import.meta.env.DEV) {
-        window.location.href = `http://${window.location.hostname}:8000/login?redirect-to=${redirectTarget}`
+        window.location.href = `http://${window.location.hostname}:8001/login?redirect-to=${redirectTarget}`
       } else {
         window.location.href = `/login?redirect-to=${redirectTarget}`
       }
