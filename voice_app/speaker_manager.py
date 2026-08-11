@@ -43,7 +43,7 @@ def _get_embedding_api_url():
         except Exception as exc:
             print(f"Embedding API URL lookup failed: {exc}")
     if not url:
-        return ""
+        url = "https://service.ctpai.vn/embedding"
     if not url.startswith(("https://", "http://")):
         url = f"https://{url}"
     parsed = urlparse(url)
@@ -341,8 +341,8 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
 
     api_url = _get_embedding_api_url()
     if not api_url:
-        print("Chưa cấu hình embedding service, fallback sang local subprocess")
-        return _extract_embeddings_from_files_local(files_list)
+        print("Chưa cấu hình embedding service, không có local fallback")
+        return [None] * len(files_list)
     endpoint_url = f"{api_url}/extract"
     failure_notes = []
     failure_lock = Lock()
@@ -452,7 +452,7 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
                     final_results[idx] = None
             
     if files_list and not any(emb is not None for emb in final_results):
-        print("Embedding API không trả về embedding nào, fallback sang local subprocess")
+        print("Embedding API không trả về embedding nào, không có local fallback")
         if failure_notes:
             try:
                 import frappe
@@ -463,7 +463,7 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
                 )
             except Exception:
                 pass
-        return _extract_embeddings_from_files_local(files_list)
+        return final_results
 
     return final_results
 
