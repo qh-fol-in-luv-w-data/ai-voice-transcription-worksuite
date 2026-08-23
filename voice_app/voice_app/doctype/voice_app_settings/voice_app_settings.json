@@ -11,6 +11,7 @@
         "openai_api_key",
         "gemini_api_key",
         "gemini_model",
+        "gemini_stt_max_output_tokens",
         "google_sa_path",
         "google_gcs_bucket",
         "embedding_api_url",
@@ -53,6 +54,12 @@
             "fieldname": "gemini_model",
             "fieldtype": "Data",
             "label": "Gemini Model"
+        },
+        {
+            "default": "64000",
+            "fieldname": "gemini_stt_max_output_tokens",
+            "fieldtype": "Int",
+            "label": "Gemini STT Max Output Tokens"
         },
         {
             "fieldname": "google_sa_path",
