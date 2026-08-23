@@ -301,6 +301,15 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
             # thường, không phải JSON, nên không có áp lực cấu trúc lặp.
             "response_mime_type": "text/plain",
             "maxOutputTokens": max_tokens,
+            # Tắt suy luận ẩn. Model đời này mặc định "nghĩ" trước khi trả lời,
+            # mà phần nghĩ đó tính vào chính hạn mức maxOutputTokens — nghe lại
+            # audio thì không cần suy luận, nên nó chỉ ăn chỗ của transcript.
+            # Đo thật trên một clip: 831 token nghĩ so với 150 token chữ, tức
+            # gần nửa hạn mức đổ vào phần không thành chữ; tắt đi thì vẫn ra
+            # đúng ngần ấy chữ (134 so với 135 từ). Trên file 80 phút, chính
+            # phần nghĩ này đốt hết 64k token rồi bị cắt giữa chừng, làm mất
+            # ba phần tư nội dung.
+            "thinkingConfig": {"thinkingBudget": 0},
             # KHÔNG dùng presencePenalty/frequencyPenalty — test thật với
             # model hiện tại (gemini-3.5-flash) trả lỗi 400 "Penalty is not
             # enabled for this model". Chống lặp giờ dựa vào prompt (nguyên
