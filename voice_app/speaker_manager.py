@@ -574,7 +574,11 @@ _VC_WIN_SEC = 3.0            # cửa sổ đủ ngắn để nằm gọn trong l
 _VC_MIN_WIN_SEC = 1.6        # ngắn hơn thì embedding không ổn định
 _VC_MAX_WINDOWS = 240        # trần số lần gọi API embedding cho mỗi file
 _VC_MIN_CLUSTER_WINDOWS = 5  # cụm nhỏ hơn coi là nhiễu, không phải người
-_VC_MIN_SIMILARITY = 0.45    # dưới ngưỡng này thì để Speaker, không đoán bừa
+# Dưới ngưỡng này thì để Speaker, không đoán bừa. Đo trên dữ liệu thật: giọng
+# khớp đúng người rơi vào khoảng 0.78-0.84, còn cụm nhiễu ghép nhầm chỉ quanh
+# 0.62-0.67 — để 0.6 là tách được hai loại đó, mà vẫn còn dư địa cho giọng thu
+# ở điều kiện khác đôi chút.
+_VC_MIN_SIMILARITY = 0.60
 
 
 def _vc_log(message, log_cb=None):

@@ -3682,6 +3682,10 @@ def enroll_speaker_from_segment():
         sample_end = float(target_seg.get("end") or sample_start)
         wav_path = ""
         converted_wav = ""
+        # Khai báo trước khi vào try: khối finally phía dưới có dọn file theo
+        # biến này, mà lỗi có thể xảy ra ngay từ bước chuyển đổi audio — lúc đó
+        # finally sẽ vỡ vì biến chưa tồn tại và nuốt mất lỗi thật.
+        concat_wav = None
         try:
             clean_url = (meeting.audio_file or "").lstrip("/")
             audio_path = frappe.get_site_path(clean_url) if clean_url else ""
@@ -3700,7 +3704,6 @@ def enroll_speaker_from_segment():
             sample_emb_np = None
             group_start = sample_start
             group_end = sample_end
-            concat_wav = None
 
             if wav_path and raw_speaker_id:
                 from .speaker_manager import build_voice_samples_by_clustering
