@@ -4,10 +4,7 @@ import unittest
 import wave
 
 from voice_app.audio_utils import split_audio_by_silence
-from voice_app.gemini_stt_client import (
-    _inherit_repaired_speakers,
-    _timeline_validation_errors,
-)
+from voice_app.gemini_stt_client import _timeline_validation_errors
 
 
 class TimelineValidationTest(unittest.TestCase):
@@ -31,39 +28,6 @@ class TimelineValidationTest(unittest.TestCase):
         self.assertTrue(any("dài bất thường" in error for error in errors))
         self.assertTrue(any("start>=end" in error for error in errors))
         self.assertTrue(any("dồn vào cuối chunk" in error for error in errors))
-
-    def test_repaired_speakers_inherit_parent_chunk_ids(self):
-        parent = [
-            {
-                "speaker_id": "c18_speaker_1",
-                "text": "Nguồn khác thì mình dự kiến đang có hai phương án dự phòng.",
-            },
-            {
-                "speaker_id": "c18_speaker_4",
-                "text": "Bên GASCOLAE cam kết lúc đầu là năm tỷ trong tháng bảy.",
-            },
-        ]
-        repaired = [
-            {
-                "speaker_id": "c18_repair0_speaker_2",
-                "speaker": "c18_repair0_Speaker 2",
-                "text": "Nguồn khác thì mình dự kiến có hai phương án dự phòng.",
-            },
-            {
-                "speaker_id": "c18_repair2_speaker_1",
-                "speaker": "c18_repair2_Speaker 1",
-                "text": "Bên GASCOLAE cam kết lúc đầu là năm tỷ trong tháng bảy.",
-            },
-        ]
-
-        speaker_map, aligned = _inherit_repaired_speakers(repaired, parent)
-
-        self.assertEqual(speaker_map["c18_repair0_speaker_2"], "c18_speaker_1")
-        self.assertEqual(speaker_map["c18_repair2_speaker_1"], "c18_speaker_4")
-        self.assertEqual([segment["speaker_id"] for segment in aligned], [
-            "c18_speaker_1",
-            "c18_speaker_4",
-        ])
 
 
 class AudioChunkLimitTest(unittest.TestCase):

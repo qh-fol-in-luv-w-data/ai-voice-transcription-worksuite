@@ -427,7 +427,7 @@ def _raw_result_speaker_label(original_seg, idx=0, fallback_by_source=None):
     ).strip()
     if raw_label:
         if raw_label.startswith("👤 ") and not any(
-            marker in raw_label for marker in ("Người lạ", "Unknown", "Không tên")
+            marker in raw_label for marker in ("Speaker", "Người lạ", "Unknown", "Không tên")
         ):
             return raw_label[2:].strip()
         return raw_label
@@ -441,7 +441,7 @@ def _raw_result_speaker_label(original_seg, idx=0, fallback_by_source=None):
     if fallback_by_source is None:
         return source or f"segment_{idx + 1}"
     if source not in fallback_by_source:
-        fallback_by_source[source] = f"👤 Người lạ {len(fallback_by_source) + 1} [{source}]"
+        fallback_by_source[source] = f"👤 Speaker {len(fallback_by_source) + 1} [{source}]"
     return fallback_by_source[source]
 
 
@@ -643,7 +643,7 @@ def _segment_chunk_key(seg):
 
 def _build_manual_speaker_assignments(results, original_results, mappings):
     """
-    Convert UI mappings such as 'Người lạ 1 [c5_speaker_3]' -> 'Nguyễn Văn A'
+    Convert UI mappings such as 'Speaker 1 [c5_speaker_3]' -> 'Nguyễn Văn A'
     into source-level rules. These rules are user-confirmed and should apply to
     every segment from the same Gemini/chunk speaker, even when embedding score
     is below the DB threshold.
@@ -688,7 +688,7 @@ def _is_unknown_label_text(label):
     text = str(label or "").strip()
     if not text:
         return True
-    return any(marker in text for marker in ("Người lạ", "Unknown", "Không tên"))
+    return any(marker in text for marker in ("Speaker", "Người lạ", "Unknown", "Không tên"))
 
 
 def _build_manual_assignments_from_current_results(results, original_results, aliases=None):
@@ -755,7 +755,7 @@ def _assign_by_source_winners(results, original_results, matched_indexes):
     matched_indexes = set(matched_indexes or [])
     source_votes = defaultdict(Counter)
     chunk_votes = defaultdict(Counter)
-    unknown_markers = ("Người lạ", "Unknown", "Không tên")
+    unknown_markers = ("Speaker", "Người lạ", "Unknown", "Không tên")
 
     def _is_known_label(label):
         text = str(label or "").strip()
@@ -1140,7 +1140,12 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 chunk_dir = frappe.utils.get_site_path('private', 'files', 'voice_chunk', meeting_name)
                 os.makedirs(chunk_dir, exist_ok=True)
                 
-                raw_chunks = split_audio_by_silence(wav, output_dir=chunk_dir)
+                # Không còn chia nhỏ 5-10 phút/chunk — gửi nguyên audio cho Gemini
+                # trong 1 lần gọi (giống AI Studio). Cap 4 tiếng chỉ để chặn file
+                # cực lớn bất thường, meeting bình thường luôn ra đúng 1 chunk.
+                raw_chunks = split_audio_by_silence(
+                    wav, chunk_length_sec=14400.0, max_chunk_sec=14400.0, output_dir=chunk_dir
+                )
                 
                 chunks_info = []
                 for idx, c in enumerate(raw_chunks):
@@ -1293,17 +1298,10 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 f"[{stt_label}] {len(segments)} segments, {len(el_speakers)} speakers: {sorted(el_speakers)}",
             )
     
-            # ── EXTRACT ALL SEGMENT EMBEDDINGS (BATCH) ──
-            update_progress(100, "Đã dịch xong văn bản!", 10, "Đang trích xuất đặc trưng cho từng câu thoại...")
-            from voice_app.speaker_manager import _extract_embeddings_batch_subprocess, SpeakerDB
+            # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
+            from voice_app.speaker_manager import SpeakerDB
             import numpy as np
 
-            try:
-                pass # Removed batch extraction for performance. We now use representative cluster embeddings.
-            except Exception as e:
-                print(f"Lỗi extract batch embedding cho segments: {e}")
-
-            # ── SPEAKER IDENTIFICATION ─────────────────────────────────────────────
             update_progress(100, "Đã dịch xong văn bản!", 20, "Bắt đầu nhận diện người nói...")
             spk_db = SpeakerDB()
             unique_speakers = {}
@@ -1326,7 +1324,25 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             
             files_list = []
             spk_list = []
-            
+
+            # Lọc tinh: Gemini đôi khi gán nhầm 1 phần nhỏ lời của người khác
+            # vào cùng speaker_id (đo thực tế: có group lẫn ~23% đoạn của
+            # người khác, làm centroid gộp bị lai, giảm độ chính xác nhận
+            # diện). Probe từng đoạn so với DB, loại đoạn lệch hẳn khỏi đa số
+            # trước khi build centroid cuối.
+            from voice_app.speaker_manager import purify_speaker_group
+            for spk in list(unique_speakers.keys()):
+                kept, dropped = purify_speaker_group(
+                    unique_speakers[spk], wav, spk_db, task="Lọc tinh trước khi gộp centroid"
+                )
+                if dropped:
+                    _append_stt_parse_log(
+                        "Voice Meeting",
+                        meeting_name,
+                        f"[Speaker] Lọc {len(dropped)} đoạn lệch khỏi {spk} (nghi gán nhầm người khác).",
+                    )
+                    unique_speakers[spk] = kept
+
             for spk, segs in unique_speakers.items():
                 concat_wav = concat_speaker_segments(wav, segs, max_total_sec=25.0, min_seg_sec=1.5)
                 if concat_wav is None:
@@ -1416,22 +1432,22 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 claimed_spks.add(spk)
                 spk_identified[spk] = (name, score, email, user_info)
     
-            # Các speaker không match được tên nào → Người lạ
+            # Các speaker không match được tên nào → Speaker
             for spk in spk_embeddings:
                 if spk not in spk_identified:
                     best_score = spk_ranked[spk][0][1] if spk_ranked.get(spk) else 0.0
-                    spk_identified[spk] = ("Người lạ", best_score, "", None)
+                    spk_identified[spk] = ("Speaker", best_score, "", None)
             for spk in unique_speakers:
                 if spk not in spk_identified:
-                    spk_identified[spk] = ("Người lạ", 0.0, "", None)
+                    spk_identified[spk] = ("Speaker", 0.0, "", None)
 
-            # Second pass: trước khi gom "Người lạ" giữa các chunk, thử so lại
+            # Second pass: trước khi gom "Speaker" giữa các chunk, thử so lại
             # với toàn bộ Voice Speaker DB. Pass đầu có thể bị giới hạn bởi
             # filter_speakers/attendee list, còn pass này giúp nhận ra người đã
             # enroll nhưng không nằm trong danh sách chọn ban đầu.
             rematched_strangers = []
             for spk, info in list(spk_identified.items()):
-                if info[0] != "Người lạ" or spk not in spk_embeddings:
+                if info[0] != "Speaker" or spk not in spk_embeddings:
                     continue
                 top_match, _ranked = _top_db_match(
                     spk_db,
@@ -1450,15 +1466,68 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     "[Speaker] Stranger DB rematch before merge: " + ", ".join(rematched_strangers),
                 )
     
+            # ── Ưu tiên kết quả gom cụm giọng (không dùng timestamp) ─────────
+            # Phần greedy phía trên lấy mẫu giọng bằng cách cắt audio theo
+            # start/end của từng segment. Mốc đó do Gemini đoán hoặc
+            # forced-align suy ra, đo thực tế trên file 80 phút thì lệch tới
+            # hàng trăm giây — cắt trúng lời người khác, mẫu giọng bị lai, rồi
+            # hai speaker_id cùng nhận một tên và người còn lại biến mất khỏi
+            # biên bản. Gom cụm theo VAD không đụng tới timestamp nên không
+            # dính lỗi đó, và ràng buộc 1-1 khiến mỗi người chỉ về một nhóm.
+            # Chỉ ghi đè khi nó đủ cơ sở kết luận, còn lại giữ nguyên cách cũ.
+            try:
+                from voice_app.speaker_manager import identify_speakers_by_voice_clustering
+
+                clustered = identify_speakers_by_voice_clustering(
+                    wav,
+                    segments,
+                    spk_db,
+                    task="Nhận diện người nói bằng gom cụm giọng",
+                    log_cb=lambda message: _append_stt_parse_log("Voice Meeting", meeting_name, message),
+                )
+            except Exception as exc:
+                clustered = {}
+                _append_stt_parse_log("Voice Meeting", meeting_name, f"[VoiceCluster] lỗi: {exc!r}")
+
+            if clustered:
+                previous = {spk: info[0] for spk, info in spk_identified.items()}
+                for spk in list(spk_identified.keys()) + list(unique_speakers.keys()):
+                    # Speaker nào gom cụm không kết luận được thì để Speaker,
+                    # không giữ lại tên do cách cũ đoán.
+                    spk_identified[spk] = clustered.get(spk) or ("Speaker", 0.0, "", None)
+                changed = [
+                    f"{spk}: {previous.get(spk)}→{spk_identified[spk][0]}"
+                    for spk in spk_identified
+                    if previous.get(spk) != spk_identified[spk][0]
+                ]
+                _append_stt_parse_log(
+                    "Voice Meeting",
+                    meeting_name,
+                    f"[VoiceCluster] áp dụng cho {len(clustered)} speaker"
+                    + (f"; đổi: {', '.join(changed)}" if changed else "; trùng kết quả cũ"),
+                )
+            else:
+                # Không đủ cơ sở kết luận. Trả nguyên transcript, để Speaker
+                # hết — tên do cách cũ đoán ra không đáng tin (nó lấy mẫu giọng
+                # theo timestamp, mà timestamp chính là chỗ đang sai), gán bừa
+                # vào biên bản còn tệ hơn là không gán.
+                for spk in list(spk_identified.keys()) + list(unique_speakers.keys()):
+                    spk_identified[spk] = ("Speaker", 0.0, "", None)
+                _append_stt_parse_log(
+                    "Voice Meeting",
+                    meeting_name,
+                    "[VoiceCluster] không đủ cơ sở — giữ transcript thô, tất cả để Speaker.",
+                )
+
             # Log kết quả greedy assignment
             summary = ", ".join(f"{spk}→'{info[0]}'({info[1]:.3f})" for spk, info in spk_identified.items())
             print(f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
             _append_stt_parse_log("Voice Meeting", meeting_name, f"[Speaker] Greedy result ({len(spk_identified)} speakers): {summary}")
     
-            # Không tự merge các "Người lạ" giữa chunk.
+            # Không tự merge các "Speaker" giữa chunk.
             # Mỗi speaker_id chưa match DB sẽ giữ thành một nhóm riêng để user
             # dễ nhìn sai/đúng và dùng nút "Quét lại AI" enroll thủ công.
-            strangers = [spk for spk, info in spk_identified.items() if info[0] == "Người lạ"]
+            strangers = [spk for spk, info in spk_identified.items() if info[0] == "Speaker"]
             groups = [[spk] for spk in strangers]
             stranger_groups = {spk: spk for spk in strangers}
             if strangers:
@@ -1468,7 +1537,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     f"[Speaker] Stranger merge disabled; kept {len(strangers)} unknown speaker ids separate.",
                 )
     
-            # Đánh số "Người lạ N" theo thứ tự xuất hiện
+            # Đánh số "Speaker N" theo thứ tự xuất hiện
             group_label = {}  # group_id -> "Unknown_Group_X"
             for spk in strangers:
                 group_id = stranger_groups.get(spk, spk)
@@ -1479,7 +1548,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
             speaker_cache = {}
             for spk, info in spk_identified.items():
                 name, score, email, user_info = info
-                if name != "Người lạ":
+                if name != "Speaker":
                     if not email or email.lower() == "chưa cập nhật":
                         speaker_cache[spk] = f"👤 {name}"
                     else:
@@ -1564,7 +1633,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 
                 if clean_spk.startswith("Unknown_Group_"):
                     if clean_spk not in real_stranger_map:
-                        real_stranger_map[clean_spk] = f"Người lạ {actual_stranger_counter}"
+                        real_stranger_map[clean_spk] = f"Speaker {actual_stranger_counter}"
                         actual_stranger_counter += 1
                     spk_label = f"👤 {real_stranger_map[clean_spk]}"
                 else:
@@ -1602,7 +1671,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
 
                 def is_short_stranger(label):
                     item = stats[label]
-                    if not str(label).startswith("👤 Người lạ"):
+                    # "Người lạ" là nhãn của các bản ghi cũ, vẫn phải nhận ra.
+                    if not str(label).startswith(("👤 Speaker", "👤 Người lạ")):
                         return False
                     if item["duration"] <= 3.0:
                         return True
@@ -1663,9 +1733,9 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 for row in items:
                     s, e, label, txt, emb = row[:5]
                     raw_spk_id = row[5] if len(row) > 5 else ""
-                    if re.match(r"^👤 Người lạ \d+$", str(label)):
+                    if re.match(r"^👤 (?:Speaker|Người lạ) \d+$", str(label)):
                         if label not in remap:
-                            remap[label] = f"👤 Người lạ {next_idx}"
+                            remap[label] = f"👤 Speaker {next_idx}"
                             next_idx += 1
                         label = remap[label]
                     renumbered.append((s, e, label, txt, emb, raw_spk_id))
@@ -2439,7 +2509,7 @@ def map_and_enroll_speakers():
         text = str(label or "").strip()
         if not text:
             return True
-        if any(marker in text for marker in ("Người lạ", "Unknown", "Không tên")):
+        if any(marker in text for marker in ("Speaker", "Người lạ", "Unknown", "Không tên")):
             return True
         return text not in known_names
 
@@ -2651,7 +2721,7 @@ def reassign_speaker_from_segment():
     """
     Học giọng từ một đoạn hội thoại cụ thể, sau đó quét lại toàn bộ
     transcript với toàn bộ Voice Speaker DB. Segment nào match DB thì gán
-    đúng người đó, không gom/merge các nhãn Người lạ còn lại.
+    đúng người đó, không gom/merge các nhãn Speaker còn lại.
 
     Payload (JSON body):
         meeting_name    : tên Voice Meeting
@@ -2746,7 +2816,7 @@ def reassign_speaker_from_segment():
             text = str(label or "").strip()
             if not text:
                 return True
-            unknown_markers = ("Người lạ", "Unknown", "Không tên")
+            unknown_markers = ("Speaker", "Người lạ", "Unknown", "Không tên")
             if any(marker in text for marker in unknown_markers):
                 return True
             if known_speaker_names is not None and text not in known_speaker_names:
@@ -3114,6 +3184,19 @@ def rescan_meeting_from_current_labels():
 
     try:
         from voice_app.speaker_manager import _extract_embeddings_from_files_remote
+        from voice_app.audio_utils import concat_speaker_segments, get_duration
+
+        def _save_sample_audio_from_file(speaker_name, src_path):
+            if not src_path or not os.path.exists(src_path):
+                return ""
+            if not frappe.db.has_column("Voice Speaker", "sample_audio"):
+                return ""
+            safe_name = "".join(ch if ch.isalnum() or ch in (" ", "-", "_") else "_" for ch in speaker_name).strip()
+            filename = f"{safe_name or 'speaker'}_{int(time.time())}.wav"
+            with open(src_path, "rb") as f:
+                file_doc = save_file(filename, f.read(), "Voice Speaker", speaker_name, is_private=1)
+            frappe.db.set_value("Voice Speaker", speaker_name, "sample_audio", file_doc.file_url)
+            return file_doc.file_url
 
         def _ensure_wav():
             nonlocal wav_path
@@ -3158,35 +3241,116 @@ def rescan_meeting_from_current_labels():
                 if emb is not None and idx < len(original_results):
                     _seg_set_embedding(original_results[idx], emb)
 
-        for speaker_name, idx in sample_indexes.items():
-            seg = original_results[idx] if idx < len(original_results) else results[idx]
-            emb = _seg_get(seg, "embedding", 4, None)
-            if not _has_embedding(emb):
-                errors.append(f"{speaker_name} (Không trích được embedding)")
-                continue
-            start = float(_seg_get(seg, "start", 0, 0) or 0)
-            end = float(_seg_get(seg, "end", 1, start) or start)
-            if end - start < 2.0:
-                errors.append(f"{speaker_name} (Audio quá ngắn, cần > 2s)")
-                continue
+        # Cắt sẵn mẫu giọng cho mọi speaker_id bằng cách gom cụm — chạy đúng
+        # một lần vì mỗi lần gom cụm tốn vài trăm lượt trích embedding. Mẫu lấy
+        # từ cụm chứ không cắt theo start/end của segment: mốc thời gian có thể
+        # lệch hàng trăm giây nên cắt theo đó dễ ra giọng người bên cạnh.
+        cluster_samples = {}
+        if sample_indexes:
+            try:
+                from voice_app.speaker_manager import build_voice_samples_by_clustering
 
-            clean_sample = _clean_speaker_sample_embedding(
-                _ensure_wav(),
-                start,
-                end,
-                fallback_embedding=emb,
-                task="Lọc sample khi quét lại từ transcript",
-            )
-            clean_emb_tmp = clean_sample.get("embedding")
-            clean_emb = clean_emb_tmp if clean_emb_tmp is not None else _normalize_embedding(emb)
+                cluster_samples = build_voice_samples_by_clustering(
+                    _ensure_wav(),
+                    original_results,
+                    task="Đăng ký giọng theo cụm khi quét lại",
+                )
+            except Exception as exc:
+                cluster_samples = {}
+                print(f"[Rescan] gom cụm giọng lỗi, dùng cách cũ: {exc!r}")
+
+        used_samples = set()
+        for speaker_name, idx in sample_indexes.items():
+            # Tên do user gán nằm ở bản hiển thị; muốn biết lấy mẫu giọng nào
+            # thì phải lần về speaker_id thô của Gemini. Lấy speaker_id chiếm
+            # nhiều lời nhất trong số đoạn user đã gán tên này.
+            from collections import Counter
+
+            sid_weight = Counter()
+            matching_segs = []
+            for i, display_seg in enumerate(results or []):
+                label = _normalize_requested_speaker_name(
+                    _seg_get(display_seg, "speaker", 2, ""),
+                    speaker_aliases,
+                )
+                if label != speaker_name:
+                    continue
+                orig_seg = original_results[i] if i < len(original_results) else display_seg
+                sid = orig_seg.get("speaker_id") if isinstance(orig_seg, dict) else None
+                if sid:
+                    sid_weight[sid] += len(str(_seg_get(orig_seg, "text", 3, "") or "").split())
+                seg_start = float(_seg_get(orig_seg, "start", 0, 0) or 0)
+                seg_end = float(_seg_get(orig_seg, "end", 1, seg_start) or seg_start)
+                if seg_end > seg_start:
+                    matching_segs.append({"start": seg_start, "end": seg_end})
+
+            clean_emb = None
+            group_start = group_end = None
+            concat_wav_path = None
+
+            dominant_sid = sid_weight.most_common(1)[0][0] if sid_weight else None
+            if dominant_sid and dominant_sid in cluster_samples:
+                concat_wav_path = cluster_samples[dominant_sid]
+                used_samples.add(dominant_sid)
+            elif len(matching_segs) > 1:
+                concat_wav_path = concat_speaker_segments(_ensure_wav(), matching_segs, max_total_sec=25.0, min_seg_sec=1.5)
+                if concat_wav_path is None:
+                    concat_wav_path = concat_speaker_segments(_ensure_wav(), matching_segs, max_total_sec=25.0, min_seg_sec=0.0)
+
+            if concat_wav_path:
+                dur = get_duration(concat_wav_path)
+                emb_results_c = _extract_embeddings_from_files_remote(
+                    [{"wav_path": concat_wav_path, "start": 0.0, "end": dur}],
+                    task="Enroll speaker khi quét lại (cụm giọng)",
+                )
+                if emb_results_c and emb_results_c[0] is not None:
+                    clean_emb = _normalize_embedding(emb_results_c[0])
+
+            if clean_emb is None:
+                # Chỉ 1 đoạn (hoặc ghép nhiều đoạn thất bại) — về lại cách cũ:
+                # lọc trong nội bộ đoạn đại diện dài nhất.
+                seg = original_results[idx] if idx < len(original_results) else results[idx]
+                emb = _seg_get(seg, "embedding", 4, None)
+                if not _has_embedding(emb):
+                    errors.append(f"{speaker_name} (Không trích được embedding)")
+                    continue
+                start = float(_seg_get(seg, "start", 0, 0) or 0)
+                end = float(_seg_get(seg, "end", 1, start) or start)
+                if end - start < 2.0:
+                    errors.append(f"{speaker_name} (Audio quá ngắn, cần > 2s)")
+                    continue
+
+                clean_sample = _clean_speaker_sample_embedding(
+                    _ensure_wav(),
+                    start,
+                    end,
+                    fallback_embedding=emb,
+                    task="Lọc sample khi quét lại từ transcript",
+                )
+                clean_emb_tmp = clean_sample.get("embedding")
+                clean_emb = clean_emb_tmp if clean_emb_tmp is not None else _normalize_embedding(emb)
+                group_start = clean_sample.get("start") or start
+                group_end = clean_sample.get("end") or end
+
             db.add_speaker(speaker_name, clean_emb, email="", user_info=None)
             enrolled.append(speaker_name)
-            new_sample_audio[speaker_name] = _save_sample_audio(
-                speaker_name,
-                _ensure_wav(),
-                clean_sample.get("start") or start,
-                clean_sample.get("end") or end,
-            )
+            if concat_wav_path and os.path.exists(concat_wav_path):
+                new_sample_audio[speaker_name] = _save_sample_audio_from_file(speaker_name, concat_wav_path)
+                with suppress(FileNotFoundError):
+                    os.remove(concat_wav_path)
+            else:
+                new_sample_audio[speaker_name] = _save_sample_audio(
+                    speaker_name,
+                    _ensure_wav(),
+                    group_start,
+                    group_end,
+                )
+
+        # Mẫu của speaker_id không ai nhận tên thì bỏ, khỏi để lại file rác.
+        for sid, path in cluster_samples.items():
+            if sid not in used_samples and path and os.path.exists(path):
+                with suppress(FileNotFoundError):
+                    os.remove(path)
 
         db = SpeakerDB()
 
@@ -3395,7 +3559,7 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
             if '[Speaker] Greedy result' in line or 'Stranger DB rematch' in line:
                 matches = re.findall(r'(\w+_\w+)\s*(?:→|->)\s*\'([^\']+)\'', line)
                 for raw_id, name in matches:
-                    if name and name != 'Người lạ':
+                    if name and name != 'Speaker':
                         speaker_cache[raw_id] = f'👤 {name}'
 
     actual_stranger_counter = 1
@@ -3404,7 +3568,7 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
         raw_id = str(seg.get("speaker_id") or "").strip()
         if raw_id and raw_id not in speaker_cache:
             if raw_id not in real_stranger_map:
-                real_stranger_map[raw_id] = f"Người lạ {actual_stranger_counter}"
+                real_stranger_map[raw_id] = f"Speaker {actual_stranger_counter}"
                 actual_stranger_counter += 1
             speaker_cache[raw_id] = f"👤 {real_stranger_map[raw_id]}"
 
@@ -3423,7 +3587,7 @@ def reprocess_meeting_from_raw_chunks(meeting_name=None):
             continue
 
         raw_spk_id = str(seg.get("speaker_id") or "").strip()
-        spk_label = speaker_cache.get(raw_spk_id) or str(seg.get("speaker") or seg.get("speaker_id") or "Người lạ").strip()
+        spk_label = speaker_cache.get(raw_spk_id) or str(seg.get("speaker") or seg.get("speaker_id") or "Speaker").strip()
         if not spk_label.startswith("👤 "):
             spk_label = f"👤 {spk_label}"
 
@@ -3505,13 +3669,14 @@ def enroll_speaker_from_segment():
 
     target_seg = original_results[segment_index]
     sample_embedding = target_seg.get("embedding")
-    
+
     if not sample_embedding:
         return {"status": "error", "message": "Đoạn hội thoại này chưa được trích xuất dữ liệu giọng nói (embedding)."}
 
     try:
         import numpy as np
-        from .speaker_manager import SpeakerDB
+        from .speaker_manager import SpeakerDB, _extract_embeddings_from_files_remote
+        from .audio_utils import concat_speaker_segments, get_duration
 
         sample_start = float(target_seg.get("start") or 0)
         sample_end = float(target_seg.get("end") or sample_start)
@@ -3525,46 +3690,87 @@ def enroll_speaker_from_segment():
                 if not err:
                     wav_path = converted_wav
 
-            clean_sample = _clean_speaker_sample_embedding(
-                wav_path,
-                sample_start,
-                sample_end,
-                fallback_embedding=sample_embedding,
-                task="Lọc sample khi enroll speaker",
-            )
-            sample_emb_np = clean_sample.get("embedding")
+            # Học giọng từ CỤM giọng chứa đoạn được click, chứ không cắt audio
+            # theo start/end của segment. Mốc thời gian của segment do Gemini
+            # đoán hoặc forced-align suy ra và có thể lệch hàng trăm giây, cắt
+            # theo đó thì mẫu đăng ký dính giọng người bên cạnh — đúng lỗi làm
+            # một người biến mất khỏi biên bản. Gom cụm dựa trên VAD nên biên
+            # đoạn luôn nằm trong lời thật của người đó.
+            raw_speaker_id = target_seg.get("speaker_id")
+            sample_emb_np = None
+            group_start = sample_start
+            group_end = sample_end
+            concat_wav = None
+
+            if wav_path and raw_speaker_id:
+                from .speaker_manager import build_voice_samples_by_clustering
+
+                samples = build_voice_samples_by_clustering(
+                    wav_path,
+                    original_results,
+                    task="Đăng ký giọng theo cụm",
+                )
+                concat_wav = samples.pop(raw_speaker_id, None)
+                for leftover in samples.values():  # mẫu của người khác, không dùng
+                    with suppress(FileNotFoundError):
+                        os.remove(leftover)
+                if concat_wav:
+                    dur = get_duration(concat_wav)
+                    emb_results = _extract_embeddings_from_files_remote(
+                        [{"wav_path": concat_wav, "start": 0.0, "end": dur}],
+                        task="Enroll speaker (cụm giọng)",
+                    )
+                    if emb_results and emb_results[0] is not None:
+                        sample_emb_np = _normalize_np_embedding(emb_results[0])
+
             if sample_emb_np is None:
-                sample_emb_np = np.array(sample_embedding)
-                norm = np.linalg.norm(sample_emb_np)
-                if norm > 0:
-                    sample_emb_np = sample_emb_np / norm
+                # Chỉ 1 đoạn (hoặc ghép nhiều đoạn thất bại) — về lại cách cũ:
+                # lọc trong nội bộ đoạn được click.
+                clean_sample = _clean_speaker_sample_embedding(
+                    wav_path,
+                    sample_start,
+                    sample_end,
+                    fallback_embedding=sample_embedding,
+                    task="Lọc sample khi enroll speaker",
+                )
+                sample_emb_np = clean_sample.get("embedding")
+                group_start = clean_sample.get("start") or sample_start
+                group_end = clean_sample.get("end") or sample_end
+                if sample_emb_np is None:
+                    sample_emb_np = np.array(sample_embedding)
+                    norm = np.linalg.norm(sample_emb_np)
+                    if norm > 0:
+                        sample_emb_np = sample_emb_np / norm
 
             db = SpeakerDB()
             db.add_speaker(new_speaker_name, sample_emb_np, email="", user_info=None)
 
             sample_audio_url = ""
-            if wav_path and frappe.db.has_column("Voice Speaker", "sample_audio"):
-                from voice_app.audio_utils import extract_segment_ffmpeg
+            if frappe.db.has_column("Voice Speaker", "sample_audio"):
+                sample_path = None
+                try:
+                    if concat_wav and os.path.exists(concat_wav):
+                        sample_path = concat_wav
+                    elif wav_path:
+                        from voice_app.audio_utils import extract_segment_ffmpeg
+                        sample_path = extract_segment_ffmpeg(wav_path, group_start, group_end, padding=0.1)
 
-                sample_path = extract_segment_ffmpeg(
-                    wav_path,
-                    clean_sample.get("start") or sample_start,
-                    clean_sample.get("end") or sample_end,
-                    padding=0.1,
-                )
-                if sample_path:
-                    try:
+                    if sample_path and os.path.exists(sample_path):
                         safe_name = "".join(ch if ch.isalnum() or ch in (" ", "-", "_") else "_" for ch in new_speaker_name).strip()
                         with open(sample_path, "rb") as f:
                             file_doc = save_file(f"{safe_name or 'speaker'}_{int(time.time())}.wav", f.read(), "Voice Speaker", new_speaker_name, is_private=1)
                         frappe.db.set_value("Voice Speaker", new_speaker_name, "sample_audio", file_doc.file_url)
                         sample_audio_url = file_doc.file_url
-                    finally:
+                finally:
+                    if sample_path and sample_path != concat_wav:
                         with suppress(FileNotFoundError):
                             os.remove(sample_path)
         finally:
             if converted_wav and os.path.exists(converted_wav):
                 os.remove(converted_wav)
+            if concat_wav and os.path.exists(concat_wav):
+                with suppress(FileNotFoundError):
+                    os.remove(concat_wav)
 
         return {"status": "success", "sample_audio": sample_audio_url, "message": f"Đã học giọng nói của {new_speaker_name} thành công!"}
     except Exception as e:

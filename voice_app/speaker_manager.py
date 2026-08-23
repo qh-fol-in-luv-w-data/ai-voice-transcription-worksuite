@@ -66,58 +66,6 @@ def _get_embedding_api_url():
             )
     return url.rstrip("/")
 
-def _extract_embeddings_from_files_local(files_list: list) -> list:
-    import sys
-    from voice_app.constants import get_hf_token
-
-    if not files_list:
-        return []
-
-    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
-    hf_token = get_hf_token() or ""
-    python_exe = sys.executable
-
-    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as f:
-        json.dump(files_list, f)
-        temp_file_path = f.name
-
-    args = [python_exe, script_path, "", hf_token, "--files-list", temp_file_path]
-    try:
-        result = subprocess.run(  # nosec B603
-            args,
-            capture_output=True,
-            text=True,
-            timeout=max(300, 45 * len(files_list)),
-        )
-    except subprocess.TimeoutExpired:
-        with suppress(FileNotFoundError):
-            os.remove(temp_file_path)
-        raise RuntimeError(f"Local batch embedding timed out for {len(files_list)} files.")
-    finally:
-        with suppress(FileNotFoundError):
-            os.remove(temp_file_path)
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Local batch embedding failed (exit={result.returncode}):\n{result.stderr[-2000:]}"
-        )
-
-    stdout = result.stdout.strip()
-    json_line = None
-    for line in reversed(stdout.splitlines()):
-        line = line.strip()
-        if line.startswith("["):
-            json_line = line
-            break
-    if json_line is None:
-        raise RuntimeError(f"Không tìm thấy JSON trong local batch stdout:\n{stdout[-2000:]}")
-
-    results_list = json.loads(json_line)
-    final_results = []
-    for emb in results_list:
-        final_results.append(None if emb is None else np.array(emb))
-    return final_results
-
 # ── SPEAKER DATABASE ──────────────────────────────────────────────────────────
 class SpeakerDB:
     def __init__(self):
@@ -187,7 +135,7 @@ class SpeakerDB:
 
     def identify(self, embedding, allowed_names=None):
         if not self.speakers:
-            return "Người lạ", 0.0, "", None
+            return "Speaker", 0.0, "", None
 
         candidates = self.speakers.items()
         if allowed_names:
@@ -207,8 +155,8 @@ class SpeakerDB:
                 return name, sim, email, user_info
 
         best_sim = scores[0][1] if scores else 0.0
-        print(f"[Speaker] best='Người lạ'({best_sim:.3f}) threshold={SIMILARITY_THRESHOLD} | top3: [{top3}]")
-        return "Người lạ", best_sim, "", None
+        print(f"[Speaker] best='Speaker'({best_sim:.3f}) threshold={SIMILARITY_THRESHOLD} | top3: [{top3}]")
+        return "Speaker", best_sim, "", None
 
     def identify_ranked(self, embedding, allowed_names=None):
         """Trả về tất cả candidates >= threshold, sorted by score."""
@@ -467,70 +415,60 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
 
     return final_results
 
-def _extract_embeddings_batch_subprocess(wav_path: str, segments_list: list) -> list:
+
+def purify_speaker_group(segs, wav_path, db, min_segments=6, min_individual_score=0.35, task=None):
+    """Gemini đôi khi gán nhầm 1 phần nhỏ lời của người KHÁC vào cùng 1
+    speaker_id (VD: đo thực tế 1 meeting — 3/13 đoạn của 1 speaker_id thực ra
+    là người khác, làm centroid gộp bị lai, giảm độ chính xác nhận diện).
+
+    Probe từng đoạn đủ dài (>=1.5s) riêng lẻ, so với DB đã enroll. Nếu đa số
+    đoạn cùng match rõ 1 người (>= min_individual_score), coi đó là "danh
+    tính chính" của group — loại các đoạn match RÕ một người KHÁC ra khỏi
+    group trước khi build centroid cuối. Không đủ dữ liệu / không có đa số
+    rõ ràng thì giữ nguyên group, không đoán mò.
+
+    Trả về (segs_đã_lọc, segs_bị_loại) — segs_bị_loại chỉ để log/debug.
     """
-    Trích xuất embedding cho nhiều đoạn (batch) chỉ với 1 lần load model.
-    segments_list: list of dict [{"start": float, "end": float}, ...]
-    Trả về: list các np.ndarray hoặc None
-    """
-    import sys
-    import tempfile
-    from voice_app.constants import get_hf_token
+    if not db or not getattr(db, "speakers", None):
+        return segs, []
 
-    if not segments_list:
-        return []
+    qualifying = [s for s in segs if (s.get("end", 0) - s.get("start", 0)) >= 1.5]
+    if len(qualifying) < min_segments:
+        return segs, []
 
-    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
-    hf_token = get_hf_token() or ""
-    python_exe = sys.executable
+    files_list = [{"wav_path": wav_path, "start": s["start"], "end": s["end"]} for s in qualifying]
+    embs = _extract_embeddings_from_files_remote(files_list, task=task or "purify-probe")
 
-    # Ghi segments ra file tạm
-    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as f:
-        json.dump(segments_list, f)
-        temp_file_path = f.name
-
-    args = [python_exe, script_path, wav_path, hf_token, "--segments-file", temp_file_path]
-
-    try:
-        result = subprocess.run(  # nosec B603
-            args,
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 phút timeout cho batch
-        )
-    except subprocess.TimeoutExpired as e:
-        if os.path.exists(temp_file_path): os.remove(temp_file_path)
-        raise RuntimeError("Batch subprocess embedding timed out after 300s.")
-    
-    if os.path.exists(temp_file_path):
-        os.remove(temp_file_path)
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Batch subprocess embedding thất bại (exit={result.returncode}):\n{result.stderr[-2000:]}"
-        )
-
-    stdout = result.stdout.strip()
-    if not stdout:
-        raise RuntimeError(f"Batch subprocess không trả về kết quả. stderr:\n{result.stderr[-2000:]}")
-
-    json_line = None
-    for line in reversed(stdout.splitlines()):
-        line = line.strip()
-        if line.startswith('['):
-            json_line = line
-            break
-    if json_line is None:
-        raise RuntimeError(f"Không tìm thấy JSON trong stdout:\n{stdout[:500]}")
-
-    results_list = json.loads(json_line)
-    final_results = []
-    for emb in results_list:
+    per_seg_best = []
+    for seg, emb in zip(qualifying, embs):
         if emb is None:
-            final_results.append(None)
-        else:
-            final_results.append(np.array(emb))
-    return final_results
+            per_seg_best.append((seg, None))
+            continue
+        norm = np.linalg.norm(emb)
+        emb_n = emb / norm if norm > 0 else emb
+        ranked = db.rank_all(emb_n)
+        best_name = ranked[0][0] if ranked and ranked[0][1] >= min_individual_score else None
+        per_seg_best.append((seg, best_name))
+
+    votes: dict = {}
+    for _, name in per_seg_best:
+        if name:
+            votes[name] = votes.get(name, 0) + 1
+    if not votes:
+        return segs, []
+
+    majority_name = max(votes.items(), key=lambda x: x[1])[0]
+    if votes[majority_name] < len(qualifying) * 0.5:
+        # Không ai chiếm đa số rõ ràng trong group -> không đủ tin cậy để lọc
+        return segs, []
+
+    dropped = [seg for seg, name in per_seg_best if name and name != majority_name]
+    if not dropped:
+        return segs, []
+
+    dropped_ids = {id(s) for s in dropped}
+    kept = [s for s in segs if id(s) not in dropped_ids]
+    return kept, dropped
 
 
 def enroll_new_speaker(name, wav_path, email="", user_info=None):
@@ -598,7 +536,313 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
         return False
 
     avg_emb = np.mean(valid_embs, axis=0)
-    
+
     db = SpeakerDB()
     db.add_speaker(name, avg_emb.tolist(), email=email, user_info=user_info)
+
+    # Lưu lại audio gốc dùng để enroll — trước đây đường này không lưu, nên
+    # về sau không cách nào audit lại được mẫu giọng đã enroll đúng người
+    # chưa (không nghe lại được). Không để lỗi save_file làm hỏng cả lần
+    # enroll — embedding vẫn đã lưu thành công ở trên.
+    try:
+        import time as _time
+        import frappe
+        from frappe.utils.file_manager import save_file
+        if frappe.db and frappe.db.has_column("Voice Speaker", "sample_audio"):
+            with open(wav_path, "rb") as f:
+                file_doc = save_file(f"{name}_enroll_{int(_time.time())}.wav", f.read(), "Voice Speaker", name, is_private=1)
+            frappe.db.set_value("Voice Speaker", name, "sample_audio", file_doc.file_url)
+    except Exception as e:
+        print(f"Lỗi lưu sample_audio khi enroll {name}: {e}")
+
     return True
+
+
+# ── Nhận diện người nói KHÔNG dựa vào timestamp ────────────────────────────
+# Cách cũ cắt mẫu giọng theo start/end của từng segment. Mà start/end thì do
+# Gemini đoán hoặc forced-align suy ra — đo thực tế trên 1 file 80 phút, mốc
+# này lệch tới hàng trăm giây, nên đoạn cắt ra chứa giọng người khác và mẫu
+# giọng bị lai. Hệ quả: 2 speaker_id khác nhau cùng ra 1 tên, người còn lại
+# biến mất khỏi biên bản.
+#
+# Ở đây bỏ hẳn timestamp khỏi khâu nhận diện: VAD chỉ ra chỗ nào thật sự có
+# tiếng (biên đo trực tiếp trên sóng âm nên không thể lệch), cắt ra các cửa sổ
+# ngắn, embed rồi gom cụm — mỗi cụm là một giọng. Timestamp vẫn dùng để hiển
+# thị trong biên bản, nhưng sai mốc giờ không còn kéo theo gán nhầm người.
+
+_VC_WIN_SEC = 3.0            # cửa sổ đủ ngắn để nằm gọn trong lời một người
+_VC_MIN_WIN_SEC = 1.6        # ngắn hơn thì embedding không ổn định
+_VC_MAX_WINDOWS = 240        # trần số lần gọi API embedding cho mỗi file
+_VC_MIN_CLUSTER_WINDOWS = 5  # cụm nhỏ hơn coi là nhiễu, không phải người
+_VC_MIN_SIMILARITY = 0.45    # dưới ngưỡng này thì để Speaker, không đoán bừa
+
+
+def _vc_log(message, log_cb=None):
+    if log_cb:
+        log_cb(message)
+    else:
+        print(message)
+
+
+def _vc_build_windows(wav_path, log_cb=None):
+    """Cắt audio thành các cửa sổ ngắn nằm trong vùng VAD báo có tiếng nói."""
+    from voice_app.gemini_stt_client import _vad_speech_intervals
+
+    intervals = _vad_speech_intervals(wav_path)
+    windows = []
+    for start, end in intervals or []:
+        pos = start
+        while pos + _VC_MIN_WIN_SEC <= end:
+            win_end = min(end, pos + _VC_WIN_SEC)
+            if win_end - pos >= _VC_MIN_WIN_SEC:
+                windows.append((round(pos, 2), round(win_end, 2)))
+            pos += _VC_WIN_SEC
+
+    if len(windows) > _VC_MAX_WINDOWS:
+        # Lấy mẫu trải đều cả file thay vì cắt cụt phần đuôi, để người chỉ nói
+        # ở nửa sau cuộc họp vẫn có mặt trong mẫu.
+        step = len(windows) / _VC_MAX_WINDOWS
+        windows = [windows[int(i * step)] for i in range(_VC_MAX_WINDOWS)]
+    _vc_log(f"[VoiceCluster] {len(intervals or [])} vùng có tiếng → {len(windows)} cửa sổ", log_cb)
+    return windows
+
+
+def _vc_cluster(embeddings, n_speakers_hint):
+    """Gom các cửa sổ thành cụm giọng.
+
+    Số cụm lấy theo số speaker Gemini phát hiện (phần này Gemini làm chuẩn),
+    cộng thêm 2 để chừa chỗ cho nhiễu/tiếng ồn — các cụm nhiễu đó nhỏ và sẽ bị
+    loại ở bước sau, thay vì ép chúng lẫn vào giọng người thật.
+    """
+    from sklearn.cluster import AgglomerativeClustering
+
+    n_clusters = max(2, min(len(embeddings) - 1, (n_speakers_hint or 2) + 2))
+    return AgglomerativeClustering(
+        n_clusters=n_clusters, metric="cosine", linkage="average"
+    ).fit_predict(embeddings)
+
+
+def _vc_match_clusters_to_db(clusters, db, min_similarity=_VC_MIN_SIMILARITY, log_cb=None):
+    """Ghép cụm giọng với người trong DB theo kiểu 1-1.
+
+    Dùng Hungarian chứ không phải "mỗi cụm tự chọn tên giống nhất": cách tự
+    chọn cho phép hai cụm cùng nhận một tên, đúng lỗi đã gặp (hai speaker_id
+    cùng ra 'chị Thuỷ' với 0.760 và 0.746, người thứ hai mất tích). Ràng buộc
+    1-1 buộc thuật toán tối ưu tổng thể, nên cụm hợp lý hơn sẽ giữ được tên.
+    """
+    from scipy.optimize import linear_sum_assignment
+    from scipy.spatial.distance import cosine
+
+    names = list(db.speakers.keys())
+    cluster_ids = list(clusters.keys())
+    if not names or not cluster_ids:
+        return {}
+
+    sim = np.array([
+        [1 - cosine(clusters[c]["centroid"], np.asarray(db.speakers[n]["embedding"], dtype=float))
+         for n in names]
+        for c in cluster_ids
+    ])
+
+    rows, cols = linear_sum_assignment(-sim)
+    assignment, stranger = {}, 0
+    row_list = list(rows)
+    for i, cluster_id in enumerate(cluster_ids):
+        best_name, score = None, 0.0
+        if i in row_list:
+            j = cols[row_list.index(i)]
+            score = float(sim[i][j])
+            if score >= min_similarity:
+                best_name = names[j]
+        if best_name:
+            info = db.speakers[best_name]
+            assignment[cluster_id] = (best_name, score, info.get("email", ""), info.get("user_info"))
+        else:
+            stranger += 1
+            assignment[cluster_id] = (f"Speaker {stranger}", score, "", None)
+        greedy = names[int(np.argmax(sim[i]))]
+        _vc_log(
+            f"[VoiceCluster] cụm {cluster_id} ({clusters[cluster_id]['seconds']:.0f}s) → "
+            f"{assignment[cluster_id][0]} ({score:.3f}); nếu chọn tham lam: {greedy}",
+            log_cb,
+        )
+    return assignment
+
+
+def _vc_map_speakers_to_clusters(segments, clusters, log_cb=None):
+    """Ghép speaker_id của Gemini với cụm giọng, cũng theo kiểu 1-1.
+
+    Không dùng mốc thời gian để so (đó chính là thứ không đáng tin). Thay vào
+    đó ba dấu hiệu độc lập, cái nào cũng không cần biết câu nói nằm ở giây thứ
+    mấy: ai nói nhiều hơn, ai cất tiếng trước, và ai nói câu dài hơn. Ba dấu
+    hiệu cùng chỉ một hướng thì mới nhận; lệch nhau thì trả về rỗng để bên gọi
+    dùng cách cũ, còn hơn gán sai tên vào biên bản.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    words, seg_count, first_index = {}, {}, {}
+    for index, seg in enumerate(segments):
+        sid = seg.get("speaker_id") or seg.get("speaker") or "unknown"
+        words[sid] = words.get(sid, 0) + len(str(seg.get("text") or "").split())
+        seg_count[sid] = seg_count.get(sid, 0) + 1
+        first_index.setdefault(sid, index)
+
+    total_words = sum(words.values()) or 1
+    # Người chỉ lọt vài chữ (Gemini gán nhầm lẻ tẻ) không đủ cơ sở để ghép.
+    speakers = [s for s in sorted(words, key=lambda k: -words[k]) if words[s] / total_words >= 0.02]
+    cluster_ids = list(clusters.keys())
+    if not speakers or not cluster_ids:
+        return {}
+
+    total_seconds = sum(clusters[c]["seconds"] for c in cluster_ids) or 1.0
+    votes = {s: {c: 0 for c in cluster_ids} for s in speakers}
+
+    # 1. Ai nói nhiều, ai nói ít.
+    for sid in speakers:
+        share = words[sid] / total_words
+        closest = min(cluster_ids, key=lambda c: abs(share - clusters[c]["seconds"] / total_seconds))
+        votes[sid][closest] += 1
+
+    # 2. Ai lên tiếng trước.
+    for rank, sid in enumerate(sorted(speakers, key=lambda s: first_index[s])):
+        by_time = sorted(cluster_ids, key=lambda c: clusters[c]["first_start"])
+        if rank < len(by_time):
+            votes[sid][by_time[rank]] += 1
+
+    # 3. Ai nói câu dài, ai đáp câu ngắn.
+    words_per_seg = {s: words[s] / max(1, seg_count[s]) for s in speakers}
+    by_words = sorted(speakers, key=lambda s: -words_per_seg[s])
+    by_turn = sorted(cluster_ids, key=lambda c: -clusters[c]["avg_turn"])
+    for rank, sid in enumerate(by_words):
+        if rank < len(by_turn):
+            votes[sid][by_turn[rank]] += 1
+
+    # Chốt bằng Hungarian để không có hai speaker_id cùng trỏ về một cụm.
+    cost = np.array([[-votes[s][c] for c in cluster_ids] for s in speakers], dtype=float)
+    rows, cols = linear_sum_assignment(cost)
+    mapping = {}
+    for i, j in zip(rows, cols):
+        sid, cluster_id = speakers[i], cluster_ids[j]
+        agree = votes[sid][cluster_id]
+        _vc_log(f"[VoiceCluster] {sid} → cụm {cluster_id} ({agree}/3 dấu hiệu)", log_cb)
+        if agree >= 2:
+            mapping[sid] = cluster_id
+    return mapping
+
+
+def _vc_analyze(wav_path, segments, task=None, log_cb=None):
+    """Gom cụm giọng rồi ghép từng cụm với speaker_id của Gemini.
+
+    Trả về (clusters, mapping) với mapping là {speaker_id: cluster_id}; trả về
+    ({}, {}) khi không đủ cơ sở kết luận. Tách riêng để cả khâu nhận diện lẫn
+    khâu đăng ký giọng dùng chung một kết quả phân tích.
+    """
+    try:
+        if not wav_path or not os.path.exists(wav_path) or not segments:
+            return {}, {}
+
+        windows = _vc_build_windows(wav_path, log_cb=log_cb)
+        if len(windows) < _VC_MIN_CLUSTER_WINDOWS * 2:
+            _vc_log("[VoiceCluster] quá ít cửa sổ, bỏ qua", log_cb)
+            return {}, {}
+
+        items = [{"wav_path": wav_path, "start": s, "end": e} for s, e in windows]
+        embeddings = _extract_embeddings_from_files_remote(items, task=task or "Gom cụm giọng nói")
+
+        pairs = [(w, np.asarray(e, dtype=float)) for w, e in zip(windows, embeddings) if e is not None]
+        if len(pairs) < _VC_MIN_CLUSTER_WINDOWS * 2:
+            _vc_log(f"[VoiceCluster] chỉ embed được {len(pairs)} cửa sổ, bỏ qua", log_cb)
+            return {}, {}
+
+        windows = [w for w, _ in pairs]
+        matrix = np.stack([e / (np.linalg.norm(e) or 1.0) for _, e in pairs])
+
+        hint = len({seg.get("speaker_id") or seg.get("speaker") for seg in segments})
+        labels = _vc_cluster(matrix, hint)
+
+        clusters = {}
+        for label in sorted(set(labels)):
+            idx = [i for i, l in enumerate(labels) if l == label]
+            if len(idx) < _VC_MIN_CLUSTER_WINDOWS:
+                continue
+            centroid = matrix[idx].mean(axis=0)
+            # Độ dài một lượt nói = chuỗi cửa sổ liền nhau cùng thuộc cụm này.
+            ordered = sorted(idx, key=lambda i: windows[i][0])
+            turns, run = [], 0.0
+            for pos, i in enumerate(ordered):
+                run += windows[i][1] - windows[i][0]
+                is_last = pos == len(ordered) - 1
+                if is_last or windows[ordered[pos + 1]][0] - windows[i][1] > _VC_WIN_SEC:
+                    turns.append(run)
+                    run = 0.0
+            clusters[label] = {
+                "centroid": centroid / (np.linalg.norm(centroid) or 1.0),
+                "seconds": sum(windows[i][1] - windows[i][0] for i in idx),
+                "first_start": min(windows[i][0] for i in idx),
+                "avg_turn": (sum(turns) / len(turns)) if turns else 0.0,
+                # Giữ lại chính các đoạn đã tạo nên cụm này: khi cần đăng ký
+                # giọng, cắt thẳng từ đây là ra mẫu sạch, khỏi phải cắt theo
+                # timestamp của segment (thứ đang lệch).
+                "windows": [windows[i] for i in ordered],
+            }
+
+        if not clusters:
+            _vc_log("[VoiceCluster] không có cụm nào đủ lớn", log_cb)
+            return {}, {}
+        _vc_log(f"[VoiceCluster] {len(clusters)} giọng thật từ {len(windows)} cửa sổ", log_cb)
+
+        mapping = _vc_map_speakers_to_clusters(segments, clusters, log_cb=log_cb)
+        if not mapping:
+            _vc_log("[VoiceCluster] các dấu hiệu không thống nhất", log_cb)
+            return clusters, {}
+        return clusters, mapping
+    except Exception as exc:
+        _vc_log(f"[VoiceCluster] lỗi khi gom cụm: {exc!r}", log_cb)
+        return {}, {}
+
+
+def identify_speakers_by_voice_clustering(wav_path, segments, db, task=None, log_cb=None):
+    """Trả về {speaker_id: (tên, điểm, email, user_info)}.
+
+    Trả về rỗng nếu không đủ cơ sở kết luận — bên gọi tự quyết định xử lý.
+    """
+    if not db or not db.speakers:
+        return {}
+    clusters, mapping = _vc_analyze(wav_path, segments, task=task, log_cb=log_cb)
+    if not clusters or not mapping:
+        return {}
+    names_by_cluster = _vc_match_clusters_to_db(clusters, db, log_cb=log_cb)
+    return {sid: names_by_cluster[c] for sid, c in mapping.items() if c in names_by_cluster}
+
+
+def build_voice_samples_by_clustering(wav_path, segments, task=None, log_cb=None, max_sample_sec=25.0):
+    """Cắt sẵn mẫu giọng sạch cho từng speaker_id, phục vụ khâu đăng ký giọng.
+
+    Trả về {speaker_id: đường_dẫn_wav}. Mẫu được ghép từ chính các đoạn đã tạo
+    nên cụm giọng đó, nên không phụ thuộc start/end của segment — chỗ mà mốc
+    thời gian lệch từng làm mẫu giọng lẫn người khác. Bên gọi tự xoá file khi
+    dùng xong.
+    """
+    from voice_app.audio_utils import concat_speaker_segments
+
+    clusters, mapping = _vc_analyze(wav_path, segments, task=task, log_cb=log_cb)
+    if not clusters or not mapping:
+        return {}
+
+    samples = {}
+    for speaker_id, cluster_id in mapping.items():
+        cluster = clusters.get(cluster_id)
+        if not cluster or not cluster.get("windows"):
+            continue
+        segs = [{"start": s, "end": e} for s, e in cluster["windows"]]
+        sample = concat_speaker_segments(wav_path, segs, max_total_sec=max_sample_sec, min_seg_sec=1.5)
+        if sample is None:
+            sample = concat_speaker_segments(wav_path, segs, max_total_sec=max_sample_sec, min_seg_sec=0.0)
+        if sample:
+            samples[speaker_id] = sample
+            _vc_log(
+                f"[VoiceCluster] mẫu giọng {speaker_id}: {len(segs)} đoạn từ cụm {cluster_id}"
+                f" ({cluster['seconds']:.0f}s)",
+                log_cb,
+            )
+    return samples
