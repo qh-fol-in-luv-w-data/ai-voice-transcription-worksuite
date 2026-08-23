@@ -422,7 +422,17 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
     )
 
     if finish_reason == "MAX_TOKENS":
-        _parse_log("[Gemini STT] ⚠️ MAX_TOKENS — Phát hiện vòng lặp ảo giác.", log_cb)
+        # Chỉ nói đúng những gì biết: output chạm trần nên transcript bị cắt.
+        # Trước đây log kết luận luôn là "vòng lặp ảo giác", nhưng MAX_TOKENS
+        # không chứng minh được điều đó — có lần thủ phạm thật là token suy
+        # luận ẩn ăn hết hạn mức, mà lời kết luận sai đó làm mất nhiều công
+        # dò tìm. In kèm số token thật sự thành chữ để lần sau biết đường lần.
+        _parse_log(
+            f"[Gemini STT] ⚠️ MAX_TOKENS — output chạm trần {max_tokens:,}, "
+            f"transcript bị cắt giữa chừng (chữ thật {total_out:,} token, "
+            f"suy luận ẩn {billable_out - total_out:,} token).",
+            log_cb,
+        )
         return _parse_gemini_response(full_text), usage_result, "HALLUCINATION_DETECTED"
     elif finish_reason == "SAFETY":
         return [], usage_result, "Safety filter rejected content"
