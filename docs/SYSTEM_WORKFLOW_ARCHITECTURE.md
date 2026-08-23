@@ -1,348 +1,343 @@
-# 🏗️ TÀI LIỆU KIẾN TRÚC & TOÀN BỘ LUỒNG HOẠT ĐỘNG: 2AS WORKSUITE (`voice_app`)
+# 🏗️ TÀI LIỆU KIẾN TRÚC & SƠ ĐỒ ĐỐI TƯỢNG (OBJECT-TO-OBJECT FLOW): 2AS WORKSUITE (`voice_app`)
 
 > **Dự án:** 2AS WorkSuite - AI Voice Transcription & Task Automation  
-> **Phiên bản:** 2.0  
+> **Kiểu sơ đồ:** Object-to-Object Flow (Luồng Chuyển hóa Đối tượng & Dữ liệu Thực thể)  
 > **Ứng dụng:** `voice_app` (Frappe v15 App + Vue 3 SPA)  
 > **Tác giả:** Đội ngũ AI Engineering - CT Group  
 
 ---
 
 ## 📑 MỤC LỤC
-1. [Tổng quan Kiến trúc Hệ thống (System Architecture)](#1-tổng-quan-kiến-trúc-hệ-thống-system-architecture)
-2. [Sơ đồ Luồng Xử lý Toàn trình (End-to-End Sequence Diagram)](#2-sơ-đồ-luồng-xử-lý-toàn-trình-end-to-end-sequence-diagram)
-3. [Luồng Xử lý Âm thanh & MapReduce Chunking](#3-luồng-xử-lý-âm-thanh--mapreduce-chunking)
-4. [Luồng Nhận diện Giọng nói Sinh trắc học (Speaker Biometrics & Diarization)](#4-luồng-nhận-diện-giọng-nói-sinh-trắc-học-speaker-biometrics--diarization)
-5. [Luồng Bóc tách Tác vụ AI & Tạo Biên bản Họp (Task Extraction & Minutes)](#5-luồng-bóc-tách-tác-vụ-ai--tạo-biên-bản-họp-task-extraction--minutes)
-6. [Luồng Đồng bộ Hóa Tác vụ sang Worksuite ERP](#6-luồng-đồng-bộ-hóa-tác-vụ-sang-worksuite-erp)
-7. [Cấu trúc Cơ sở Dữ liệu & Thực thể (DocType Schema ERD)](#7-cấu-trúc-cơ-sở-dữ-liệu--thực-thể-doctype-schema-erd)
-8. [Danh mục API & Module Mapping](#8-danh-mục-api--module-mapping)
+1. [Sơ đồ Luồng Đối tượng Toàn trình (End-to-End Object-to-Object Flow)](#1-sơ-đồ-luồng-đối-tượng-toàn-trình-end-to-end-object-to-object-flow)
+2. [Chi tiết Cấu trúc Dữ liệu & Biến đổi Đối tượng (Data Transformation Breakdown)](#2-chi-tiết-cấu-trúc-dữ-liệu--biến-đổi-đối-tượng-data-transformation-breakdown)
+3. [Sơ đồ Chuyển hóa Trạng thái Đối tượng (Object Lifecycle & State Transitions)](#3-sơ-đồ-chuyển-hóa-trạng-thái-đối-tượng-object-lifecycle--state-transitions)
+4. [Sơ đồ Đối tượng Nhận diện Sinh trắc học Giọng nói (Voice Biometrics Object Flow)](#4-sơ-đồ-đối-tượng-nhận-diện-sinh-trắc-học-giọng-nói-voice-biometrics-object-flow)
+5. [Sơ đồ Đối tượng Bóc tách Tác vụ & Đồng bộ ERP (Task Extraction to ERP Object Flow)](#5-sơ-đồ-đối-tượng-bóc-tách-tác-vụ--đồng-bộ-erp-task-extraction-to-erp-object-flow)
+6. [Sơ đồ Liên kết Thực thể Dữ liệu (DocType Entity Relationship)](#6-sơ-đồ-liên-kết-thực-thể-dữ-liệu-doctype-entity-relationship)
 
 ---
 
-## 1. Tổng quan Kiến trúc Hệ thống (System Architecture)
+## 1. Sơ đồ Luồng Đối tượng Toàn trình (End-to-End Object-to-Object Flow)
 
-```mermaid
-graph TB
-    subgraph Client["📱 1. Client Layer (Vue 3 + Vite SPA)"]
-        UI["Vue 3 Frontend (/aicenter/voice_app)"]
-        Recorder["Trình ghi âm trực tiếp / Upload Audio File"]
-        Editor["Trình hiệu chỉnh Transcript & Phân vai Speaker"]
-        TaskGrid["Bảng Kanban & Danh sách Action Items"]
-        WSClient["Socket.io / Realtime Client"]
-    end
-
-    subgraph FrappeCore["⚙️ 2. Frappe Application Core (voice_app)"]
-        Router["Frappe Whitelist API Controller (voice_app.api)"]
-        AudioProcessor["Audio Preprocessor & VAD (pydub, ffmpeg, webrtcvad)"]
-        Chunker["MapReduce Audio Chunker (Voice Meeting Chunk)"]
-        STTOrchestrator["STT Orchestrator (gemini_stt_client / whisper)"]
-        SpeakerMatcher["Voice Biometrics Matcher (speaker_manager.py)"]
-        TaskExtractor["AI Task & Summary Extractor (task_extractor.py)"]
-        DocxGen["Corporate DOCX Generator (docx_utils.py)"]
-        WorksuiteSync["Worksuite Sync Engine (REST Client)"]
-        RealtimePub["Frappe Realtime Event Publisher"]
-    end
-
-    subgraph AICloud["🧠 3. AI Cloud Services & Engines"]
-        GeminiSTT["Google Gemini Multimodal STT (gemini-1.5/2.0-flash)"]
-        WhisperSTT["OpenAI Whisper / ElevenLabs Scribe"]
-        OpenAILLM["OpenAI GPT-4o / Gemini Pro (LLM Reasoning)"]
-        EmbeddingAPI["Voice Embedding Model (Pyannote / Resemblyzer)"]
-    end
-
-    subgraph Database["💾 4. Persistence Layer (Frappe PostgreSQL/MariaDB)"]
-        DocMeeting[("DocType: Voice Meeting")]
-        DocChunk[("DocType: Voice Meeting Chunk")]
-        DocTask[("DocType: Voice Task")]
-        DocSpeaker[("DocType: Voice Speaker (Vectors)")]
-        DocSettings[("DocType: Voice App Settings")]
-        DocLogs[("DocType: Action & AI Call Logs")]
-    end
-
-    subgraph External["🏢 5. Enterprise Integration"]
-        WorksuiteERP["Worksuite ERP / Project Management System"]
-    end
-
-    %% Client Interactions
-    Recorder -->|1. Upload Audio/Video File| Router
-    Router --> AudioProcessor
-    WSClient <-->|Realtime Progress Events| RealtimePub
-
-    %% Core Pipeline
-    AudioProcessor --> Chunker
-    Chunker --> STTOrchestrator
-    STTOrchestrator --> GeminiSTT
-    STTOrchestrator --> WhisperSTT
-    STTOrchestrator --> SpeakerMatcher
-    SpeakerMatcher <--> EmbeddingAPI
-    SpeakerMatcher <--> DocSpeaker
-
-    STTOrchestrator --> TaskExtractor
-    TaskExtractor --> OpenAILLM
-    TaskExtractor --> DocMeeting
-    TaskExtractor --> DocTask
-    Chunker --> DocChunk
-
-    Editor -->|2. Hiệu chỉnh dữ liệu thoại| Router
-    TaskGrid -->|3. Yêu cầu xuất DOCX / Đồng bộ| Router
-    Router --> DocxGen
-    Router --> WorksuiteSync
-    WorksuiteSync -->|4. Push Tasks qua REST API| WorksuiteERP
-    DocSettings -.->|Cấu hình Keys & Token Caps| Router
-```
-
----
-
-## 2. Sơ đồ Luồng Xử lý Toàn trình (End-to-End Sequence Diagram)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as 👤 Người dùng (Frontend)
-    participant API as 🚀 Frappe API (voice_app.api)
-    participant Audio as 🎵 Audio Preprocessor
-    participant STT as 🎙️ Gemini STT & Diarization
-    participant Bio as 🧬 Speaker Manager
-    participant LLM as 🧠 NLP Task Extractor
-    participant DB as 🗄️ Database (DocTypes)
-    participant ERP as 🏢 Worksuite ERP
-
-    %% Phase 1: Upload & Preprocess
-    Note over User, Audio: Giai đoạn 1: Tiếp nhận và Tiền xử lý âm thanh
-    User->>API: Upload file ghi âm cuộc họp (.mp3, .wav, .m4a, .mp4)
-    API->>DB: Tạo bản ghi Voice Meeting (Trạng thái: "Processing")
-    API->>Audio: Chuẩn hóa 16kHz Mono WAV, đo thời lượng & lọc nhiễu
-    Audio->>Audio: Cắt đoạn MapReduce theo quãng lặng VAD (Chunks ~10-15 phút)
-    Audio->>DB: Lưu các bản ghi Voice Meeting Chunk
-
-    %% Phase 2: STT & Diarization
-    Note over API, Bio: Giai đoạn 2: Phiên âm STT & Nhận diện Giọng nói
-    loop Xử lý song song từng Chunk
-        API->>STT: Gửi Audio Chunk + Vocabulary vào Gemini STT
-        STT-->>API: Trả về Sub-Transcript kèm Timestamps & Speaker ID (Speaker 1, 2,...)
-        API->>Bio: Trích xuất Voice Embedding đặc trưng từ Audio Segment
-        Bio->>DB: So khớp Cosine Similarity với Vector giọng mẫu trong Voice Speaker
-        Bio-->>API: Gán danh tính thực (vd: "Anh Lê Thành - PAI")
-        API-->>User: [WebSocket] Bắn sự kiện cập nhật tiến độ Realtime (%)
-    end
-
-    %% Phase 3: Task Extraction & Summary
-    Note over API, LLM: Giai đoạn 3: Phân tích Văn bản & Trích xuất Tác vụ
-    API->>LLM: Ghép nối toàn bộ Transcript + Gửi Prompt bóc tách Task & Tóm tắt
-    LLM-->>API: Trả về JSON: Tóm tắt cuộc họp, Action Items, Deadline, Người phụ trách
-    API->>DB: Cập nhật Voice Meeting & Tự động tạo các bản ghi Voice Task
-    API-->>User: Trả về kết quả hoàn chỉnh hiển thị lên giao diện Web
-
-    %% Phase 4: Verification & Export
-    Note over User, ERP: Giai đoạn 4: Hiệu chỉnh, Xuất Biên bản & Đồng bộ ERP
-    opt Người dùng chỉnh sửa & Xuất Word
-        User->>API: Chỉnh sửa Text / Speaker / Deadline trên giao diện
-        API->>DB: Cập nhật lại Voice Meeting & Voice Task
-        User->>API: Bấm nút "Xuất Biên bản họp (.docx)"
-        API-->>User: Tải về file Word định dạng chuẩn Tập đoàn CT Group
-    end
-
-    opt Đồng bộ Task sang Worksuite ERP
-        User->>API: Bấm nút "Đồng bộ sang Worksuite"
-        API->>DB: Lấy danh sách Voice Task & Thông tin xác thực trong Voice App Settings
-        API->>ERP: Gọi REST API tạo Task / Milestone trên Worksuite ERP
-        ERP-->>API: Trả về Worksuite Task ID
-        API->>DB: Cập nhật trạng thái Voice Task sang "Synced"
-        API-->>User: Thông báo đồng bộ thành công
-    end
-```
-
----
-
-## 3. Luồng Xử lý Âm thanh & MapReduce Chunking
+Sơ đồ thể hiện cách các đối tượng dữ liệu (Data Objects) sinh ra, biến đổi và truyền nhận giữa các thành phần từ lúc nhận File âm thanh đầu vào cho đến khi tạo ra Task trên Worksuite ERP:
 
 ```mermaid
 flowchart TD
-    Start([Bắt đầu: File Audio/Video Input]) --> CheckExt{Kiểm tra định dạng file}
-    CheckExt -->|MP3, M4A, MP4, AAC, OGG| FFMPEG[Chuyển đổi sang WAV 16kHz Mono qua ffmpeg]
-    CheckExt -->|WAV| CheckLength[Kiểm tra thời lượng audio]
-    FFMPEG --> CheckLength
+    %% Input Objects
+    classDef inputObj fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#01579b;
+    classDef processObj fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#e65100;
+    classDef aiObj fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c;
+    classDef dbObj fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20;
+    classDef erpObj fill:#fbe9e7,stroke:#d84315,stroke-width:2px,color:#bf360c;
 
-    CheckLength --> DurationCheck{Thời lượng > 15 phút<br/>hoặc dung lượng > 20MB?}
-    
-    DurationCheck -->|Không| SingleChunk[Xử lý trực tiếp toàn bộ file]
-    DurationCheck -->|Có: Áp dụng MapReduce| VADSplit[Dò tìm các khoảng lặng giọng nói - WebRTC VAD]
-    
-    VADSplit --> SplitPoints[Xác định điểm cắt tối ưu tại ranh giới câu nói]
-    SplitPoints --> ChunkCreate[Sinh ra N file Audio Chunks nhỏ ~10 phút]
-    
-    ChunkCreate --> ParallelSTT[Xử lý song song STT đa luồng qua Gemini]
-    SingleChunk --> ParallelSTT
+    subgraph Phase1["🎵 GIAI ĐOẠN 1: AUDIO OBJECTS"]
+        RawAudio["📦 RawAudioFileObject<br/>• filename: .mp3 / .m4a / .wav<br/>• file_size: bytes<br/>• stream / buffer"]:::inputObj
+        
+        PcmWav["📦 NormalizedAudioObject<br/>• format: WAV PCM 16kHz Mono<br/>• duration_sec: float<br/>• sample_rate: 16000"]:::processObj
+        
+        AudioChunks["📦 AudioChunkObject [1..N]<br/>• chunk_id: str<br/>• chunk_index: int<br/>• start_time / end_time<br/>• chunk_bytes: wav"]:::processObj
+    end
 
-    ParallelSTT --> MergeChunks[Hợp nhất Transcript & Căn chỉnh Timestamps liên tục]
-    MergeChunks --> EndAudio([Hoàn tất: Full Diarized Transcript])
+    subgraph Phase2["🎙️ GIAI ĐOẠN 2: STT & SPEAKER DIARIZATION OBJECTS"]
+        GlobalVocab["⚙️ GlobalVocabularyConfig<br/>• CT Group, VGCT, CCTPA, LiDAR..."]:::inputObj
+        
+        GeminiRawResp["📦 GeminiSTTResponseObject<br/>• segments: Array<br/>&nbsp;&nbsp;├ start_sec / end_sec<br/>&nbsp;&nbsp;├ raw_speaker_id: 'Speaker 1'<br/>&nbsp;&nbsp;└ text: 'Nội dung phát biểu'"]:::aiObj
+        
+        SpeakerEmbedding["📦 AudioSegmentEmbedding<br/>• vector: Float32Array[512]<br/>• sample_rate: 16000"]:::aiObj
+        
+        VoiceSpeakerProfile["👤 VoiceSpeakerProfile (DB)<br/>• speaker_name: 'Anh Lê Thành'<br/>• employee_code: 'CT001'<br/>• stored_embedding: Float32[512]"]:::dbObj
+        
+        DiarizedSegment["📦 AnnotatedTranscriptSegment<br/>• segment_index: int<br/>• start_time: 00:01:25<br/>• end_time: 00:02:10<br/>• speaker_name: 'Anh Lê Thành'<br/>• department: 'PAI'<br/>• content: 'Triển khai dự án AI'"]:::processObj
+    end
+
+    subgraph Phase3["🧠 GIAI ĐOẠN 3: MEETING INTELLIGENCE & TASK OBJECTS"]
+        FullMeetingTranscript["📦 FullMeetingTranscriptObject<br/>• meeting_id: 'VOICE-MEET-2026-001'<br/>• title: 'Họp triển khai PAI'<br/>• full_segments: Array&lt;Segment&gt;<br/>• attendees: Array&lt;Speaker&gt;"]:::processObj
+        
+        LLMTaskPayload["📦 LLMTaskExtractionPrompt<br/>• system_prompt: CT Group Rules<br/>• transcript_text: Full Text<br/>• response_schema: JSON"]:::aiObj
+        
+        LLMExtractionJSON["📦 LLMStructuredOutputObject<br/>• summary: 'Tóm tắt kết luận'<br/>• key_decisions: Array&lt;str&gt;<br/>• extracted_tasks: Array&lt;Task&gt;<br/>&nbsp;&nbsp;├ title: 'Hoàn thiện API'<br/>&nbsp;&nbsp;├ assignee: 'Lê Thành Anh'<br/>&nbsp;&nbsp;├ deadline: '2026-08-30'<br/>&nbsp;&nbsp;└ priority: 'High'"]:::aiObj
+    end
+
+    subgraph Phase4["💾 GIAI ĐOẠN 4: DOCTYPE DATABASE ENTITIES"]
+        DocVoiceMeeting["🗄️ DocType: Voice Meeting<br/>• name: VOICE-MEET-2026-001<br/>• full_transcript: longtext<br/>• meeting_summary: longtext<br/>• status: 'Completed'"]:::dbObj
+        
+        DocVoiceMeetingChunk["🗄️ DocType: Voice Meeting Chunk [N]<br/>• parent: VOICE-MEET-2026-001<br/>• chunk_transcript: text<br/>• status: 'Done'"]:::dbObj
+        
+        DocVoiceTask["🗄️ DocType: Voice Task [1..M]<br/>• parent: VOICE-MEET-2026-001<br/>• task_title: 'Hoàn thiện API'<br/>• assignee: 'Lê Thành Anh'<br/>• deadline: 2026-08-30<br/>• status: 'Pending'"]:::dbObj
+    end
+
+    subgraph Phase5["🏢 GIAI ĐOẠN 5: OUTPUT & EXTERNAL ERP OBJECTS"]
+        DocxTemplateContext["📄 DocxTemplateContextObject<br/>• company_logo: 'CTGROUP.png'<br/>• meeting_title: str<br/>• summary_table: HTML/Dict<br/>• task_matrix: Array&lt;Task&gt;"]:::processObj
+        
+        DocxFile["📄 WordReportFileObject<br/>• filename: 'BienBanHop_PAI.docx'<br/>• format: DOCX binary"]:::inputObj
+        
+        WorksuiteTaskPayload["📦 WorksuiteTaskRESTPayload<br/>• project_id: 'PRJ-101'<br/>• heading: 'Hoàn thiện API'<br/>• user_id: 'USR-88'<br/>• due_date: '2026-08-30'"]:::erpObj
+        
+        WorksuiteTaskResponse["🏢 WorksuiteTaskRecord (ERP)<br/>• id: 1849<br/>• status: 'in_progress'<br/>• created_at: datetime"]:::erpObj
+    end
+
+    %% Object Transformations Flow
+    RawAudio -->|pydub / ffmpeg normalize| PcmWav
+    PcmWav -->|WebRTC VAD split| AudioChunks
+    
+    AudioChunks -->|Map: Gửi Audio Chunk + Vocab| GeminiRawResp
+    GlobalVocab -.-> GeminiRawResp
+    
+    AudioChunks -->|Extract Audio Slices| SpeakerEmbedding
+    SpeakerEmbedding <-->|Cosine Similarity Match| VoiceSpeakerProfile
+    
+    GeminiRawResp -->|Gán Speaker Profile| DiarizedSegment
+    VoiceSpeakerProfile -.-> DiarizedSegment
+    
+    DiarizedSegment -->|Reduce: Ghép toàn bộ segments| FullMeetingTranscript
+    AudioChunks -->|Lưu vết chunks| DocVoiceMeetingChunk
+    
+    FullMeetingTranscript -->|Đóng gói Prompt| LLMTaskPayload
+    LLMTaskPayload -->|OpenAI GPT-4o Inference| LLMExtractionJSON
+    
+    LLMExtractionJSON -->|Save Meeting Header & Summary| DocVoiceMeeting
+    LLMExtractionJSON -->|Save Task Rows| DocVoiceTask
+    DocVoiceMeeting -.->|Has Many| DocVoiceTask
+    DocVoiceMeeting -.->|Has Many| DocVoiceMeetingChunk
+    
+    DocVoiceMeeting & DocVoiceTask -->|Build Context| DocxTemplateContext
+    DocxTemplateContext -->|Render docx_utils.py| DocxFile
+    
+    DocVoiceTask -->|Map Field & User ID| WorksuiteTaskPayload
+    WorksuiteTaskPayload -->|POST /api/v1/tasks| WorksuiteTaskResponse
+    WorksuiteTaskResponse -->|Update worksuite_task_id & set status='Synced'| DocVoiceTask
 ```
 
 ---
 
-## 4. Luồng Nhận diện Giọng nói Sinh trắc học (Speaker Biometrics & Diarization)
+## 2. Chi tiết Cấu trúc Dữ liệu & Biến đổi Đối tượng (Data Transformation Breakdown)
+
+### 🔹 Bước 1: `RawAudioFileObject` ➔ `NormalizedAudioObject` ➔ `AudioChunkObject[]`
+```json
+// AudioChunkObject
+{
+  "chunk_id": "CHK_VOICE_001_01",
+  "chunk_index": 1,
+  "start_time_sec": 0.0,
+  "end_time_sec": 624.5,
+  "sample_rate": 16000,
+  "audio_base64_or_path": "/private/files/chunks/chunk_01.wav"
+}
+```
+
+### 🔹 Bước 2: `GeminiSTTResponseObject` ➔ `AnnotatedTranscriptSegment[]`
+```json
+// AnnotatedTranscriptSegment (Sau khi nhận diện giọng nói)
+{
+  "segment_index": 3,
+  "start_time": "00:02:15",
+  "end_time": "00:03:40",
+  "raw_speaker_tag": "Speaker 2",
+  "identified_speaker": {
+    "speaker_id": "SPK-0012",
+    "name": "Lê Thành Anh",
+    "department": "PAI",
+    "confidence_score": 0.89
+  },
+  "text": "Nhóm AI sẽ hoàn thiện module nhận diện giọng nói và bàn giao trước ngày 30 tháng 8."
+}
+```
+
+### 🔹 Bước 3: `LLMStructuredOutputObject` ➔ `DocType: Voice Task[]`
+```json
+// LLMStructuredOutputObject
+{
+  "meeting_summary": "Cuộc họp thống nhất tiến độ triển khai dự án AI Voice Transcription, phê duyệt kế hoạch tích hợp Worksuite ERP.",
+  "key_decisions": [
+    "Sử dụng Gemini Flash làm STT chính và GPT-4o cho bóc tách Task",
+    "Đồng bộ trực tiếp Task sang Worksuite ERP sau khi họp xong"
+  ],
+  "tasks": [
+    {
+      "task_title": "Hoàn thiện module nhận diện giọng nói (Speaker Diarization)",
+      "assignee": "Lê Thành Anh",
+      "department": "PAI",
+      "deadline": "2026-08-30",
+      "priority": "High",
+      "notes": "Trích xuất từ phát biểu của Lê Thành Anh lúc 00:02:15"
+    }
+  ]
+}
+```
+
+---
+
+## 3. Sơ đồ Chuyển hóa Trạng thái Đối tượng (Object Lifecycle & State Transitions)
+
+```mermaid
+stateDiagram-v2
+    [*] --> VoiceMeeting_Draft: Upload Audio File
+    
+    state VoiceMeeting_Draft {
+        [*] --> Uploaded: Lưu file âm thanh gốc
+        Uploaded --> Chunking: Chia nhỏ file MapReduce
+        Chunking --> Processing_STT: Gửi các Chunk sang Gemini
+        Processing_STT --> Diarizing: So khớp Vector Giọng nói
+        Diarizing --> Extracting_Tasks: AI GPT-4o bóc tách Task & Summary
+        Extracting_Tasks --> Completed: Tạo xong đầy đủ DocTypes
+        Processing_STT --> Failed: Lỗi API Key / Timeout
+    }
+    
+    state VoiceTask_Lifecycle {
+        [*] --> Task_Pending: Tạo mới từ AI Extraction
+        Task_Pending --> Task_Verified: Người dùng chỉnh sửa / xác nhận
+        Task_Verified --> Task_Syncing: Gọi API Worksuite
+        Task_Syncing --> Task_Synced: Lưu worksuite_task_id thành công
+        Task_Syncing --> Task_Sync_Failed: Lỗi kết nối ERP
+        Task_Sync_Failed --> Task_Syncing: Thử lại (Retry)
+    }
+
+    VoiceMeeting_Draft --> VoiceTask_Lifecycle: Kích hoạt quản lý Task
+    Completed --> [*]
+```
+
+---
+
+## 4. Sơ đồ Đối tượng Nhận diện Sinh trắc học Giọng nói (Voice Biometrics Object Flow)
 
 ```mermaid
 flowchart LR
-    SegAudio[Đoạn âm thanh chứa giọng nói của Speaker X] --> Extractor[Voice Embedding Model<br/>Trích xuất Vector 512 chiều]
-    Extractor --> Vector[(Vector Giọng nói Hiện tại)]
-    
-    Vector --> DBQuery[(Thư viện Voice Speaker DB<br/>Chứa mẫu giọng nhân sự đã học)]
-    
-    DBQuery --> CosineCalc[Tính khoảng cách Cosine Similarity<br/>scipy.spatial.distance.cosine]
-    
-    CosineCalc --> MatchCheck{Độ tương đồng >= 0.75?}
-    
-    MatchCheck -->|Có| AssignName[Gán tên nhân sự đã nhận diện<br/>vd: 'Anh Lê Thành - PAI']
-    MatchCheck -->|Không| Fallback[Giữ nguyên nhãn tạm<br/>'Speaker 1 / Người nói 1']
-    
-    AssignName --> UpdateTranscript[Cập nhật vào dòng thoại Transcript]
-    Fallback --> UpdateTranscript
+    subgraph AudioSegment["🎵 Audio Segment Data"]
+        AudioWav["PCM 16kHz Slice<br/>(3-5 giây giọng nói)"]
+    end
+
+    subgraph FeatureExtractor["🧬 Feature Extraction Model"]
+        Pyannote["Pyannote / Resemblyzer Engine"]
+        CurrentVector["Vector[512] (Float Array)"]
+    end
+
+    subgraph SpeakerDB["👤 Voice Speaker Database"]
+        RegisteredVector1["Vector Mẫu 1: 'Chủ tịch'"]
+        RegisteredVector2["Vector Mẫu 2: 'Anh Lê Thành'"]
+        RegisteredVector3["Vector Mẫu 3: 'Chị Mai Lan'"]
+    end
+
+    subgraph Matcher["📐 Vector Distance Calculator"]
+        CosineEngine["scipy.spatial.distance.cosine()"]
+        Score1["Similarity: 0.42 (Không khớp)"]
+        Score2["Similarity: 0.91 (Khớp >= 0.75)"]
+        Score3["Similarity: 0.38 (Không khớp)"]
+    end
+
+    subgraph Output["🎯 Kết quả định danh"]
+        FinalIdentity["Speaker Tag: 'Anh Lê Thành - PAI'"]
+    end
+
+    AudioWav --> Pyannote --> CurrentVector
+    CurrentVector --> CosineEngine
+    RegisteredVector1 & RegisteredVector2 & RegisteredVector3 --> CosineEngine
+    CosineEngine --> Score1 & Score2 & Score3
+    Score2 --> FinalIdentity
 ```
 
 ---
 
-## 5. Luồng Bóc tách Tác vụ AI & Tạo Biên bản Họp (Task Extraction & Minutes)
+## 5. Sơ đồ Đối tượng Bóc tách Tác vụ & Đồng bộ ERP (Task Extraction to ERP Object Flow)
 
 ```mermaid
 flowchart TD
-    FullText[Full Diarized Transcript] --> PromptBuilder[Ghép System Prompt chuyên dụng + Context]
-    
-    PromptBuilder --> LLMEngine[OpenAI GPT-4o / Gemini Pro Reasoning]
-    
-    LLMEngine --> JSONOutput{Phân tích cấu trúc JSON}
-    
-    JSONOutput --> SummarySection[1. Tóm tắt Nội dung Cuộc họp & Ý kiến Lãnh đạo]
-    JSONOutput --> TaskSection[2. Ma trận Công việc: Task, Assignee, Deadline, Priority]
-    JSONOutput --> DecisionSection[3. Kết luận & Quyết định chính]
-    
-    SummarySection --> SaveDB[Lưu vào DocType Voice Meeting]
-    TaskSection --> SaveTasks[Tạo các bản ghi DocType Voice Task]
-    DecisionSection --> SaveDB
-    
-    SaveDB & SaveTasks --> ExportDocx[Nạp dữ liệu vào Template docx_utils.py]
-    ExportDocx --> FileDownload([File Biên bản họp .docx chuẩn CT Group])
+    subgraph Input["1. Input Object"]
+        TransDoc["📄 Voice Meeting Transcript<br/>(Diarized Text kèm Speaker & Timestamps)"]
+    end
+
+    subgraph AIProcessing["2. AI Reasoning Object"]
+        SystemRules["📜 System Prompt & Rules<br/>(Chuẩn hóa đầu việc, gán Deadline, lọc việc rác)"]
+        LLM["🧠 OpenAI GPT-4o Engine"]
+        TaskJson["📋 Extracted Task Array (JSON)"]
+    end
+
+    subgraph FrappeDB["3. Database Entity Objects"]
+        TaskDoc1["🗄️ Voice Task #1: 'Code STT Engine'<br/>Assignee: Lê Thành Anh | Status: Pending"]
+        TaskDoc2["🗄️ Voice Task #2: 'Test Micro họp'<br/>Assignee: Nguyễn Văn B | Status: Pending"]
+    end
+
+    subgraph ERPSync["4. Worksuite ERP Objects"]
+        PayloadMapper["🔄 Payload Field Mapper<br/>Ánh xạ Tên nhân viên ➔ user_id ERP<br/>Ánh xạ Tên dự án ➔ project_id ERP"]
+        RESTClient["🌐 HTTP Client (POST /api/v1/tasks)"]
+        WorksuiteTask1["🏢 Worksuite Task #1048 (Created)"]
+        WorksuiteTask2["🏢 Worksuite Task #1049 (Created)"]
+    end
+
+    TransDoc & SystemRules --> LLM --> TaskJson
+    TaskJson --> TaskDoc1 & TaskDoc2
+    TaskDoc1 & TaskDoc2 --> PayloadMapper --> RESTClient
+    RESTClient --> WorksuiteTask1 & WorksuiteTask2
 ```
 
 ---
 
-## 6. Luồng Đồng bộ Hóa Tác vụ sang Worksuite ERP
-
-```mermaid
-flowchart TD
-    UserTrigger([Người dùng bấm 'Đồng bộ sang Worksuite']) --> GetTasks[Lấy danh sách Voice Task đang ở trạng thái 'Pending']
-    GetTasks --> GetSettings[Đọc Worksuite URL & API Token từ 'Voice App Settings']
-    
-    GetSettings --> LoopTasks{Duyệt từng Task}
-    
-    LoopTasks --> ProjectMap[Ánh xạ Tên Dự án & Nhân sự trên Worksuite]
-    ProjectMap --> APICall[Gọi REST API: POST /api/v1/tasks]
-    
-    APICall --> ResCheck{Kết quả gọi API?}
-    
-    ResCheck -->|Thành công| UpdateTask[Lưu worksuite_task_id & set status = 'Synced']
-    ResCheck -->|Thất bại| LogError[Ghi nhật ký Voice AI Call Log & gắn cờ lỗi]
-    
-    UpdateTask --> NextCheck{Còn Task tiếp theo?}
-    LogError --> NextCheck
-    
-    NextCheck -->|Còn| LoopTasks
-    NextCheck -->|Hết| FinishSync([Hoàn tất: Báo cáo kết quả đồng bộ])
-```
-
----
-
-## 7. Cấu trúc Cơ sở Dữ liệu & Thực thể (DocType Schema ERD)
+## 6. Sơ đồ Liên kết Thực thể Dữ liệu (DocType Entity Relationship)
 
 ```mermaid
 erDiagram
-    Voice_Meeting ||--o{ Voice_Meeting_Chunk : "chứa các chunk"
-    Voice_Meeting ||--o{ Voice_Task : "chứa các task"
-    Voice_Speaker ||--o{ Voice_Meeting : "tham gia vào"
-    Voice_App_Settings ||--|| Voice_Meeting : "cấu hình chung"
-    Voice_Meeting ||--o{ Voice_AI_Call_Log : "lưu vết AI call"
+    Voice_Meeting ||--o{ Voice_Meeting_Chunk : "gồm nhiều chunk (1:N)"
+    Voice_Meeting ||--o{ Voice_Task : "sinh ra nhiều task (1:N)"
+    Voice_Speaker ||--o{ Voice_Meeting : "tham gia phát biểu (N:M)"
+    Voice_App_Settings ||--|| Voice_Meeting : "cung cấp API Key (1:1)"
+    Voice_Meeting ||--o{ Voice_AI_Call_Log : "ghi vết gọi AI (1:N)"
 
     Voice_Meeting {
-        string name PK "Mã cuộc họp (VOICE-MEET-YYYY-XXXXX)"
-        string title "Tiêu đề cuộc họp"
-        datetime meeting_date "Thời gian họp"
-        string audio_file "Đường dẫn file ghi âm gốc"
+        string name PK "Mã cuộc họp"
+        string title "Tên cuộc họp"
+        datetime meeting_date "Ngày giờ họp"
+        string audio_file "Đường dẫn file ghi âm"
         string status "Uploaded | Processing | Completed | Failed"
-        longtext full_transcript "Toàn bộ nội dung hội thoại"
-        longtext meeting_summary "Tóm tắt & kết luận cuộc họp"
-        string created_by "Người khởi tạo"
+        longtext full_transcript "Toàn bộ hội thoại"
+        longtext meeting_summary "Tóm tắt cuộc họp"
     }
 
     Voice_Meeting_Chunk {
         string name PK "Mã chunk"
-        string parent_meeting FK "Liên kết Voice Meeting"
-        int chunk_index "Thứ tự chunk"
-        float start_time "Thời điểm bắt đầu (giây)"
-        float end_time "Thời điểm kết thúc (giây)"
+        string parent_meeting FK "Mã cuộc họp cha"
+        int chunk_index "Số thứ tự chunk"
+        float start_time "Giây bắt đầu"
+        float end_time "Giây kết thúc"
         text chunk_transcript "Văn bản thoại đoạn này"
         string status "Done | Failed"
     }
 
     Voice_Task {
-        string name PK "Mã task (VOICE-TASK-XXXXX)"
-        string parent_meeting FK "Cuộc họp gốc"
-        string task_title "Nội dung đầu việc"
-        string assignee "Người chịu trách nhiệm"
-        date deadline "Hạn hoàn thành"
+        string name PK "Mã tác vụ"
+        string parent_meeting FK "Mã cuộc họp"
+        string task_title "Tên công việc"
+        string assignee "Người phụ trách"
+        date deadline "Thời hạn"
         string priority "High | Medium | Low"
-        string status "Pending | Synced | Cancelled"
-        string worksuite_task_id "ID tác vụ tương ứng trên ERP"
+        string status "Pending | Synced"
+        string worksuite_task_id "ID trên Worksuite ERP"
     }
 
     Voice_Speaker {
-        string name PK "Tên định danh người nói"
-        string speaker_name "Họ và tên đầy đủ"
-        string employee_code "Mã nhân viên"
-        string department "Phòng ban / Đơn vị"
-        blob voice_embedding_vector "Vector sinh trắc học giọng nói"
-        int sample_count "Số lượng mẫu giọng đã học"
+        string name PK "Mã người nói"
+        string speaker_name "Họ và tên"
+        string employee_code "Mã nhân sự"
+        string department "Phòng ban"
+        blob voice_embedding_vector "Vector 512-dim"
+        int sample_count "Số mẫu giọng đã nạp"
     }
 
     Voice_App_Settings {
-        string whisper_url "URL Whisper local/server"
-        string gemini_api_key "API Key Google Gemini"
-        string gemini_model "Tên model Gemini STT"
-        int gemini_stt_max_output_tokens "Trần token tối đa của STT"
+        string gemini_api_key "API Key Gemini"
+        string gemini_model "Tên Model Gemini"
+        int gemini_stt_max_output_tokens "Trần token STT"
         string openai_api_key "API Key OpenAI"
-        string worksuite_url "Địa chỉ Worksuite ERP"
-        string sync_api_token "Token xác thực Worksuite"
-        text global_vocabulary "Từ điển thuật ngữ doanh nghiệp CT Group"
+        string worksuite_url "URL Worksuite ERP"
+        string sync_api_token "Token Worksuite"
+        text global_vocabulary "Từ điển thuật ngữ CT Group"
     }
 
     Voice_AI_Call_Log {
-        string name PK
-        string meeting_id FK
-        string provider "Google Gemini | OpenAI | ElevenLabs"
-        int prompt_tokens
-        int completion_tokens
-        float latency_ms
+        string name PK "Mã log"
+        string meeting_id FK "Cuộc họp liên quan"
+        string provider "Gemini | OpenAI | ElevenLabs"
+        int prompt_tokens "Số token đầu vào"
+        int completion_tokens "Số token sinh ra"
+        float latency_ms "Độ trễ (ms)"
         string status "Success | Error"
     }
 ```
-
----
-
-## 8. Danh mục API & Module Mapping
-
-| Endpoint API (Frappe Method) | Module nguồn | Mục đích sử dụng |
-| :--- | :--- | :--- |
-| `voice_app.api.get_context` | `voice_app/api.py` | Khởi tạo phiên làm việc, cấp CSRF token và thông tin user hiện tại. |
-| `voice_app.api.process_meeting_audio` | `voice_app/api.py` | Tiếp nhận file audio, kích hoạt toàn bộ pipeline MapReduce STT. |
-| `voice_app.api.get_meeting_detail` | `voice_app/api.py` | Lấy chi tiết Transcript, danh sách Speaker, Tóm tắt và Task của cuộc họp. |
-| `voice_app.api.update_transcript_segment`| `voice_app/api.py` | Cập nhật đoạn văn bản thoại hoặc gán lại Speaker thủ công. |
-| `voice_app.api.extract_tasks` | `voice_app/task_extractor.py`| Chạy lại AI LLM để bóc tách lại Task và Action Items từ Transcript. |
-| `voice_app.api.export_docx` | `voice_app/docx_utils.py` | Xuất Biên bản cuộc họp chính thức ra định dạng `.docx` theo chuẩn CT Group. |
-| `voice_app.api.sync_to_worksuite` | `voice_app/api.py` | Đẩy danh sách Voice Task đã duyệt sang hệ thống Worksuite ERP. |
-| `voice_app.api.register_speaker_sample` | `voice_app/speaker_manager.py` | Nạp mẫu âm thanh mới để huấn luyện nhận diện giọng nói cho nhân sự. |
-
----
-
-## 💡 9. Tổng kết Giá trị Nghiệp vụ:
-- **Tự động hóa 100% quy trình họp:** Từ lúc bật ghi âm đến khi sinh ra Biên bản họp hoàn chỉnh chỉ mất **1-2 phút**.
-- **Chính xác theo văn hóa CT Group:** Nhận diện chuẩn xác các từ khóa đặc thù như *CT Group, CCTPA, VGCT, Metrostar, Green Bond, Carbon Credit, LiDAR, eVTOL...*
-- **Liên thông dữ liệu:** Không còn tình trạng giao việc miệng bị quên; mọi cam kết trong cuộc họp đều được chuyển thành Task số trên hệ thống ERP ngay lập tức.
