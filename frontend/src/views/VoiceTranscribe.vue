@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   audioFile, language, modelType, isTranscribing, transcribeStatus, transcriptResults,
   isCleaned, transcriptText, isExtracting, extractStatus,
@@ -7,7 +8,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript } from '../api'
+import { transcribeAudio, extractTasks, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx } from '../api'
 import { currentMeetingName, currentMeeting, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -26,6 +27,35 @@ const undoAction = async () => {
   originalTranscriptResults.value = JSON.parse(JSON.stringify(prevState))
   if (currentMeetingName.value) {
     await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+  }
+}
+
+const downloadFile = (url) => {
+  if (!url) return
+  const link = document.createElement('a')
+  link.href = url
+  const parts = url.split('/')
+  link.download = parts[parts.length - 1] || 'file'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+const isExportingMinutes = ref(false)
+const handleExportMinutes = async () => {
+  if (!currentMeetingName.value) return
+  isExportingMinutes.value = true
+  try {
+    const res = await exportDynamicDocx(currentMeetingName.value)
+    if (res.status === 'success' && res.file_url) {
+      downloadFile(res.file_url)
+    } else {
+      ElMessage.error(res.message || 'Không thể xuất DOCX')
+    }
+  } catch (e) {
+    ElMessage.error('Lỗi khi xuất DOCX')
+  } finally {
+    isExportingMinutes.value = false
   }
 }
 
@@ -348,7 +378,7 @@ const speakerStats = computed(() => {
   for (const seg of transcriptResults.value) {
     const speaker = seg[2] || ''
     if (!speaker) continue
-    if (speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
+    if (speaker.includes('Speaker') || speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
       unknownGroups.add(speaker)
       unknownSegments += 1
     } else {
@@ -832,6 +862,11 @@ const startExtractTasks = async () => {
          <button @click="openTaskModal" class="px-4 py-2 bg-primary text-white hover:bg-primary/90 rounded-md font-medium flex items-center gap-sm shadow-sm transition-colors text-body-sm" :disabled="isExtracting">
            <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
            {{ tasks.length > 0 ? "Xem Task đã tạo" : t('extract_task') }}
+         </button>
+
+         <button @click="handleExportMinutes" :disabled="isExportingMinutes || !currentMeetingName" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm text-gray-900 dark:text-on-surface disabled:opacity-50 disabled:cursor-not-allowed">
+           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExportingMinutes }">{{ isExportingMinutes ? 'autorenew' : 'description' }}</span>
+           {{ isExportingMinutes ? 'Đang xuất...' : 'Xuất Biên bản họp' }}
          </button>
       </div>
       <p class="text-xs text-orange-600 dark:text-orange-300 mt-2">

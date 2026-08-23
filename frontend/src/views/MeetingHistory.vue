@@ -286,7 +286,7 @@ const speakerStats = computed(() => {
   for (const seg of localSegments.value) {
     const speaker = seg[2] || ''
     if (!speaker) continue
-    if (speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
+    if (speaker.includes('Speaker') || speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
       unknownGroups.add(speaker)
       unknownSegments += 1
     } else {

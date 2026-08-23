@@ -107,8 +107,12 @@ def concat_speaker_segments(wav_path: str, segs: list,
 
     for i, seg in enumerate(candidates):
         seg_duration = seg["end"] - seg["start"]
-        head_trim = 0.2 if seg_duration >= 0.8 else 0.0
-        tail_trim = 0.6 if seg_duration >= 1.4 else 0.0
+        # Trim tỉ lệ theo độ dài thay vì bật/tắt theo ngưỡng cứng: timestamp
+        # giữa 2 lượt nói khác speaker có thể sát nhau gần 0s (VAD fallback,
+        # hoặc chỉ hơi lệch dù dùng FA), nên đoạn ngắn vẫn cần 1 chút đệm để
+        # không dính giọng người nói liền trước/sau, thay vì trim=0 tuyệt đối.
+        head_trim = min(0.2, seg_duration * 0.2)
+        tail_trim = min(0.6, seg_duration * 0.4)
         seg_start = seg["start"] + head_trim
         seg_end   = seg["end"] - tail_trim
         

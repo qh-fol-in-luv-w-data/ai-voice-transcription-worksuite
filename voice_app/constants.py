@@ -115,7 +115,7 @@ def get_gemini_model():
 
 def get_gemini_stt_max_output_tokens():
     """Maximum Gemini output tokens per STT chunk."""
-    default = 10000
+    default = 64000
     try:
         if frappe.db:
             val = frappe.db.get_single_value("Voice App Settings", "gemini_stt_max_output_tokens")
@@ -193,7 +193,7 @@ SPEAKER_DB_PATH = os.path.join(BASE_DIR, "speaker_db.json")
 SIMILARITY_THRESHOLD = 0.30  # Nhận diện speaker từ DB khi similarity >= 0.30
 # ==============================================================================
 # NGƯỠNG GỘP NHÓM (CLUSTERING THRESHOLD)
-# - Dùng khi gộp các Speaker không có trong DB (Người lạ) thành các cụm.
+# - Dùng khi gộp các Speaker không có trong DB (Speaker) thành các cụm.
 # - Nếu độ tương đồng cosine >= MERGE_THRESHOLD, gộp chung nhóm.
 MERGE_THRESHOLD = 0.45
 # ==============================================================================
