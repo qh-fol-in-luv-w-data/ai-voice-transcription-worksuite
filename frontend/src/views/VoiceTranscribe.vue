@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   audioFile, language, modelType, isTranscribing, transcribeStatus, transcriptResults,
   isCleaned, transcriptText, isExtracting, extractStatus,
@@ -7,8 +8,8 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, enrollSpeakerFromSegment } from '../api'
-import { currentMeetingName, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
+import { transcribeAudio, extractTasks, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx } from '../api'
+import { currentMeetingName, currentMeeting, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
 const transcribeProgress = ref(0)
@@ -26,6 +27,35 @@ const undoAction = async () => {
   originalTranscriptResults.value = JSON.parse(JSON.stringify(prevState))
   if (currentMeetingName.value) {
     await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
+  }
+}
+
+const downloadFile = (url) => {
+  if (!url) return
+  const link = document.createElement('a')
+  link.href = url
+  const parts = url.split('/')
+  link.download = parts[parts.length - 1] || 'file'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+const isExportingMinutes = ref(false)
+const handleExportMinutes = async () => {
+  if (!currentMeetingName.value) return
+  isExportingMinutes.value = true
+  try {
+    const res = await exportDynamicDocx(currentMeetingName.value)
+    if (res.status === 'success' && res.file_url) {
+      downloadFile(res.file_url)
+    } else {
+      ElMessage.error(res.message || 'Không thể xuất DOCX')
+    }
+  } catch (e) {
+    ElMessage.error('Lỗi khi xuất DOCX')
+  } finally {
+    isExportingMinutes.value = false
   }
 }
 
@@ -83,7 +113,11 @@ const editingSpeaker = ref(null)
 const editingSpeakerName = ref('')
 const newSpeakerEmployee = ref('')
 const isRescanning = ref(false)
+const isNormalizingTranscript = ref(false)
 const rescanMessage = ref('')
+const canRunAudioRescan = computed(() =>
+  !!audioFile.value || !!currentMeeting.value?.audio_file
+)
 
 const startEditText = (idx) => {
   editingIdx.value = idx
@@ -111,14 +145,6 @@ const saveEditSpeaker = async (idx) => {
 
   if (!finalName.trim()) { editingSpeaker.value = null; return }
   saveState()
-  
-  if (currentMeetingName.value) {
-    try {
-      await enrollSpeakerFromSegment(currentMeetingName.value, idx, finalName.trim())
-    } catch (e) {
-      console.warn("Failed to enroll speaker:", e)
-    }
-  }
 
   const oldName = transcriptResults.value[idx][2]
   for (const seg of transcriptResults.value) {
@@ -133,11 +159,52 @@ const saveEditSpeaker = async (idx) => {
   }
 }
 
+const rescanFromEditedTranscript = async () => {
+  if (!currentMeetingName.value) {
+    alert('Vui lòng transcribe trước khi dùng tính năng này!')
+    return
+  }
+  if (!canRunAudioRescan.value) {
+    alert('Meeting này không có audio gốc nên không thể quét lại AI.')
+    return
+  }
+  if (editingSpeaker.value !== null || editingIdx.value !== null) {
+    alert('Lưu hoặc hủy phần đang chỉnh trước khi quét lại AI')
+    return
+  }
+
+  isRescanning.value = true
+  rescanMessage.value = 'Đang quét lại toàn bộ cuộc họp theo tên đã sửa...'
+
+  try {
+    saveState()
+    const res = await rescanMeetingFromCurrentLabels(currentMeetingName.value)
+    if (res && res.status === 'success') {
+      transcriptResults.value = res.results || transcriptResults.value
+      originalTranscriptResults.value = JSON.parse(JSON.stringify(transcriptResults.value))
+      rescanMessage.value = res.message || 'Quét lại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 3000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isRescanning.value = false
+  }
+}
+
 const saveAndRescanSpeaker = async (idx) => {
   const finalName = newSpeakerEmployee.value
   if (!finalName.trim()) { editingSpeaker.value = null; return }
   if (!currentMeetingName.value) {
     alert('Vui lòng transcribe trước khi dùng tính năng này!')
+    return
+  }
+  if (!canRunAudioRescan.value) {
+    alert('Meeting này không có audio gốc nên không thể quét lại AI.')
     return
   }
 
@@ -162,6 +229,43 @@ const saveAndRescanSpeaker = async (idx) => {
     rescanMessage.value = ''
   } finally {
     isRescanning.value = false
+  }
+}
+
+const normalizeTranscript = async () => {
+  if (!currentMeetingName.value) {
+    alert('Vui lòng transcribe trước khi chuẩn hoá hội thoại!')
+    return
+  }
+  if (!canNormalizeTranscript.value) {
+    alert('Vẫn còn người lạ trong transcript, gán hết tên rồi hãy chuẩn hoá hội thoại.')
+    return
+  }
+  if (editingSpeaker.value !== null || editingIdx.value !== null) {
+    alert('Lưu hoặc hủy phần đang chỉnh trước khi chuẩn hoá hội thoại')
+    return
+  }
+
+  isNormalizingTranscript.value = true
+  rescanMessage.value = 'Đang chuẩn hoá hội thoại...'
+
+  try {
+    saveState()
+    const res = await normalizeMeetingTranscript(currentMeetingName.value)
+    if (res && res.status === 'success') {
+      transcriptResults.value = res.results || transcriptResults.value
+      originalTranscriptResults.value = JSON.parse(JSON.stringify(transcriptResults.value))
+      rescanMessage.value = res.message || 'Chuẩn hoá hội thoại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 3000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isNormalizingTranscript.value = false
   }
 }
 
@@ -267,12 +371,46 @@ const uniqueSpeakers = computed(() => {
   return Array.from(speakers)
 })
 
+const speakerStats = computed(() => {
+  const known = new Set()
+  const unknownGroups = new Set()
+  let unknownSegments = 0
+  for (const seg of transcriptResults.value) {
+    const speaker = seg[2] || ''
+    if (!speaker) continue
+    if (speaker.includes('Speaker') || speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
+      unknownGroups.add(speaker)
+      unknownSegments += 1
+    } else {
+      known.add(speaker)
+    }
+  }
+  return {
+    knownCount: known.size,
+    unknownGroupCount: unknownGroups.size,
+    unknownSegments
+  }
+})
+
+const canNormalizeTranscript = computed(() =>
+  transcriptResults.value.length > 0 && speakerStats.value.unknownSegments === 0
+)
+
+const formatEmployeeOption = (emp) => {
+  const name = emp.employee_name || emp.user_id || ''
+  const isVoiceSpeaker = emp.designation === 'Voice Speaker'
+  const parts = [name]
+  if (emp.user_id && emp.user_id !== name) parts.push(emp.user_id)
+  if (emp.designation && !(isVoiceSpeaker && name.includes('Voice Speaker'))) parts.push(emp.designation)
+  return parts.filter(Boolean).join(' - ')
+}
+
 const employeeOptions = computed(() =>
   dbEmployees.value.map(emp => {
-    const fullString = [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
+    const label = formatEmployeeOption(emp)
     return {
-      value: fullString,
-      label: fullString
+      value: emp.employee_name || emp.user_id || label,
+      label
     }
   })
 )
@@ -307,8 +445,15 @@ const enrollMapped = async () => {
       let msg = '✅ Đã cập nhật tên.'
       if (enrolled.length) msg += ` Đăng ký giọng: ${enrolled.join(', ')}.`
       if (skipped.length) msg += ` Đã có sẵn: ${skipped.join(', ')}.`
+      if (res?.reassigned_count !== undefined) msg += ` Quét lại: ${res.reassigned_count} đoạn.`
       if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
       alert(msg)
+      if (res?.results) {
+        saveState()
+        transcriptResults.value = res.results
+        speakerMapping.value = {}
+        return
+      }
     }
     saveState()
     for (const seg of transcriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
@@ -631,7 +776,7 @@ const startExtractTasks = async () => {
           <span class="material-symbols-outlined text-[20px]">person_add</span>
           Sửa / Gán tên người tham dự
         </h3>
-        <p class="text-sm text-gray-600 dark:text-on-surface-variant">Phát hiện <strong>{{ uniqueSpeakers.length }}</strong> người tham gia. Bạn có thể chọn tên để gán lại nếu cần thiết.</p>
+        <p class="text-sm text-gray-600 dark:text-on-surface-variant">Đã nhận diện <strong>{{ speakerStats.knownCount }}</strong> người, còn <strong>{{ speakerStats.unknownGroupCount }}</strong> nhóm người lạ / <strong>{{ speakerStats.unknownSegments }}</strong> đoạn người lạ.</p>
       </div>
       <span v-if="isAdmin" class="text-[10px] font-bold text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 rounded-full border border-orange-300 self-start mt-1">ADMIN MODE</span>
     </div>
@@ -670,11 +815,11 @@ const startExtractTasks = async () => {
           Gán tên
         </button>
         <!-- CHỈ ADMIN thấy: gán tên + enroll giọng vào database -->
-        <button v-if="isAdmin" :disabled="!hasSelectedMapping || isEnrollingMapped" @click="enrollMapped"
+        <button v-if="isAdmin" :disabled="!hasSelectedMapping || isEnrollingMapped || !canRunAudioRescan" @click="enrollMapped"
           class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm"
-          :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
+          :class="hasSelectedMapping && !isEnrollingMapped && canRunAudioRescan ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
           <span class="material-symbols-outlined text-[18px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
-          {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Đăng ký giọng' }}
+          {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Quét lại AI' }}
         </button>
       </div>
     </div>
@@ -691,6 +836,24 @@ const startExtractTasks = async () => {
         </p>
       </div>
       <div class="flex flex-wrap gap-sm">
+         <button
+           @click="rescanFromEditedTranscript"
+           :disabled="isRescanning || isNormalizingTranscript || !canRunAudioRescan"
+           class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border transition-colors text-body-sm"
+           :class="(isRescanning || isNormalizingTranscript || !canRunAudioRescan) ? 'bg-primary/20 text-primary/50 border-primary/20 cursor-not-allowed' : 'bg-primary text-white border-primary hover:bg-primary/90'"
+         >
+           <span class="material-symbols-outlined text-[18px]">{{ isRescanning ? 'autorenew' : 'manage_search' }}</span>
+           {{ isRescanning ? 'Đang quét lại...' : 'Quét lại AI theo tên đã sửa' }}
+         </button>
+         <button
+           @click="normalizeTranscript"
+           :disabled="isRescanning || isNormalizingTranscript || !canNormalizeTranscript"
+           class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border transition-colors text-body-sm"
+           :class="(isRescanning || isNormalizingTranscript || !canNormalizeTranscript) ? 'bg-orange-200 text-orange-400 border-orange-200 cursor-not-allowed' : 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'"
+         >
+           <span class="material-symbols-outlined text-[18px]">{{ isNormalizingTranscript ? 'autorenew' : 'format_line_spacing' }}</span>
+           {{ isNormalizingTranscript ? 'Đang chuẩn hoá...' : 'Chuẩn hoá hội thoại' }}
+         </button>
          <button @click="undoAction" :disabled="undoStack.length === 0" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="undoStack.length === 0 ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-gray-900 dark:text-on-surface'">
            <span class="material-symbols-outlined text-[18px]">undo</span>
            Hoàn tác
@@ -700,7 +863,18 @@ const startExtractTasks = async () => {
            <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExtracting }">{{ isExtracting ? 'autorenew' : 'task_alt' }}</span>
            {{ tasks.length > 0 ? "Xem Task đã tạo" : t('extract_task') }}
          </button>
+
+         <button @click="handleExportMinutes" :disabled="isExportingMinutes || !currentMeetingName" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm text-gray-900 dark:text-on-surface disabled:opacity-50 disabled:cursor-not-allowed">
+           <span class="material-symbols-outlined text-[18px]" :class="{ 'animate-spin': isExportingMinutes }">{{ isExportingMinutes ? 'autorenew' : 'description' }}</span>
+           {{ isExportingMinutes ? 'Đang xuất...' : 'Xuất Biên bản họp' }}
+         </button>
       </div>
+      <p class="text-xs text-orange-600 dark:text-orange-300 mt-2">
+        Chỉ bấm <strong>Chuẩn hoá hội thoại</strong> khi bạn đã chắc chắn transcript và tên người nói đã đúng, và không còn người lạ.
+      </p>
+      <p v-if="!canRunAudioRescan" class="text-xs text-red-500 dark:text-red-300 mt-1">
+        Meeting này không có audio gốc nên các nút quét lại AI sẽ bị khóa.
+      </p>
     </div>
     
     <div class="flex-1 overflow-y-auto space-y-1 pr-sm rounded-lg relative scrollbar-premium">
@@ -722,7 +896,7 @@ const startExtractTasks = async () => {
                   </el-option>
                 </el-select>
                 <button @click="saveEditSpeaker(idx)" class="text-xs font-bold text-white bg-primary px-2 py-0.5 rounded hover:bg-primary/90 transition-colors ml-1">Lưu</button>
-                <button @click="saveAndRescanSpeaker(idx)" class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded hover:bg-orange-600 transition-colors flex items-center gap-0.5" title="Học giọng từ đoạn này và gán lại tên cho tất cả đoạn giống giọng">
+                <button @click="saveAndRescanSpeaker(idx)" :disabled="!canRunAudioRescan" class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded hover:bg-orange-600 transition-colors flex items-center gap-0.5 disabled:opacity-50 disabled:cursor-not-allowed" title="Học giọng từ đoạn này và gán lại tên cho tất cả đoạn giống giọng">
                   <span class="material-symbols-outlined text-[12px]">manage_search</span>
                   Quét lại AI
                 </button>

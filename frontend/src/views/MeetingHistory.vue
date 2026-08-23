@@ -5,7 +5,7 @@ import {
   hrProjectsMap, docxUrl, excelUrl, loadHistory, modelType,
   meetingSummary, meetingConclusion, currentMeetingName
 } from '../composables/useVoiceApp'
-import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus, reassignSpeakerFromSegment, exportDynamicDocx, saveMeetingDraft } from '../api'
+import { enrollMappedSpeakers, updateMeetingResults, extractTasks, checkExtractStatus, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx, saveMeetingDraft } from '../api'
 
 const props = defineProps({
   meeting: Object,
@@ -69,7 +69,9 @@ const editingSpeaker = ref(null)
 const editingSpeakerName = ref('')
 const newSpeakerEmployee = ref('')
 const isRescanning = ref(false)
+const isNormalizingTranscript = ref(false)
 const rescanMessage = ref('')
+const canRunAudioRescan = computed(() => !!props.meeting?.audio_file)
 
 const undoStack = ref([])
 
@@ -115,33 +117,45 @@ const startEditSpeaker = (idx) => {
   editingSpeaker.value = idx
   editingSpeakerName.value = localSegments.value[idx][2]
   newSpeakerEmployee.value = ''
+  newSpeakerQuery.value = ''
 }
 const saveEditSpeaker = async (idx) => {
-  const finalName = newSpeakerEmployee.value
-  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  const finalName = (newSpeakerEmployee.value || newSpeakerQuery.value || '').trim()
+  if (!finalName) { editingSpeaker.value = null; return }
   const oldName = localSegments.value[idx][2]
   saveState()
   for (const seg of localSegments.value) {
-    if (seg[2] === oldName) seg[2] = finalName.trim()
+    if (seg[2] === oldName) seg[2] = finalName
   }
   editingSpeaker.value = null
+  newSpeakerEmployee.value = ''
+  newSpeakerQuery.value = ''
   if (props.meeting?.name) {
     await updateMeetingResults(props.meeting.name, localSegments.value)
   }
 }
 const saveAndRescanSpeaker = async (idx) => {
-  const finalName = newSpeakerEmployee.value
-  if (!finalName.trim()) { editingSpeaker.value = null; return }
+  const finalName = (newSpeakerEmployee.value || newSpeakerQuery.value || '').trim()
+  if (!finalName) {
+    ElMessage.warning('Chọn hoặc nhập tên người nói trước khi quét lại')
+    return
+  }
   if (!props.meeting?.name) { alert('Không tìm thấy meeting!'); return }
+  if (!canRunAudioRescan.value) {
+    alert('Meeting này không có audio gốc nên không thể quét lại AI.')
+    return
+  }
 
   editingSpeaker.value = null
   isRescanning.value = true
   rescanMessage.value = 'Đang trích xuất đặc trưng giọng nói...'
 
   try {
-    const res = await reassignSpeakerFromSegment(props.meeting.name, idx, finalName.trim())
+    const res = await reassignSpeakerFromSegment(props.meeting.name, idx, finalName)
     if (res && res.status === 'success') {
       localSegments.value = res.results
+      newSpeakerEmployee.value = ''
+      newSpeakerQuery.value = ''
       rescanMessage.value = res.message || 'Quét lại thành công!'
       setTimeout(() => { rescanMessage.value = '' }, 3000)
     } else {
@@ -153,6 +167,72 @@ const saveAndRescanSpeaker = async (idx) => {
     rescanMessage.value = ''
   } finally {
     isRescanning.value = false
+  }
+}
+
+const rescanFromEditedTranscript = async () => {
+  if (!props.meeting?.name) { alert('Không tìm thấy meeting!'); return }
+  if (!canRunAudioRescan.value) {
+    alert('Meeting này không có audio gốc nên không thể quét lại AI.')
+    return
+  }
+  if (editingSpeaker.value !== null || editingIdx.value !== null) {
+    alert('Lưu hoặc hủy phần đang chỉnh trước khi quét lại AI')
+    return
+  }
+
+  isRescanning.value = true
+  rescanMessage.value = 'Đang quét lại toàn bộ cuộc họp theo tên đã sửa...'
+
+  try {
+    saveState()
+    const res = await rescanMeetingFromCurrentLabels(props.meeting.name)
+    if (res && res.status === 'success') {
+      localSegments.value = res.results || localSegments.value
+      rescanMessage.value = res.message || 'Quét lại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 3000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isRescanning.value = false
+  }
+}
+
+const normalizeTranscript = async () => {
+  if (!props.meeting?.name) { alert('Không tìm thấy meeting!'); return }
+  if (!canNormalizeTranscript.value) {
+    alert('Vẫn còn người lạ trong transcript, gán hết tên rồi hãy chuẩn hoá hội thoại.')
+    return
+  }
+  if (editingSpeaker.value !== null || editingIdx.value !== null) {
+    alert('Lưu hoặc hủy phần đang chỉnh trước khi chuẩn hoá hội thoại')
+    return
+  }
+
+  isNormalizingTranscript.value = true
+  rescanMessage.value = 'Đang chuẩn hoá hội thoại...'
+
+  try {
+    saveState()
+    const res = await normalizeMeetingTranscript(props.meeting.name)
+    if (res && res.status === 'success') {
+      localSegments.value = res.results || localSegments.value
+      rescanMessage.value = res.message || 'Chuẩn hoá hội thoại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 3000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isNormalizingTranscript.value = false
   }
 }
 const addNewSegment = async () => {
@@ -199,11 +279,45 @@ const uniqueSpeakers = computed(() => {
   return Array.from(speakers)
 })
 
+const speakerStats = computed(() => {
+  const known = new Set()
+  const unknownGroups = new Set()
+  let unknownSegments = 0
+  for (const seg of localSegments.value) {
+    const speaker = seg[2] || ''
+    if (!speaker) continue
+    if (speaker.includes('Speaker') || speaker.includes('Người lạ') || speaker.includes('Unknown') || speaker.includes('Không tên')) {
+      unknownGroups.add(speaker)
+      unknownSegments += 1
+    } else {
+      known.add(speaker)
+    }
+  }
+  return {
+    knownCount: known.size,
+    unknownGroupCount: unknownGroups.size,
+    unknownSegments
+  }
+})
+
+const canNormalizeTranscript = computed(() =>
+  localSegments.value.length > 0 && speakerStats.value.unknownSegments === 0
+)
+
+const formatEmployeeOption = (emp) => {
+  const name = emp.employee_name || emp.user_id || ''
+  const isVoiceSpeaker = emp.designation === 'Voice Speaker'
+  const parts = [name]
+  if (emp.user_id && emp.user_id !== name) parts.push(emp.user_id)
+  if (emp.designation && !(isVoiceSpeaker && name.includes('Voice Speaker'))) parts.push(emp.designation)
+  return parts.filter(Boolean).join(' - ')
+}
+
 const employeeOptions = computed(() =>
-  dbEmployees.value.map(emp => ({
-    value: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - '),
-    label: [emp.employee_name, emp.user_id, emp.designation].filter(Boolean).join(' - ')
-  }))
+  dbEmployees.value.map(emp => {
+    const label = formatEmployeeOption(emp)
+    return { value: emp.employee_name || emp.user_id || label, label }
+  })
 )
 
 const speakerQueries = ref({})
@@ -231,7 +345,7 @@ const filteredNewSpeakerOptions = computed(() => {
   return employeeOptions.value.filter(opt => opt.label.toLowerCase().includes(q))
 })
 const onNewSpeakerSelectVisibleChange = (visible) => {
-  if (!visible) newSpeakerQuery.value = ''
+  if (visible) newSpeakerQuery.value = ''
 }
 
 const assignStrangerNames = async () => {
@@ -265,15 +379,19 @@ const enrollMapped = async () => {
     let msg = `✅ Đã cập nhật tên.`
     if (enrolled.length) msg += ` Đăng ký giọng: ${enrolled.join(', ')}.`
     if (skipped.length) msg += ` Đã có sẵn: ${skipped.join(', ')}.`
+    if (res?.reassigned_count !== undefined) msg += ` Quét lại: ${res.reassigned_count} đoạn.`
     if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
     alert(msg)
     
     saveState()
-    for (const seg of localSegments.value) {
-      if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
+    if (res?.results) {
+      localSegments.value = res.results
+    } else {
+      for (const seg of localSegments.value) {
+        if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]]
+      }
+      await updateMeetingResults(props.meeting.name, localSegments.value)
     }
-    
-    await updateMeetingResults(props.meeting.name, localSegments.value)
     speakerMapping.value = {}
   } catch(e) {
     alert('❌ Lỗi: ' + e.message)
@@ -599,7 +717,7 @@ const removeTask = (idx) => {
             <span class="material-symbols-outlined">person_add</span>
             Sửa / Gán tên người tham dự
           </h3>
-          <p class="font-body-md text-body-md text-gray-500 dark:text-on-surface-variant">Phát hiện <strong>{{ uniqueSpeakers.length }}</strong> người tham gia. Chọn tên để gán lại nếu cần thiết và đăng ký vào hệ thống.</p>
+          <p class="font-body-md text-body-md text-gray-500 dark:text-on-surface-variant">Đã nhận diện <strong>{{ speakerStats.knownCount }}</strong> người, còn <strong>{{ speakerStats.unknownGroupCount }}</strong> nhóm người lạ / <strong>{{ speakerStats.unknownSegments }}</strong> đoạn người lạ.</p>
         </div>
         <span v-if="isAdmin" class="text-[10px] font-bold text-error bg-error/10 px-2 py-0.5 rounded-full border border-error/30 self-start mt-1">ADMIN MODE</span>
       </div>
@@ -648,11 +766,11 @@ const removeTask = (idx) => {
             <span class="material-symbols-outlined text-[18px]">label</span> Gán tên
           </button>
           <!-- CHỈ ADMIN thấy: gán tên + enroll giọng -->
-          <button v-if="isAdmin" :disabled="!hasSelectedMapping || isEnrollingMapped" @click="enrollMapped" 
+          <button v-if="isAdmin" :disabled="!hasSelectedMapping || isEnrollingMapped || !canRunAudioRescan" @click="enrollMapped" 
             class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm" 
-            :class="hasSelectedMapping && !isEnrollingMapped ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
+            :class="hasSelectedMapping && !isEnrollingMapped && canRunAudioRescan ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
             <span class="material-symbols-outlined text-[18px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
-            {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Đăng ký giọng' }}
+            {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Quét lại AI' }}
           </button>
         </div>
       </div>
@@ -668,9 +786,35 @@ const removeTask = (idx) => {
           <p class="text-body-sm text-gray-500 dark:text-on-surface-variant mt-1">{{ t('transcript_desc') }}</p>
         </div>
         <div>
-          <button @click="undoAction" :disabled="undoStack.length === 0" class="px-4 py-2 rounded-md font-medium flex items-center gap-2 border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-sm" :class="undoStack.length === 0 ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-gray-900 dark:text-on-surface'">
+          <div class="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              @click="rescanFromEditedTranscript"
+              :disabled="isRescanning || isNormalizingTranscript || !canRunAudioRescan"
+              class="px-4 py-2 rounded-md font-medium flex items-center gap-2 border transition-colors text-sm"
+              :class="(isRescanning || isNormalizingTranscript || !canRunAudioRescan) ? 'bg-primary/20 text-primary/50 border-primary/20 cursor-not-allowed' : 'bg-primary text-white border-primary hover:bg-primary/90'"
+            >
+              <span class="material-symbols-outlined text-[18px]">{{ isRescanning ? 'autorenew' : 'manage_search' }}</span>
+              {{ isRescanning ? 'Đang quét lại...' : 'Quét lại AI theo tên đã sửa' }}
+            </button>
+            <button
+              @click="normalizeTranscript"
+              :disabled="isRescanning || isNormalizingTranscript || !canNormalizeTranscript"
+              class="px-4 py-2 rounded-md font-medium flex items-center gap-2 border transition-colors text-sm"
+              :class="(isRescanning || isNormalizingTranscript || !canNormalizeTranscript) ? 'bg-orange-200 text-orange-400 border-orange-200 cursor-not-allowed' : 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'"
+            >
+              <span class="material-symbols-outlined text-[18px]">{{ isNormalizingTranscript ? 'autorenew' : 'format_line_spacing' }}</span>
+              {{ isNormalizingTranscript ? 'Đang chuẩn hoá...' : 'Chuẩn hoá hội thoại' }}
+            </button>
+            <button @click="undoAction" :disabled="undoStack.length === 0" class="px-4 py-2 rounded-md font-medium flex items-center gap-2 border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-sm" :class="undoStack.length === 0 ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-gray-900 dark:text-on-surface'">
             <span class="material-symbols-outlined text-[18px]">undo</span> Hoàn tác
-          </button>
+            </button>
+          </div>
+          <p class="text-xs text-orange-600 dark:text-orange-300 mt-2 text-right">
+            Chỉ bấm <strong>Chuẩn hoá hội thoại</strong> khi bạn đã chắc transcript và tên người nói đều đúng, và không còn người lạ.
+          </p>
+          <p v-if="!canRunAudioRescan" class="text-xs text-red-500 dark:text-red-300 mt-1 text-right">
+            Meeting này không có audio gốc nên các nút quét lại AI sẽ bị khóa.
+          </p>
         </div>
       </div>
       <div class="p-lg bg-white dark:bg-surface">
@@ -680,13 +824,13 @@ const removeTask = (idx) => {
             
             <div class="flex items-center gap-2 mb-1 flex-wrap">
               <template v-if="editingSpeaker === idx">
-                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override" @change="saveEditSpeaker(idx)" :filter-method="filterNewSpeakerEmployee" @visible-change="onNewSpeakerSelectVisibleChange">
+                <el-select v-model="newSpeakerEmployee" filterable clearable allow-create default-first-option placeholder="Chọn hoặc nhập tên..." size="small" style="width: 190px; --el-fill-color-blank: transparent;" class="custom-el-override" :filter-method="filterNewSpeakerEmployee" @visible-change="onNewSpeakerSelectVisibleChange">
                   <el-option v-for="opt in filteredNewSpeakerOptions" :key="opt.value" :label="opt.label" :value="opt.value">
                     <div class="truncate w-full block" :title="opt.label">{{ opt.label }}</div>
                   </el-option>
                 </el-select>
                 <button @click="saveEditSpeaker(idx)" class="text-xs font-bold text-white bg-primary px-2 py-0.5 rounded hover:bg-primary/90 ml-1">Lưu</button>
-                <button @click="saveAndRescanSpeaker(idx)" class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded hover:bg-orange-600 transition-colors flex items-center gap-0.5" title="Học giọng từ đoạn này và gán lại tên cho tất cả đoạn giống giọng">
+                <button @click="saveAndRescanSpeaker(idx)" :disabled="!canRunAudioRescan" class="text-xs font-bold text-white bg-orange-500 px-2 py-0.5 rounded hover:bg-orange-600 transition-colors flex items-center gap-0.5 disabled:opacity-50 disabled:cursor-not-allowed" title="Học giọng từ đoạn này và gán lại tên cho tất cả đoạn giống giọng">
                   <span class="material-symbols-outlined text-[12px]">manage_search</span>
                   Quét lại AI
                 </button>

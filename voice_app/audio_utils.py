@@ -107,8 +107,12 @@ def concat_speaker_segments(wav_path: str, segs: list,
 
     for i, seg in enumerate(candidates):
         seg_duration = seg["end"] - seg["start"]
-        head_trim = 0.2 if seg_duration >= 0.8 else 0.0
-        tail_trim = 0.6 if seg_duration >= 1.4 else 0.0
+        # Trim tỉ lệ theo độ dài thay vì bật/tắt theo ngưỡng cứng: timestamp
+        # giữa 2 lượt nói khác speaker có thể sát nhau gần 0s (VAD fallback,
+        # hoặc chỉ hơi lệch dù dùng FA), nên đoạn ngắn vẫn cần 1 chút đệm để
+        # không dính giọng người nói liền trước/sau, thay vì trim=0 tuyệt đối.
+        head_trim = min(0.2, seg_duration * 0.2)
+        tail_trim = min(0.6, seg_duration * 0.4)
         seg_start = seg["start"] + head_trim
         seg_end   = seg["end"] - tail_trim
         
@@ -187,7 +191,10 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_c
 
     chunks = []
     frames_per_sec = sample_rate * sample_width
+    chunk_length_sec = max(1.0, float(chunk_length_sec))
+    max_chunk_sec = max(chunk_length_sec, float(max_chunk_sec))
     ideal_chunk_bytes = int(chunk_length_sec * frames_per_sec)
+    max_chunk_bytes = int(max_chunk_sec * frames_per_sec)
     
     start_byte = 0
     total_bytes = len(raw_data)
@@ -199,7 +206,11 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_c
         else:
             # Tìm khoảng lặng trong vùng [-30s, +30s] quanh điểm cắt mục tiêu
             search_start = max(start_byte + int(ideal_chunk_bytes * 0.5), target_byte - int(30 * frames_per_sec))
-            search_end = min(total_bytes, target_byte + int(30 * frames_per_sec))
+            search_end = min(
+                total_bytes,
+                start_byte + max_chunk_bytes,
+                target_byte + int(30 * frames_per_sec),
+            )
             
             search_start_idx = search_start // frame_size
             search_end_idx = search_end // frame_size
@@ -223,11 +234,17 @@ def split_audio_by_silence(wav_path: str, chunk_length_sec: float = 300.0, max_c
                 
             # Nếu tìm được khoảng lặng dài hơn 0.3s (10 frames)
             if max_silence_run >= 10:
-                end_byte = best_split_idx * frame_size
+                end_byte = min(best_split_idx * frame_size, start_byte + max_chunk_bytes)
             else:
                 # Nếu không có khoảng lặng nào đủ dài, cắt cứng (nhưng đảm bảo byte alignment)
                 block_align = sample_width
                 end_byte = (target_byte // block_align) * block_align
+
+        # max_chunk_sec trước đây chỉ có trong signature nhưng không được áp
+        # dụng, khiến chunk có thể dài hơn giới hạn mà caller yêu cầu.
+        end_byte = min(end_byte, start_byte + max_chunk_bytes, total_bytes)
+        if end_byte <= start_byte:
+            end_byte = min(total_bytes, start_byte + ideal_chunk_bytes)
 
         chunk_data = raw_data[start_byte:end_byte]
         

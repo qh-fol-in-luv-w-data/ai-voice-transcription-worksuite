@@ -28,8 +28,9 @@ def main():
     wav_path = sys.argv[1]
     hf_token = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
 
-    start = float(sys.argv[3]) if len(sys.argv) > 3 else None
-    end   = float(sys.argv[4]) if len(sys.argv) > 4 else None
+    batch_mode = len(sys.argv) > 3 and sys.argv[3] in ("--segments-file", "--files-list")
+    start = None if batch_mode else (float(sys.argv[3]) if len(sys.argv) > 3 else None)
+    end   = None if batch_mode else (float(sys.argv[4]) if len(sys.argv) > 4 else None)
 
     print("DEBUG: Importing torch...", flush=True)
     import torch
@@ -99,7 +100,7 @@ def main():
     print("DEBUG: Loading waveform...", flush=True)
 
     # ── Batch Processing ──
-    if len(sys.argv) > 3 and sys.argv[3] in ("--segments-file", "--files-list"):
+    if batch_mode:
         mode = sys.argv[3]
         data_file = sys.argv[4]
         with open(data_file, "r") as f:
@@ -151,4 +152,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

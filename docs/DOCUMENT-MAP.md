@@ -22,6 +22,12 @@ PM, BA, QA, auditor, developer.
 
 ## Nội Dung Chi Tiết
 
+### Tài liệu tổng hợp
+
+| Tài liệu | Vai trò | Source chính |
+|---|---|---|
+| [SYSTEM-DOCUMENTATION.md](SYSTEM-DOCUMENTATION.md) | Tài liệu hệ thống tổng hợp cho onboarding, audit, vận hành và chuyển giao. | `voice_app/api.py`, `frontend/src`, `voice_app/voice_app/doctype`, `README.md` |
+
 | Business requirement | UI | API | Database | Source | Test | Deployment | Operations |
 |---|---|---|---|---|---|---|---|
 | FR-001 Transcribe | SCR-001 | API-001/API-002 | Voice Meeting/Chunk | `voice_app/api.py` | TC-001..003 | Deployment Guide | Runbook queue/STT |
@@ -52,4 +58,3 @@ PM, BA, QA, auditor, developer.
 | Ngày | Phiên bản | Thay đổi | Tác giả |
 |---|---:|---|---|
 | 2026-07-28 | 0.1 | AI bổ sung tài liệu ban đầu từ source code. | Codex |
-

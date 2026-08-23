@@ -8,7 +8,7 @@ import requests as _requests
 import concurrent.futures
 from contextlib import suppress
 from .audio_utils import get_duration
-from .constants import get_gemini_api_key, get_gemini_model
+from .constants import get_gemini_api_key, get_gemini_model, get_gemini_stt_max_output_tokens
 
 UPLOAD_URL      = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 GENERATE_URL    = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -121,18 +121,47 @@ def _clean_segment_text(text):
         cleaned = cleaned[0].upper() + cleaned[1:]
     return cleaned
 
-def _upload_file_data(wav_path, api_key, log_cb=None):
+def _convert_to_flac(wav_path, log_cb=None):
+    """Nén wav sang FLAC (lossless, ~3 lần nhỏ hơn) chỉ để upload lên Gemini —
+    giảm thời gian upload đáng kể với file dài, không đụng tới wav gốc (vẫn
+    dùng cho VAD/cắt audio embedding ở chỗ khác). Trả về None nếu nén lỗi,
+    khi đó gọi nơi dùng nên fallback lại upload thẳng wav gốc."""
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as f:
+        flac_path = f.name
+    try:
+        result = subprocess.run(  # nosec B603
+            ["ffmpeg", "-y", "-i", wav_path, "-c:a", "flac", flac_path],
+            capture_output=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            with suppress(FileNotFoundError):
+                os.remove(flac_path)
+            _parse_log(f"[Gemini STT] Nén FLAC lỗi, dùng wav gốc: {result.stderr[-300:]}", log_cb)
+            return None
+        return flac_path
+    except Exception as e:
+        with suppress(FileNotFoundError):
+            os.remove(flac_path)
+        _parse_log(f"[Gemini STT] Nén FLAC lỗi ({e}), dùng wav gốc.", log_cb)
+        return None
+
+
+def _upload_file_data(wav_path, api_key, log_cb=None, mime_type="audio/wav"):
     """Upload file lên Gemini, trả về (file_uri, file_name) ngay khi upload xong (chưa chờ ACTIVE)."""
     session = _get_session()
     file_size = os.path.getsize(wav_path)
-    
+
     query, auth_headers = _get_auth_headers_and_query(api_key)
-    
+
     headers = {
         "X-Goog-Upload-Protocol": "resumable",
         "X-Goog-Upload-Command": "start",
         "X-Goog-Upload-Header-Content-Length": str(file_size),
-        "X-Goog-Upload-Header-Content-Type": "audio/wav",
+        "X-Goog-Upload-Header-Content-Type": mime_type,
         "Content-Type": "application/json",
         **auth_headers
     }
@@ -224,9 +253,9 @@ def _wait_file_active(file_name, file_uri, api_key, log_cb=None):
     raise Exception("Gemini file processing timeout sau 200s")
 
 
-def _upload_file(wav_path, api_key, log_cb=None):
+def _upload_file(wav_path, api_key, log_cb=None, mime_type="audio/wav"):
     """Upload và chờ ACTIVE (wrapper để tương thích ngược)."""
-    file_uri, file_name = _upload_file_data(wav_path, api_key, log_cb=log_cb)
+    file_uri, file_name = _upload_file_data(wav_path, api_key, log_cb=log_cb, mime_type=mime_type)
     _wait_file_active(file_name, file_uri, api_key, log_cb=log_cb)
     return file_uri, file_name
 
@@ -249,7 +278,7 @@ def _delete_file(file_name, api_key, log_cb=None):
         _parse_log(f"[Gemini STT] Delete error: {e}", log_cb)
 
 
-def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=12000, log_cb=None):
+def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=12000, log_cb=None, mime_type="audio/wav"):
     """Gọi Gemini stream API, trả về (segments, usage_dict, error_str|None)."""
     session = _get_session()
     if not model_name:
@@ -259,14 +288,32 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
         "contents": [{
             "role": "user",
             "parts": [
-                {"file_data": {"mime_type": "audio/wav", "file_uri": file_uri}},
+                {"file_data": {"mime_type": mime_type, "file_uri": file_uri}},
                 {"text": prompt},
             ]
         }],
         "generation_config": {
             "temperature": 0.3,
-            "response_mime_type": "application/json",
+            # text/plain thay vì application/json: không còn ép model phải giữ
+            # 1 array JSON hợp lệ xuyên suốt hàng trăm object lặp cấu trúc —
+            # đây là dạng output tự nhiên giống AI Studio, ít bị cuốn vào vòng
+            # lặp cấu trúc hơn. speaker/text/start/end mỗi dòng dạng text
+            # thường, không phải JSON, nên không có áp lực cấu trúc lặp.
+            "response_mime_type": "text/plain",
             "maxOutputTokens": max_tokens,
+            # Tắt suy luận ẩn. Model đời này mặc định "nghĩ" trước khi trả lời,
+            # mà phần nghĩ đó tính vào chính hạn mức maxOutputTokens — nghe lại
+            # audio thì không cần suy luận, nên nó chỉ ăn chỗ của transcript.
+            # Đo thật trên một clip: 831 token nghĩ so với 150 token chữ, tức
+            # gần nửa hạn mức đổ vào phần không thành chữ; tắt đi thì vẫn ra
+            # đúng ngần ấy chữ (134 so với 135 từ). Trên file 80 phút, chính
+            # phần nghĩ này đốt hết 64k token rồi bị cắt giữa chừng, làm mất
+            # ba phần tư nội dung.
+            "thinkingConfig": {"thinkingBudget": 0},
+            # KHÔNG dùng presencePenalty/frequencyPenalty — test thật với
+            # model hiện tại (gemini-3.5-flash) trả lỗi 400 "Penalty is not
+            # enabled for this model". Chống lặp giờ dựa vào prompt (nguyên
+            # tắc ANTI-LOOP) + text/plain output, không phải generation_config.
         },
     }
 
@@ -375,7 +422,17 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
     )
 
     if finish_reason == "MAX_TOKENS":
-        _parse_log("[Gemini STT] ⚠️ MAX_TOKENS — Phát hiện vòng lặp ảo giác.", log_cb)
+        # Chỉ nói đúng những gì biết: output chạm trần nên transcript bị cắt.
+        # Trước đây log kết luận luôn là "vòng lặp ảo giác", nhưng MAX_TOKENS
+        # không chứng minh được điều đó — có lần thủ phạm thật là token suy
+        # luận ẩn ăn hết hạn mức, mà lời kết luận sai đó làm mất nhiều công
+        # dò tìm. In kèm số token thật sự thành chữ để lần sau biết đường lần.
+        _parse_log(
+            f"[Gemini STT] ⚠️ MAX_TOKENS — output chạm trần {max_tokens:,}, "
+            f"transcript bị cắt giữa chừng (chữ thật {total_out:,} token, "
+            f"suy luận ẩn {billable_out - total_out:,} token).",
+            log_cb,
+        )
         return _parse_gemini_response(full_text), usage_result, "HALLUCINATION_DETECTED"
     elif finish_reason == "SAFETY":
         return [], usage_result, "Safety filter rejected content"
@@ -398,23 +455,23 @@ def _build_prompt(num_speakers, language, custom_vocabulary=""):
     return f"""Bạn là chuyên gia phiên âm và biên tập biên bản họp. Nhiệm vụ: xử lý file ghi âm cuộc họp nội bộ bằng {lang_note} và trả ra transcript đã được làm sạch hoàn toàn.
 
 ━━━ BƯỚC 1: NHẬN DẠNG GIỌNG NÓI & TÁCH NGƯỜI NÓI (DIARIZATION) ━━━
-- Transcribe TOÀN BỘ nội dung từ đầu đến cuối file — KHÔNG được bỏ sót bất kỳ lượt nói nào.
+- Transcribe TOÀN BỘ nội dung từ đầu đến cuối file, ĐÚNG THEO THỨ TỰ THỜI GIAN THỰC TẾ — KHÔNG được bỏ sót bất kỳ lượt nói nào, KHÔNG được đảo thứ tự các lượt nói.
 - LƯU Ý SỐ LƯỢNG NGƯỜI NÓI: {speaker_note}
 - KHÔNG ĐƯỢC TỰ BỊA ĐẶT LỜI THOẠI. Chỉ ghi chép những gì nghe được.
-- ĐÂY LÀ YÊU CẦU QUAN TRỌNG NHẤT: BẠN PHẢI PHÂN BIỆT ĐƯỢC CÁC GIỌNG NÓI KHÁC NHAU. MỖI LƯỢT ĐỔI NGƯỜI NÓI (dù chỉ là tiếng xen ngang "Đúng rồi", "Ok") = 1 ENTRY JSON RIÊNG BIỆT.
-- CHÚ Ý ĐẶC BIỆT: Tuyệt đối KHÔNG ĐƯỢC BỎ SÓT các từ ở ngay NHỮNG GIÂY ĐẦU TIÊN và NHỮNG GIÂY CUỐI CÙNG của file âm thanh. Hãy lắng nghe thật kỹ ngay từ giây 0.0.
-- NẾU CÓ 2 NGƯỜI NÓI ĐÈ LÊN NHAU (OVERLAP) HOẶC CÃI NHAU: TUYỆT ĐỐI KHÔNG GỘP CHUNG CHỮ VÀO 1 ENTRY. Bắt buộc phải tách lời của người A và người B thành 2 entry nối tiếp nhau. LỖI NGHIÊM TRỌNG NHẤT LÀ NHÉT LỜI CỦA 2 NGƯỜI VÀO CÙNG 1 CÂU NÓI CỦA 1 NGƯỜI.
-- CÂU HỎI và CÂU TRẢ LỜI luôn là 2 entry riêng biệt — người hỏi và người trả lời KHÔNG bao giờ được gộp chung.
-- Nếu một đoạn có nhiều người nói liên tục, HÃY CẮT NHỎ THÀNH NHIỀU ENTRY LIÊN TIẾP.
-- TUYỆT ĐỐI KHÔNG TRẢ VỀ 1 ENTRY KÉO DÀI NHIỀU PHÚT. Nếu một người nói liên tục quá lâu, BẮT BUỘC PHẢI CẮT NHỎ lời nói của họ thành nhiều entry liên tiếp (mỗi entry khoảng 3-5 câu).
-- Hãy đối chiếu ÂM THANH THỰC TẾ: cao độ giọng, tốc độ nói, chất giọng. Nếu trong một đoạn liên tục có sự thay đổi âm sắc (ví dụ từ giọng nam trầm sang giọng nam cao, hoặc giọng nữ) → PHẢI TẠO ENTRY MỚI NGAY TẠI ĐIỂM ĐÓ.
+- ĐÂY LÀ YÊU CẦU QUAN TRỌNG NHẤT: BẠN PHẢI PHÂN BIỆT ĐƯỢC CÁC GIỌNG NÓI KHÁC NHAU. MỖI LƯỢT ĐỔI NGƯỜI NÓI (dù chỉ là tiếng xen ngang "Đúng rồi", "Ok") = 1 DÒNG RIÊNG BIỆT.
+- CHÚ Ý ĐẶC BIỆT: Tuyệt đối KHÔNG ĐƯỢC BỎ SÓT các từ ở ngay ĐẦU và CUỐI file âm thanh. Hãy lắng nghe thật kỹ ngay từ giây đầu tiên.
+- NẾU CÓ 2 NGƯỜI NÓI ĐÈ LÊN NHAU (OVERLAP) HOẶC CÃI NHAU: TUYỆT ĐỐI KHÔNG GỘP CHUNG CHỮ VÀO 1 DÒNG. Bắt buộc phải tách lời của người A và người B thành 2 dòng nối tiếp nhau. LỖI NGHIÊM TRỌNG NHẤT LÀ NHÉT LỜI CỦA 2 NGƯỜI VÀO CÙNG 1 CÂU NÓI CỦA 1 NGƯỜI.
+- CÂU HỎI và CÂU TRẢ LỜI luôn là 2 dòng riêng biệt — người hỏi và người trả lời KHÔNG bao giờ được gộp chung.
+- Nếu một đoạn có nhiều người nói liên tục, HÃY CẮT NHỎ THÀNH NHIỀU DÒNG LIÊN TIẾP.
+- TUYỆT ĐỐI KHÔNG TRẢ VỀ 1 DÒNG KÉO DÀI NHIỀU PHÚT. Nếu một người nói liên tục quá lâu, BẮT BUỘC PHẢI CẮT NHỎ lời nói của họ thành nhiều dòng liên tiếp (mỗi dòng khoảng 3-5 câu).
+- Hãy đối chiếu ÂM THANH THỰC TẾ: cao độ giọng, tốc độ nói, chất giọng. Nếu trong một đoạn liên tục có sự thay đổi âm sắc (ví dụ từ giọng nam trầm sang giọng nam cao, hoặc giọng nữ) → PHẢI TẠO DÒNG MỚI NGAY TẠI ĐIỂM ĐÓ.
 - KHÔNG suy đoán speaker theo ngữ cảnh (ai đặt câu hỏi thì ai trả lời) — CHỈ ĐƯỢC PHÉP dựa vào sự thay đổi thực tế của sóng âm/chất giọng mà bạn nghe được.
 - Bỏ qua tạp âm, tiếng ồn, tiếng động nền.
-- CỰC KỲ QUAN TRỌNG: Nếu đoạn âm thanh LÀ KHOẢNG LẶNG, CHỈ CÓ TẠP ÂM, HOẶC KHÔNG CÓ TIẾNG NGƯỜI NÓI, TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ BỊA RA LỜI NÓI HOẶC LẶP LẠI LỜI CŨ. HÃY TRẢ VỀ MẢNG RỖNG [] NẾU KHÔNG NGHE THẤY GÌ.
-- NGUYÊN TẮC CHỐNG LẶP (ANTI-LOOP): Khi đã transcribe hết tiếng người nói thực sự trong audio, BẠN PHẢI DỪNG LẠI NGAY LẬP TỨC và đóng mảng JSON `]`. TUYỆT ĐỐI KHÔNG được lặp lại một câu nói nhiều lần. Nếu bạn thấy mình chuẩn bị viết lại cùng một câu (hoặc một cụm từ) đến lần thứ 2 liên tiếp mà không có tiếng nói thực sự tương ứng, hãy LẬP TỨC ĐÓNG JSON và ngắt luồng.
+- CỰC KỲ QUAN TRỌNG: Nếu đoạn âm thanh LÀ KHOẢNG LẶNG, CHỈ CÓ TẠP ÂM, HOẶC KHÔNG CÓ TIẾNG NGƯỜI NÓI, TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ BỊA RA LỜI NÓI HOẶC LẶP LẠI LỜI CŨ. HÃY TRẢ VỀ RỖNG (không viết dòng nào) NẾU KHÔNG NGHE THẤY GÌ.
+- NGUYÊN TẮC CHỐNG LẶP (ANTI-LOOP): Khi đã transcribe hết tiếng người nói thực sự trong audio, BẠN PHẢI DỪNG LẠI NGAY LẬP TỨC, không viết thêm dòng nào nữa. TUYỆT ĐỐI KHÔNG được lặp lại một câu nói nhiều lần. Nếu bạn thấy mình chuẩn bị viết lại cùng một câu (hoặc một cụm từ) đến lần thứ 2 liên tiếp mà không có tiếng nói thực sự tương ứng, hãy LẬP TỨC DỪNG LẠI.
 
 ━━━ BƯỚC 2: LÀM SẠCH VĂN BẢN ━━━
-Chỉ xoá các từ/âm KHÔNG mang thông tin BÊN TRONG câu, KHÔNG được xoá cả entry:
+Chỉ xoá các từ/âm KHÔNG mang thông tin BÊN TRONG câu, KHÔNG được xoá cả dòng:
 - Xoá từ đệm/ngập ngừng: "ừm", "ờ", "à", "thì là", "ý là", "tức là", "kiểu như", "vậy á", "nha anh", "đó nha", "nghen"
 - Xoá lặp từ do ngập ngừng: "cái cái cái" → bỏ, "nó nó nó" → "nó", "các ảnh các ảnh" → "các ảnh", v.v.
 - Xoá câu chỉ là filler/xác nhận không có thông tin: "dạ", "vâng", "okay", "ừ", "dạ em hiểu rồi", "được anh"
@@ -425,43 +482,51 @@ Chỉ xoá các từ/âm KHÔNG mang thông tin BÊN TRONG câu, KHÔNG được
 ━━━ TỪ VỰNG ĐẶC BIỆT (nhận dạng chính xác) ━━━{custom_vocab_note}
 
 ━━━ OUTPUT FORMAT ━━━
-Trả về JSON array thuần (KHÔNG markdown, KHÔNG giải thích, KHÔNG text ngoài JSON):
-[
-  {{"speaker": "Speaker 1", "start": 0.0, "end": 8.5, "text": "nội dung đã làm sạch"}},
-  {{"speaker": "Speaker 2", "start": 8.8, "end": 15.2, "text": "nội dung đã làm sạch"}}
-]
-RÀNG BUỘC BẮT BUỘC VỚI MỖI OBJECT JSON:
-- Mỗi object chỉ được chứa lời của ĐÚNG 1 người nói trong đúng 1 lượt nói.
-- Nếu trong cùng một khoảng thời gian nghe thấy 2 người, hoặc text có dạng "A nói... B đáp...", phải tách thành 2 object riêng, mỗi object có `speaker`, `start`, `end`, `text` riêng.
-- Không được viết một câu/đoạn mà bên trong có lời của 2 speaker khác nhau, kể cả khi họ nói rất ngắn, chen ngang, xác nhận, hỏi/đáp nhanh hoặc nói đè.
-- Trước khi trả JSON, tự kiểm tra từng object: nếu `text` còn chứa lời đối thoại của hơn 1 người thì bắt buộc tách object đó ra.
-QUAN TRỌNG: "start" và "end" là số GIÂY (seconds) tính từ đầu file, KHÔNG phải phút. Ví dụ: 1 phút 30 giây = 90.0, không phải 1.5."""
+Trả về TEXT THUẦN (PLAIN TEXT) — KHÔNG dùng JSON, KHÔNG markdown, KHÔNG code block, KHÔNG giải thích gì thêm ngoài transcript. KHÔNG cần tính timestamp/giây — hệ thống sẽ tự gán thời gian dựa trên audio thật, bạn CHỈ cần tập trung nghe đúng và tách đúng người nói theo thứ tự.
+Mỗi lượt nói là MỘT DÒNG riêng biệt, đúng định dạng "Speaker <số>: <nội dung>", ví dụ:
+Speaker 1: nội dung đã làm sạch
+Speaker 2: nội dung đã làm sạch
+RÀNG BUỘC BẮT BUỘC VỚI MỖI DÒNG:
+- Mỗi dòng chỉ được chứa lời của ĐÚNG 1 người nói trong đúng 1 lượt nói.
+- Nếu trong cùng một khoảng thời gian nghe thấy 2 người, hoặc nội dung có dạng "A nói... B đáp...", phải tách thành 2 dòng riêng.
+- Không được viết một dòng mà bên trong có lời của 2 speaker khác nhau, kể cả khi họ nói rất ngắn, chen ngang, xác nhận, hỏi/đáp nhanh hoặc nói đè.
+- Trước khi trả lời, tự kiểm tra từng dòng: nếu nội dung còn chứa lời đối thoại của hơn 1 người thì bắt buộc tách dòng đó ra.
+- KHÔNG dùng dấu ngoặc kép hay markdown bao quanh dòng.
+- Các dòng PHẢI theo ĐÚNG thứ tự thời gian thực tế của cuộc hội thoại, từ đầu đến cuối file."""
+
+
+_SPEAKER_LINE_RE = re.compile(r'^\s*(Speaker\s*\d+)\s*[:：]\s*(.+?)\s*$', re.IGNORECASE)
 
 
 def _parse_gemini_response(text):
-    """Extract JSON array từ Gemini response."""
-    text = re.sub(r"^(?:```(?:json)?\s*)|(?:```\s*)$", "", text.strip(), flags=re.MULTILINE).strip()
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    text_to_parse = match.group() if match else text
+    """Parse text thuần dạng 'Speaker N: nội dung' mỗi dòng → list segment.
 
-    try:
-        return json.loads(text_to_parse)
-    except json.JSONDecodeError as e:
-        print(f"[Gemini STT] Lỗi JSON: {e}. Đang thử cứu phần đã có...")
-        print(f"[Gemini STT] Raw text (first 500 chars): {text[:500]}...")
-        last_brace = text_to_parse.rfind('}')
-        if last_brace != -1:
-            fixed = text_to_parse[:last_brace + 1]
-            if not fixed.strip().startswith('['):
-                fixed = '[' + fixed
-            fixed += ']'
-            try:
-                rescued = json.loads(fixed)
-                print(f"[Gemini STT] Cứu được {len(rescued)} segments.")
-                return rescued
-            except Exception as e2:
-                print(f"[Gemini STT] Không thể cứu JSON: {e2}")
-        return []
+    Không còn parse JSON: mỗi dòng độc lập nên bị cắt giữa chừng (MAX_TOKENS)
+    cũng không làm hỏng các dòng trước đó, khỏi cần logic "cứu" JSON dở dang.
+    """
+    text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text.strip(), flags=re.MULTILINE).strip()
+
+    segments = []
+    skipped = 0
+    for raw_line in text.splitlines():
+        # Bỏ markdown (**, •, gạch đầu dòng) phòng khi model lỡ thêm dù prompt đã cấm.
+        line = raw_line.strip().strip('"').replace("*", "").replace("•", "")
+        line = re.sub(r"^-\s*", "", line).strip()
+        if not line:
+            continue
+        match = _SPEAKER_LINE_RE.match(line)
+        if not match:
+            skipped += 1
+            continue
+        speaker = re.sub(r"\s+", " ", match.group(1)).strip()
+        content = match.group(2).strip()
+        if not content:
+            continue
+        segments.append({"speaker": speaker, "text": content})
+
+    if skipped:
+        print(f"[Gemini STT] Bỏ qua {skipped} dòng không đúng định dạng 'Speaker N: ...'.")
+    return segments
 
 
 def _parse_time(val):
@@ -478,6 +543,166 @@ def _parse_time(val):
         except ValueError:
             pass
         return 0.0
+
+
+def _timeline_validation_errors(segments, file_duration, check_long_segments=True):
+    """Return reasons a Gemini timeline is unsafe for cutting speaker audio."""
+    duration = max(0.0, float(file_duration or 0.0))
+    parsed = []
+    errors = []
+
+    for index, seg in enumerate(segments or []):
+        if not isinstance(seg, dict):
+            continue
+        start = _parse_time(seg.get("start", 0))
+        end = _parse_time(seg.get("end", start))
+        text = " ".join(str(seg.get("text") or "").split())
+        words = text.split()
+        seg_duration = end - start
+        parsed.append((index, start, end, seg_duration, len(words), text))
+
+        if start < -0.25 or end > duration + 1.0:
+            errors.append(f"segment {index} nằm ngoài chunk ({start:.2f}-{end:.2f}/{duration:.2f}s)")
+        if words and seg_duration <= 0:
+            errors.append(f"segment {index} có text nhưng start>=end ({start:.2f}-{end:.2f})")
+
+        # Prompt yêu cầu mỗi entry chỉ vài câu. Một entry chiếm quá nhiều
+        # thời gian thường là Gemini tự phân bổ timestamp theo lượng text.
+        long_limit = max(45.0, duration * 0.22)
+        if check_long_segments and words and seg_duration > long_limit:
+            errors.append(f"segment {index} dài bất thường {seg_duration:.2f}s")
+
+        # Dưới 0.45 từ/giây trong một segment đủ dài là dấu hiệu mốc thời
+        # gian bị kéo giãn, không phải tốc độ nói thực tế.
+        if (
+            check_long_segments
+            and len(words) >= 8
+            and seg_duration >= 15.0
+            and (len(words) / seg_duration) < 0.45
+        ):
+            errors.append(
+                f"segment {index} bị kéo giãn ({len(words)} từ/{seg_duration:.2f}s)"
+            )
+
+    if not parsed:
+        return ["chunk không có segment hợp lệ"]
+
+    # Gemini đôi lúc dồn nhiều entry vào đúng mép cuối, thậm chí tạo entry
+    # start=end nhưng vẫn chứa một đoạn văn dài.
+    near_tail = [row for row in parsed if duration > 0 and row[2] >= duration - 0.15]
+    if len(near_tail) >= 2:
+        errors.append(f"{len(near_tail)} segment bị dồn vào cuối chunk")
+    last = parsed[-1]
+    if duration > 0 and last[2] >= duration - 0.15 and last[3] <= 0.15 and last[4] >= 5:
+        errors.append("segment cuối có text dài nhưng thời lượng gần bằng 0")
+
+    return list(dict.fromkeys(errors))
+
+
+def _vad_speech_intervals(wav_path):
+    """Return merged speech intervals using local VAD only."""
+    import wave
+
+    import webrtcvad
+
+    with wave.open(wav_path, "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        sample_width = wav_file.getsampwidth()
+        channels = wav_file.getnchannels()
+        frame_count = wav_file.getnframes()
+        data = wav_file.readframes(frame_count)
+
+    duration = frame_count / sample_rate if sample_rate else 0.0
+    if channels != 1 or sample_rate not in (8000, 16000, 32000, 48000):
+        return [(0.0, duration)] if duration > 0 else []
+
+    frame_ms = 30
+    frame_samples = int(sample_rate * frame_ms / 1000)
+    frame_bytes = frame_samples * sample_width
+    vad = webrtcvad.Vad(1)
+    raw_intervals = []
+    speech_start = None
+
+    for byte_offset in range(0, len(data) - frame_bytes + 1, frame_bytes):
+        frame_index = byte_offset // frame_bytes
+        start = frame_index * frame_ms / 1000.0
+        is_speech = vad.is_speech(data[byte_offset : byte_offset + frame_bytes], sample_rate)
+        if is_speech and speech_start is None:
+            speech_start = start
+        elif not is_speech and speech_start is not None:
+            raw_intervals.append((speech_start, start))
+            speech_start = None
+    if speech_start is not None:
+        raw_intervals.append((speech_start, duration))
+
+    if not raw_intervals:
+        return [(0.0, duration)] if duration > 0 else []
+
+    merged = []
+    for start, end in raw_intervals:
+        if merged and start - merged[-1][1] <= 0.3:
+            merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _speech_clock_to_audio_time(intervals, speech_seconds):
+    remaining = max(0.0, float(speech_seconds or 0.0))
+    for start, end in intervals:
+        interval_duration = max(0.0, end - start)
+        if remaining <= interval_duration:
+            return start + remaining
+        remaining -= interval_duration
+    return intervals[-1][1] if intervals else 0.0
+
+
+_VAD_TURN_GAP_SEC = 0.15  # đệm giả lập giữa 2 lượt nói khác speaker
+
+
+def _retime_segments_by_vad(segments, wav_path):
+    """Dựng start/end cho các segment đã có sẵn thứ tự, bằng cách rải text lên
+    các vùng VAD báo là có tiếng nói.
+
+    Mốc ở đây là ước lượng, không phải đo từng chữ: nó giữ đúng thứ tự và nằm
+    trong vùng có tiếng, đủ cho việc hiển thị. Khâu nhận diện người nói không
+    dùng tới mốc này — nó gom cụm giọng riêng — nên sai lệch ở đây không kéo
+    theo gán nhầm người."""
+    segments = [dict(seg) for seg in (segments or []) if isinstance(seg, dict)]
+    if not segments:
+        return []
+
+    intervals = _vad_speech_intervals(wav_path)
+    total_speech = sum(max(0.0, end - start) for start, end in intervals)
+    if total_speech <= 0:
+        return segments
+
+    weights = [max(1, len(_normalized_text_tokens(seg.get("text")))) for seg in segments]
+    total_weight = max(1, sum(weights))
+    consumed_weight = 0
+
+    for idx, (seg, weight) in enumerate(zip(segments, weights)):
+        start_clock = total_speech * consumed_weight / total_weight
+        consumed_weight += weight
+        end_clock = total_speech * consumed_weight / total_weight
+
+        # Phân bổ toán học thuần tuý luôn cho end_clock == start_clock của lượt
+        # kế tiếp (gap=0 tuyệt đối), dù người thật luôn có khoảng ngừng dù nhỏ
+        # khi đổi người nói. Bớt lại 1 chút cuối lượt khi SẮP đổi speaker, để
+        # tránh cắt clip embedding dính giọng người nói kế tiếp.
+        next_seg = segments[idx + 1] if idx + 1 < len(segments) else None
+        if next_seg is not None and next_seg.get("speaker") != seg.get("speaker"):
+            end_clock = max(start_clock, end_clock - _VAD_TURN_GAP_SEC)
+
+        seg["start"] = round(_speech_clock_to_audio_time(intervals, start_clock), 2)
+        seg["end"] = round(_speech_clock_to_audio_time(intervals, end_clock), 2)
+
+    return segments
+
+
+def _normalized_text_tokens(text):
+    value = re.sub(r"[^\w\s]", " ", str(text or "").casefold(), flags=re.UNICODE)
+    return [token for token in value.split() if token]
 
 
 def _segments_to_raw_words(segments, file_duration=None, log_cb=None):
@@ -545,8 +770,6 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
         return [], [], "", "Chưa cấu hình Gemini Model trong Voice App Settings", 0, 0
 
     try:
-        from .audio_utils import split_audio_by_silence
-        
         try:
             import frappe
             frappe.log_error(f"Bat dau call_gemini_stt voi {len(chunks_info)} chunks, model={model_name}", "Gemini STT Debug")
@@ -558,6 +781,10 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
             with suppress(Exception):
                 parse_log_cb("", f"[Gemini STT] Xử lý {len(chunks_info)} chunks, lang={language}, speakers={num_speakers}")
         prompt = _build_prompt(num_speakers, language, custom_vocabulary)
+        max_output_tokens = get_gemini_stt_max_output_tokens()
+        if parse_log_cb:
+            with suppress(Exception):
+                parse_log_cb("", f"[Gemini STT] maxOutputTokens/chunk={max_output_tokens}")
 
         chunks = chunks_info
         if progress_callback:
@@ -581,8 +808,9 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
         import threading
         _upload_lock = threading.Semaphore(8)
 
-        def _process_single_chunk(chunk_dict, is_subchunk=False, dense_subchunk_offset=0.0):
+        def _process_single_chunk(chunk_dict):
             idx = chunk_dict.get("idx", 0)
+            chunk_display = idx + 1 if isinstance(idx, int) else idx
             original_chunk_wav = chunk_dict.get("wav")
             current_wav = original_chunk_wav
             offset = chunk_dict.get("offset", 0.0)
@@ -598,28 +826,40 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 parse_logs.append(message)
 
             try:
-                if not is_subchunk and idx in completed_chunks:
+                if idx in completed_chunks:
                     chunk_log(f"[Gemini STT] Bỏ qua chunk {idx+1}/{len(chunks_info)} vì đã hoàn thành.")
                     return idx, None, None, None, None, None, parse_logs
 
-                if is_subchunk:
-                    chunk_log(f"[Gemini STT]   -> Sub-chunk {idx} - offset: {offset:.1f}s")
-                else:
-                    chunk_log(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks_info)} - offset: {offset:.1f}s")
+                chunk_log(f"[Gemini STT] Bắt đầu chunk {idx+1}/{len(chunks_info)} - offset: {offset:.1f}s")
 
                 chunk_duration = get_duration(current_wav)
 
+                # Nén sang FLAC trước khi upload — file dài thì wav gốc rất
+                # nặng, FLAC lossless nhỏ hơn ~3 lần nên upload nhanh hơn hẳn
+                # mà không ảnh hưởng độ chính xác phiên âm.
+                flac_path = _convert_to_flac(current_wav, log_cb=append_chunk_log)
+                upload_path = flac_path or current_wav
+                upload_mime = "audio/flac" if flac_path else "audio/wav"
+
                 # Upload với Semaphore 4
-                with _upload_lock:
-                    file_uri, file_name = _upload_file(current_wav, api_key, log_cb=append_chunk_log)
+                try:
+                    with _upload_lock:
+                        file_uri, file_name = _upload_file(
+                            upload_path, api_key, log_cb=append_chunk_log, mime_type=upload_mime
+                        )
+                finally:
+                    if flac_path:
+                        with suppress(FileNotFoundError):
+                            os.remove(flac_path)
 
                 chunk_error = None
                 try:
                     gemini_segments, chunk_usage, chunk_error = _call_gemini_stream(
-                        file_uri, api_key, prompt, model_name, max_tokens=65536, log_cb=append_chunk_log
+                        file_uri, api_key, prompt, model_name, max_tokens=max_output_tokens,
+                        log_cb=append_chunk_log, mime_type=upload_mime,
                     )
                     if chunk_error and chunk_error != "HALLUCINATION_DETECTED":
-                        chunk_log(f"[Gemini STT] Error on chunk {idx+1}: {chunk_error}")
+                        chunk_log(f"[Gemini STT] Error on chunk {chunk_display}: {chunk_error}")
                 finally:
                     # Luôn xóa remote file sau khi xong
                     _delete_file(file_name, api_key, log_cb=append_chunk_log)
@@ -631,26 +871,7 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 if not gemini_segments:
                     return idx, [], [], "", chunk_usage, None, parse_logs
 
-                # Lọc ảo giác lặp
                 clean_segments = []
-                loop_count = 0
-                loop_key = None
-                loop_start_idx = 0
-
-                def repeat_key(text):
-                    import re
-                    key = re.sub(r"[^\w\s]", " ", text.lower(), flags=re.UNICODE)
-                    key = " ".join(key.split())
-                    key = key.replace("nhật trình", "tờ trình")
-                    key = key.replace("nhặt trình", "tờ trình")
-                    # Các đuôi tình thái làm Gemini biến thể câu loop:
-                    # "Nhật trình là được", "Nhật trình là được rồi", "Nhật trình là được mà".
-                    endings = {"rồi", "mà", "thôi", "nha", "nhé", "ạ", "á", "đó"}
-                    words = key.split()
-                    while words and words[-1] in endings:
-                        words.pop()
-                    return " ".join(words)
-
                 for seg in gemini_segments:
                     if not isinstance(seg, dict): continue
                     text = seg.get("text", "").strip()
@@ -658,38 +879,35 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                     text = _clean_segment_text(text)
                     if not text: continue
                     seg["text"] = text
-                    try:
-                        seg_start = _parse_time(seg.get("start", 0))
-                    except (ValueError, TypeError):
-                        seg_start = 0
-                    if seg_start > chunk_duration + 10:
-                        break
-
-                    key = repeat_key(text)
-                    is_short_loop_candidate = len(key.split()) <= 8
-                    if is_short_loop_candidate and key and key == loop_key:
-                        loop_count += 1
-                        if loop_count > 3:
-                            del clean_segments[loop_start_idx:]
-                            chunk_log(f"[Gemini STT] ⚠️ Lọc loop STT lặp: '{text}'")
-                            break
-                    else:
-                        loop_key = key if is_short_loop_candidate else None
-                        loop_count = 1 if is_short_loop_candidate else 0
-                        loop_start_idx = len(clean_segments)
-
                     clean_segments.append(seg)
 
                 if not clean_segments:
                     return idx, [], [], "", chunk_usage, None, parse_logs
 
-                raw_words = _segments_to_raw_words(clean_segments, file_duration=chunk_duration, log_cb=append_chunk_log)
-                
+                # Gemini không còn trả start/end (bỏ khỏi prompt để giảm áp lực
+                # lặp — thử thêm lại timestamp text thuần từng gây MAX_TOKENS
+                # hallucination lại, đã rollback), nên phải tự dựng timeline.
+                #
+                # Trước đây dựng bằng forced-align service. Bỏ vì hai lẽ: mốc
+                # nó trả về lệch tới hàng trăm giây trên file dài (CTC bị ép
+                # nhồi chữ cho kín cửa sổ audio nó thấy), mà giờ cũng không còn
+                # ai cần mốc chính xác — việc nhận diện người nói đã chuyển hẳn
+                # sang gom cụm giọng theo VAD, không đụng tới timestamp. Còn
+                # start/end ở đây chỉ để giữ thứ tự và cho các chỗ đọc field
+                # này khỏi vỡ; VAD làm việc đó tại chỗ, không cần service ngoài
+                # và không tốn vài phút mỗi file.
+                clean_segments = _retime_segments_by_vad(clean_segments, current_wav)
+                raw_words = _segments_to_raw_words(clean_segments, log_cb=append_chunk_log)
+
+                timeline_errors = _timeline_validation_errors(
+                    clean_segments,
+                    chunk_duration,
+                    check_long_segments=True,
+                )
+
                 # Hàm map thời gian đặc ruột về thời gian gốc
                 def map_time(t_val):
                     t = _parse_time(t_val)
-                    if is_subchunk:
-                        t += dense_subchunk_offset
                     if mappings:
                         for m in mappings:
                             if m["dense_start"] <= t <= m["dense_end"]:
@@ -717,41 +935,16 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
 
                 chunk_text = " ".join(s.get("text", "") for s in clean_segments)
 
-                # Smart Resume: nếu bị hallucination hoặc AI lười biếng bỏ sót đoạn cuối (miss > 15s), cắt phần còn lại chạy tiếp
-                if not is_subchunk:
-                    last_valid_ts = _parse_time(clean_segments[-1].get("end", 0)) if clean_segments else 0
-                    if chunk_duration - last_valid_ts > 15:
-                        reason = "ảo giác (MAX_TOKENS)" if chunk_error == "HALLUCINATION_DETECTED" else "lười biếng bỏ sót"
-                        chunk_log(f"[Gemini STT] ⚠️ Chunk {idx+1} bị {reason} ở giây {last_valid_ts:.1f}/{chunk_duration:.1f}s. Kích hoạt Smart Resume...")
-                        import pydub
-                        audio = pydub.AudioSegment.from_wav(current_wav)
-                        resume_audio = audio[int(last_valid_ts * 1000):]
-                        resume_wav = current_wav.replace(".wav", f"_{idx}_resume.wav")
-                        resume_audio.export(resume_wav, format="wav")
-
-                        _, r_segs, r_words, r_txt, r_use, r_err, r_logs = _process_single_chunk(
-                            {"idx": f"{idx}_resume", "wav": resume_wav, "offset": offset, "mappings": mappings, "name": chunk_name}, 
-                            is_subchunk=True, dense_subchunk_offset=last_valid_ts
-                        )
-                        parse_logs.extend(r_logs or [])
-
-                        with suppress(FileNotFoundError):
-                            os.remove(resume_wav)
-
-                        if r_use:
-                            for k in chunk_usage:
-                                if k in r_use: chunk_usage[k] += r_use.get(k, 0)
-
-                        if r_segs: segments.extend(r_segs)
-                        if r_words: raw_words.extend(r_words)
-                        if r_txt:   chunk_text += " " + r_txt
+                if timeline_errors:
+                    detail = "; ".join(timeline_errors[:6])
+                    chunk_log(f"[Gemini STT] Chunk {idx + 1} timeline cảnh báo (không chặn kết quả): {detail}")
 
                 return idx, segments, raw_words, chunk_text, chunk_usage, None, parse_logs
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                chunk_log(f"[Gemini STT] Exception chunk {idx+1}: {e}")
+                chunk_log(f"[Gemini STT] Exception chunk {chunk_display}: {e}")
                 return idx, None, None, None, None, str(e), parse_logs
 
         # Chạy tất cả chunk song song

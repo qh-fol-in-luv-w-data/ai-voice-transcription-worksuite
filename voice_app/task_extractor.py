@@ -19,6 +19,7 @@ from .constants import get_openai_api_key, get_worksuite_url, get_worksuite_toke
 
 class AgentState(TypedDict):
     file_path:      str
+    model_type:     str
     api_key:        str
     doc_text:       str
     extracted_data: dict
@@ -138,20 +139,47 @@ def node_read_docx(state: AgentState) -> dict:
 # NODE 2: Trích xuất công việc bằng GPT-4o
 # ─────────────────────────────────────────────
 
-def node_extract_tasks(state: AgentState) -> dict:
-    model_type = state.get("model_type", "gpt-4o")
-    print(f"\n🤖 [Node 2] Phân tích biên bản bằng {model_type}...")
+# Ngưỡng ký tự để bắt đầu chia nhỏ biên bản trước khi trích task. Dưới ngưỡng
+# này hành vi giữ nguyên như cũ (1 lần gọi). Chọn đủ nhỏ để số lượng task/noti
+# kỳ vọng trong 1 lần gọi không đẩy output chạm trần max_tokens=16000.
+_MAX_EXTRACT_CHARS = 24000
+_EXTRACT_OVERLAP_LINES = 3
 
-    if not state.get("doc_text"):
-        return {"errors": ["Không có nội dung để phân tích"], "extracted_data": {}}
 
-    api_key = get_openai_api_key()
-    if not api_key:
-        return {"errors": ["Thiếu OPENAI_API_KEY trong config"]}
+def _split_doc_text_for_extraction(doc_text, max_chars=_MAX_EXTRACT_CHARS, overlap_lines=_EXTRACT_OVERLAP_LINES):
+    """Chia doc_text thành các đoạn theo ranh giới DÒNG (không cắt giữa câu),
+    mỗi đoạn (trừ đoạn đầu) lặp lại vài dòng cuối của đoạn trước để không mất
+    ngữ cảnh khi 1 lượt nói/task bị rơi đúng vào ranh giới cắt."""
+    lines = doc_text.split("\n")
+    if len(doc_text) <= max_chars:
+        return [doc_text]
 
-    client = OpenAI(api_key=api_key)
+    chunks = []
+    current = []
+    current_len = 0
+    for line in lines:
+        line_len = len(line) + 1
+        if current and current_len + line_len > max_chars:
+            chunks.append("\n".join(current))
+            current = current[-overlap_lines:] if overlap_lines else []
+            current_len = sum(len(l) + 1 for l in current)
+        current.append(line)
+        current_len += line_len
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
 
-    prompt = """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất TẤT CẢ các thông báo và công việc cần xử lý.
+
+def _build_extract_prompt(doc_text_chunk, already_titles):
+    recap = ""
+    if already_titles:
+        recap_items = "\n".join(f"- {t}" for t in already_titles[-40:])
+        recap = f"""
+━━━ ĐÃ TRÍCH XUẤT Ở CÁC ĐOẠN TRƯỚC (KHÔNG được liệt kê lại các mục sau, chỉ trích mục MỚI chưa có trong danh sách này) ━━━
+{recap_items}
+"""
+
+    return """Bạn là trợ lý phân tích biên bản họp. Đọc nội dung biên bản họp dưới đây và trích xuất TẤT CẢ các thông báo và công việc cần xử lý.
 
 Nhiệm vụ của bạn:
 - Viết "tom_tat_cuoc_hop" (Meeting Summary & Key Takeaways): Tóm tắt ĐẦY ĐỦ VÀ CHI TIẾT các nội dung chính được thảo luận trong cuộc họp. Tuyệt đối không tóm tắt quá ngắn gọn, hãy liệt kê đầy đủ các ý chính, quan điểm và quyết định. ĐẶC BIỆT LƯU Ý: Phải trình bày theo đúng format/template sau (nếu có các nội dung chỉ đạo):
@@ -168,7 +196,7 @@ Nhiệm vụ của bạn:
 - Mỗi mục là một đầu việc hoặc thông báo riêng biệt, không được gộp chung các công việc khác nhau vào làm một.
 - NẾU một công việc được giao cho nhiều người cùng lúc (ví dụ: A và B cùng làm), BẮT BUỘC phải tách ra thành các item (task) riêng biệt cho từng người (mỗi người 1 task giống nhau).
 - Có người thực hiện, người tiếp nhận rõ ràng hoặc là thông báo chung.
-
+""" + recap + """
 Điền thông tin:
 - "nguoi_thuc_hien": họ tên ĐẦY ĐỦ chính xác NHƯ TRONG BIÊN BẢN (không rút gọn, không suy diễn, không đảo thứ tự)
 - "chuc_danh": chức danh của người đó NẾU được đề cập (ví dụ: "Kế toán trưởng", "Dev", "Lập trình viên"). Null nếu không có.
@@ -202,39 +230,105 @@ Trả về JSON hợp lệ, KHÔNG có markdown, KHÔNG có giải thích:
 }
 
 Nội dung biên bản họp:
-""" + state["doc_text"]
+""" + doc_text_chunk
 
-    try:
-        response = client.chat.completions.create(
-            model=model_type,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=16000,
-            response_format={"type": "json_object"}
-        )
-        raw = response.choices[0].message.content.strip()
 
-        # Clean JSON
-        raw = re.sub(r"```json\s*", "", raw)
-        raw = re.sub(r"```", "", raw).strip()
-        data = json.loads(raw)
+def _call_extraction_llm(client, model_type, prompt):
+    response = client.chat.completions.create(
+        model=model_type,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+        max_tokens=16000,
+        response_format={"type": "json_object"}
+    )
+    raw = response.choices[0].message.content.strip()
+    raw = re.sub(r"```json\s*", "", raw)
+    raw = re.sub(r"```", "", raw).strip()
+    data = json.loads(raw)
 
-        items_count = len(data.get("items", []))
-        print(f"   ✅ Tìm thấy {items_count} mục công việc")
-        
-        prompt_tokens = response.usage.prompt_tokens if hasattr(response, 'usage') and response.usage else 0
-        completion_tokens = response.usage.completion_tokens if hasattr(response, 'usage') and response.usage else 0
-        total_tokens = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else 0
-        
-        return {
-            "extracted_data": data,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "tokens_used": total_tokens
-        }
-    except Exception as e:
-        print(f"   ❌ Lỗi extract tasks: {e}")
-        return {"errors": [f"Lỗi extract: {str(e)}"]}
+    usage = response.usage
+    return data, {
+        "prompt_tokens": usage.prompt_tokens if usage else 0,
+        "completion_tokens": usage.completion_tokens if usage else 0,
+        "tokens_used": usage.total_tokens if usage else 0,
+    }
+
+
+def node_extract_tasks(state: AgentState) -> dict:
+    model_type = state.get("model_type", "gpt-4o")
+    print(f"\n🤖 [Node 2] Phân tích biên bản bằng {model_type}...")
+
+    if not state.get("doc_text"):
+        return {"errors": ["Không có nội dung để phân tích"], "extracted_data": {}}
+
+    api_key = get_openai_api_key()
+    if not api_key:
+        return {"errors": ["Thiếu OPENAI_API_KEY trong config"]}
+
+    client = OpenAI(api_key=api_key)
+
+    chunks = _split_doc_text_for_extraction(state["doc_text"])
+    if len(chunks) > 1:
+        print(f"   ℹ️  Biên bản dài ({len(state['doc_text'])} ký tự) — chia thành {len(chunks)} đoạn để trích xuất.")
+
+    merged_items = []
+    summaries = []
+    conclusions = []
+    ten_cuoc_hop = ""
+    ngay_hop = ""
+    total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "tokens_used": 0}
+    errors = []
+
+    for idx, chunk_text in enumerate(chunks):
+        already_titles = [it.get("noi_dung", "") for it in merged_items if it.get("noi_dung")]
+        prompt = _build_extract_prompt(chunk_text, already_titles if idx > 0 else [])
+        try:
+            data, usage = _call_extraction_llm(client, model_type, prompt)
+        except Exception as e:
+            print(f"   ❌ Lỗi extract tasks (đoạn {idx + 1}/{len(chunks)}): {e}")
+            errors.append(f"Lỗi extract đoạn {idx + 1}/{len(chunks)}: {str(e)}")
+            continue
+
+        for key in total_usage:
+            total_usage[key] += usage.get(key, 0)
+
+        chunk_items = data.get("items", [])
+        merged_items.extend(chunk_items)
+        print(f"   ✅ Đoạn {idx + 1}/{len(chunks)}: tìm thấy {len(chunk_items)} mục công việc")
+
+        if not ten_cuoc_hop and data.get("ten_cuoc_hop"):
+            ten_cuoc_hop = data["ten_cuoc_hop"]
+        if not ngay_hop and data.get("ngay_hop"):
+            ngay_hop = data["ngay_hop"]
+        if data.get("tom_tat_cuoc_hop"):
+            summaries.append(data["tom_tat_cuoc_hop"])
+        if data.get("ket_luan_cuoc_hop"):
+            conclusions.append(data["ket_luan_cuoc_hop"])
+
+    if not merged_items and errors:
+        return {"errors": errors}
+
+    for i, item in enumerate(merged_items, start=1):
+        item["id"] = i
+
+    combined_data = {
+        "ten_cuoc_hop": ten_cuoc_hop,
+        "ngay_hop": ngay_hop,
+        "tom_tat_cuoc_hop": "\n\n".join(summaries) if len(summaries) <= 1 else "\n\n".join(
+            f"── Phần {i + 1} ──\n{s}" for i, s in enumerate(summaries)
+        ),
+        # Kết luận thường nằm ở cuối cuộc họp -> ưu tiên đoạn cuối cùng có kết luận.
+        "ket_luan_cuoc_hop": conclusions[-1] if conclusions else "",
+        "items": merged_items,
+    }
+
+    return {
+        "extracted_data": combined_data,
+        "prompt_tokens": total_usage["prompt_tokens"],
+        "completion_tokens": total_usage["completion_tokens"],
+        "tokens_used": total_usage["tokens_used"],
+        "errors": errors,
+    }
 
 
 # ─────────────────────────────────────────────

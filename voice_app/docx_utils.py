@@ -213,9 +213,10 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 if not desg and not spk_display.lower().startswith("người lạ"):
                     try:
                         clean_spk = spk_display.replace("👤", "").replace("", "").strip()
-                        db_desg = frappe.db.get_value("Employee", {"employee_name": clean_spk}, "designation")
-                        if db_desg:
-                            desg = db_desg
+                        if frappe.db.exists("DocType", "Employee"):
+                            db_desg = frappe.db.get_value("Employee", {"employee_name": clean_spk}, "designation")
+                            if db_desg:
+                                desg = db_desg
                     except Exception:
                         if hasattr(frappe.db, 'rollback'): frappe.db.rollback()
                 
