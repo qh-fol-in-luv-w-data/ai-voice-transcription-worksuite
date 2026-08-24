@@ -825,16 +825,20 @@ def identify_speakers_by_voice_clustering(wav_path, segments, db, task=None, log
 def build_voice_samples_by_clustering(wav_path, segments, task=None, log_cb=None, max_sample_sec=25.0):
     """Cắt sẵn mẫu giọng sạch cho từng speaker_id, phục vụ khâu đăng ký giọng.
 
-    Trả về {speaker_id: đường_dẫn_wav}. Mẫu được ghép từ chính các đoạn đã tạo
-    nên cụm giọng đó, nên không phụ thuộc start/end của segment — chỗ mà mốc
-    thời gian lệch từng làm mẫu giọng lẫn người khác. Bên gọi tự xoá file khi
-    dùng xong.
+    Trả về (samples, mapping): samples là {speaker_id: đường_dẫn_wav}, mapping
+    là {speaker_id: mã_cụm} để bên gọi biết những speaker_id nào thật ra cùng
+    một giọng — Gemini hay tách một người thành nhiều id, nhìn vào mapping mới
+    gộp lại được.
+
+    Mẫu được ghép từ chính các đoạn đã tạo nên cụm giọng đó, nên không phụ
+    thuộc start/end của segment — chỗ mà mốc thời gian lệch từng làm mẫu giọng
+    lẫn người khác. Bên gọi tự xoá file khi dùng xong.
     """
     from voice_app.audio_utils import concat_speaker_segments
 
     clusters, mapping = _vc_analyze(wav_path, segments, task=task, log_cb=log_cb)
     if not clusters or not mapping:
-        return {}
+        return {}, {}
 
     samples = {}
     for speaker_id, cluster_id in mapping.items():
@@ -852,4 +856,4 @@ def build_voice_samples_by_clustering(wav_path, segments, task=None, log_cb=None
                 f" ({cluster['seconds']:.0f}s)",
                 log_cb,
             )
-    return samples
+    return samples, mapping
