@@ -11,15 +11,6 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "voice_app",
-# 		"logo": "/assets/voice_app/logo.png",
-# 		"title": "Voice App",
-# 		"route": "/voice_app",
-# 		"has_permission": "voice_app.api.permission.has_app_permission"
-# 	}
-# ]
 
 # Includes in <head>
 # ------------------
@@ -241,4 +232,12 @@ scheduler_events = {
 website_route_rules = [
     {"from_route": "/aicenter/2as-worksuite/<path:app_path>", "to_route": "voice_app_spa"},
     {"from_route": "/aicenter/2as-worksuite", "to_route": "voice_app_spa"}
+]
+add_to_apps_screen = [
+    {
+        "name": "voice_app",
+        "logo": "/assets/voice_app/logo.png",
+        "title": "2AS Worksuite",
+        "route": "/aicenter/2as-worksuite",
+    }
 ]

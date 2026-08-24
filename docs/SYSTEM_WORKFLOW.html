@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2AS WorkSuite - Sơ Đồ Luồng Hoạt Động & Kiến Trúc Đối Tượng</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --card-bg: #161b22;
+            --border: #30363d;
+            --text-main: #c9d1d9;
+            --text-heading: #f0f6fc;
+            --accent: #58a6ff;
+            --accent-glow: rgba(88, 166, 255, 0.15);
+            --green: #3fb950;
+            --purple: #bc8cff;
+            --orange: #f0883e;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            padding: 30px 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: linear-gradient(180deg, #1f242c 0%, #161b22 100%);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+        .header h1 {
+            color: var(--text-heading);
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #58a6ff, #bc8cff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header p {
+            color: #8b949e;
+            font-size: 15px;
+        }
+        .badge-list {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        .badge {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+        .section {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 35px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .section-title {
+            color: var(--text-heading);
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+        }
+        .section-desc {
+            color: #8b949e;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .mermaid {
+            background: #0f141c;
+            border: 1px solid #21262d;
+            border-radius: 12px;
+            padding: 20px;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+        }
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 18px;
+            margin-top: 20px;
+        }
+        .info-card {
+            background: #0f141c;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .info-card h4 {
+            color: var(--accent);
+            font-size: 15px;
+            margin-bottom: 8px;
+        }
+        .info-card p {
+            color: #8b949e;
+            font-size: 13px;
+        }
+        pre {
+            background: #090d13;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            overflow-x: auto;
+            color: #79c0ff;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏛️ 2AS WORKSUITE - SƠ ĐỒ LUỒNG HOẠT ĐỘNG TOÀN HỆ THỐNG</h1>
+            <p>Kiến trúc Đối tượng (Object-to-Object Flow) • Xử lý Âm thanh AI • Nhận diện Người nói • Đồng bộ ERP</p>
+            <div class="badge-list">
+                <span class="badge">Frappe v15</span>
+                <span class="badge">Vue 3 + Vite</span>
+                <span class="badge">Google Gemini Flash STT</span>
+                <span class="badge">OpenAI GPT-4o</span>
+                <span class="badge">Worksuite REST API</span>
+            </div>
+        </div>
+
+        <!-- Section 1 -->
+        <div class="section">
+            <div class="section-title">
+                <span>🔄 1. Sơ đồ Chuyển Hóa Đối Tượng Toàn Trình (Object Dataflow)</span>
+            </div>
+            <p class="section-desc">Mô tả chi tiết luồng sinh ra, biến đổi và truyền tải các Đối tượng Dữ liệu (Objects) từ Audio gốc đến Task trên ERP:</p>
+            
+            <div class="mermaid">
+flowchart TD
+    subgraph S1["🎵 1. Audio Objects"]
+        A["📦 RawAudioFileObject<br/>(.mp3, .m4a, .wav)"]
+        B["📦 NormalizedWavObject<br/>(16kHz Mono PCM)"]
+        C["📦 AudioChunkObject [1..N]<br/>(MapReduce ~10 phút)"]
+    end
+
+    subgraph S2["🎙️ 2. STT & Diarization Objects"]
+        Vocab["⚙️ GlobalVocabulary<br/>(CT Group, VGCT, CCTPA...)"]
+        D["📦 GeminiSTTResponse<br/>(Raw Segments + Speaker IDs)"]
+        E["🧬 AudioSegmentEmbedding<br/>(Vector 512 chiều)"]
+        F["👤 VoiceSpeakerProfile (DB)<br/>(Họ tên, Mã NV, Vector mẫu)"]
+        G["📦 AnnotatedSegment [1..M]<br/>(Gán danh tính thực)"]
+    end
+
+    subgraph S3["🧠 3. Intelligence & Extraction Objects"]
+        H["📦 FullMeetingTranscript<br/>(Hợp nhất toàn bộ hội thoại)"]
+        I["📦 LLMStructuredOutput<br/>(Summary + Action Items JSON)"]
+    end
+
+    subgraph S4["💾 4. Database Entities & Outputs"]
+        J["🗄️ DocType: Voice Meeting"]
+        K["🗄️ DocType: Voice Task [1..P]"]
+        L["📄 WordReportFile (.docx)"]
+        M["🏢 WorksuiteTaskRecord (ERP)"]
+    end
+
+    A -->|ffmpeg normalize| B
+    B -->|WebRTC VAD Split| C
+    C -->|STT Map Request| D
+    Vocab -.-> D
+    C -->|Voice Slice| E
+    E <-->|Cosine Match >= 0.75| F
+    D -->|Attributed Speaker| G
+    F -.-> G
+    G -->|Reduce & Concat| H
+    H -->|OpenAI GPT-4o Prompt| I
+    I -->|Header & Summary| J
+    I -->|Task Rows| K
+    J & K -->|Render Template| L
+    K -->|REST API Sync| M
+            </div>
+        </div>
+
+        <!-- Section 2 -->
+        <div class="section">
+            <div class="section-title">
+                <span>⏱️ 2. Sơ đồ Tuần Tự Xử Lý (Sequence Diagram)</span>
+            </div>
+            <p class="section-desc">Tương tác giữa Người dùng, Frappe Backend, AI Cloud và Hệ thống Worksuite:</p>
+
+            <div class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as 👤 Người dùng (Vue SPA)
+    participant API as 🚀 Frappe API (voice_app)
+    participant Audio as 🎵 Audio Processor
+    participant STT as 🎙️ Gemini STT
+    participant Bio as 🧬 Speaker Manager
+    participant LLM as 🧠 OpenAI GPT-4o
+    participant DB as 🗄️ Database (DocTypes)
+    participant ERP as 🏢 Worksuite ERP
+
+    User->>API: 1. Upload file ghi âm cuộc họp (.mp3/.m4a)
+    API->>DB: Tạo Voice Meeting (Status: 'Processing')
+    API->>Audio: Chuẩn hóa 16kHz WAV & VAD Chunking
+    
+    loop Xử lý song song từng Chunk
+        API->>STT: Gửi Audio Chunk + Vocabulary
+        STT-->>API: Trả về Sub-transcript & Timestamps
+        API->>Bio: Trích xuất Voice Embedding & So khớp
+        Bio-->>API: Định danh người nói (vd: "Anh Lê Thành - PAI")
+        API-->>User: [Socket.io] Cập nhật tiến độ Realtime (%)
+    end
+
+    API->>LLM: Ghép Full Transcript + Prompt bóc tách Task
+    LLM-->>API: Trả về JSON: Tóm tắt + Ma trận Task
+    API->>DB: Lưu Voice Meeting & Tạo Voice Task [1..N]
+    API-->>User: Trả về kết quả hiển thị lên giao diện Web
+
+    opt Xuất Biên bản họp
+        User->>API: Nhấn "Xuất Word (.docx)"
+        API-->>User: Tải về file DOCX chuẩn CT Group
+    end
+
+    opt Đồng bộ Worksuite ERP
+        User->>API: Nhấn "Đồng bộ sang Worksuite"
+        API->>ERP: Gọi REST API tạo Task trên Worksuite
+        ERP-->>API: Trả về Task ID
+        API->>DB: Đổi trạng thái Voice Task sang 'Synced'
+        API-->>User: Báo đồng bộ thành công
+    end
+            </div>
+        </div>
+
+        <!-- Section 3 -->
+        <div class="section">
+            <div class="section-title">
+                <span>🧬 3. Luồng Nhận Diện Giọng Nói Sinh Trắc Học (Voice Biometrics)</span>
+            </div>
+            <p class="section-desc">Cách hệ thống tự động gán tên lãnh đạo/nhân viên vào hội thoại mà không cần gõ tay:</p>
+
+            <div class="mermaid">
+flowchart LR
+    A["🎵 Đoạn Audio Phát Biểu (3-5s)"] --> B["🧬 Embedding Extractor<br/>(Pyannote/Resemblyzer)"]
+    B --> C["📦 Vector Giọng Nói Hiện Tại<br/>(Float32Array[512])"]
+    
+    D[("👤 Thư viện Voice Speaker<br/>Mẫu giọng nhân sự CT Group")] --> E["📐 Cosine Similarity Calculator<br/>scipy.spatial.distance.cosine"]
+    C --> E
+    
+    E --> F{"Độ tương đồng<br/>Cosine >= 0.75?"}
+    F -->|Có| G["✅ Gán Tên Nhân Sự<br/>(vd: 'Anh Lê Thành - PAI')"]
+    F -->|Không| H["⚪ Giữ Nhãn Mặc Định<br/>(vd: 'Speaker 1')"]
+    
+    G --> I["📝 Cập nhật dòng thoại Transcript"]
+    H --> I
+            </div>
+        </div>
+
+        <!-- Section 4 -->
+        <div class="section">
+            <div class="section-title">
+                <span>🗄️ 4. Sơ đồ Quan Hệ Thực Thể Dữ Liệu (DocType ERD)</span>
+            </div>
+            <div class="mermaid">
+erDiagram
+    Voice_Meeting ||--o{ Voice_Meeting_Chunk : "chứa 1..N chunks"
+    Voice_Meeting ||--o{ Voice_Task : "sinh ra 1..N tasks"
+    Voice_Speaker ||--o{ Voice_Meeting : "tham gia phát biểu"
+    Voice_App_Settings ||--|| Voice_Meeting : "cấu hình chung"
+
+    Voice_Meeting {
+        string name PK "Mã cuộc họp"
+        string title "Tiêu đề cuộc họp"
+        datetime meeting_date "Ngày giờ họp"
+        string audio_file "Đường dẫn file gốc"
+        string status "Uploaded | Processing | Completed"
+        longtext full_transcript "Toàn văn hội thoại"
+        longtext meeting_summary "Tóm tắt & kết luận"
+    }
+
+    Voice_Meeting_Chunk {
+        string name PK "Mã chunk"
+        string parent_meeting FK "Mã cuộc họp cha"
+        int chunk_index "Thứ tự chunk"
+        text chunk_transcript "Nội dung thoại chunk"
+        string status "Done | Failed"
+    }
+
+    Voice_Task {
+        string name PK "Mã task"
+        string parent_meeting FK "Mã cuộc họp"
+        string task_title "Nội dung đầu việc"
+        string assignee "Người chịu trách nhiệm"
+        date deadline "Thời hạn hoàn thành"
+        string priority "High | Medium | Low"
+        string status "Pending | Synced"
+        string worksuite_task_id "ID trên Worksuite ERP"
+    }
+
+    Voice_Speaker {
+        string name PK "Mã người nói"
+        string speaker_name "Họ và tên"
+        string employee_code "Mã nhân viên"
+        string department "Phòng ban"
+        blob voice_embedding_vector "Vector 512 chiều"
+    }
+
+    Voice_App_Settings {
+        string gemini_api_key "API Key Gemini STT"
+        string gemini_model "Model Gemini"
+        int gemini_stt_max_output_tokens "Trần token"
+        string openai_api_key "API Key OpenAI GPT-4o"
+        string worksuite_url "URL Worksuite ERP"
+        string sync_api_token "Token Worksuite"
+        text global_vocabulary "Từ điển thuật ngữ CT Group"
+    }
+            </div>
+        </div>
+
+        <!-- Section 5 -->
+        <div class="section">
+            <div class="section-title">
+                <span>📋 5. Tóm Tắt Các Bước Xử Lý & Module Mapping</span>
+            </div>
+            <div class="card-grid">
+                <div class="info-card">
+                    <h4>1. Audio Ingestion & VAD</h4>
+                    <p>File: <code>voice_app/audio_utils.py</code></p>
+                    <p>Chuẩn hóa audio 16kHz, phân đoạn MapReduce theo quãng lặng bằng WebRTC VAD.</p>
+                </div>
+                <div class="info-card">
+                    <h4>2. Gemini STT & Diarization</h4>
+                    <p>File: <code>voice_app/gemini_stt_client.py</code></p>
+                    <p>Phiên âm đa vùng miền kết hợp từ điển <code>global_vocabulary</code> của CT Group.</p>
+                </div>
+                <div class="info-card">
+                    <h4>3. Voice Biometrics</h4>
+                    <p>File: <code>voice_app/speaker_manager.py</code></p>
+                    <p>Trích xuất vector 512-dim, so khớp Cosine Distance để định danh lãnh đạo/nhân sự.</p>
+                </div>
+                <div class="info-card">
+                    <h4>4. AI Task Extractor</h4>
+                    <p>File: <code>voice_app/task_extractor.py</code></p>
+                    <p>Bóc tách đầu việc, người thực hiện, thời hạn và tạo tóm tắt biên bản qua GPT-4o.</p>
+                </div>
+                <div class="info-card">
+                    <h4>5. DOCX Report Generator</h4>
+                    <p>File: <code>voice_app/docx_utils.py</code></p>
+                    <p>Tự động xuất Biên bản cuộc họp Word (.docx) theo đúng mẫu chuẩn của Tập đoàn CT Group.</p>
+                </div>
+                <div class="info-card">
+                    <h4>6. Worksuite ERP Sync</h4>
+                    <p>File: <code>voice_app/api.py</code></p>
+                    <p>Gọi REST API đẩy toàn bộ Task đã duyệt trực tiếp vào hệ thống Worksuite ERP.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+            sequence: { useMaxWidth: true, showSequenceNumbers: true },
+            er: { useMaxWidth: true }
+        });
+    </script>
+</body>
+</html>

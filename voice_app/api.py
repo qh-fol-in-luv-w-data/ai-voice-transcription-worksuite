@@ -3073,15 +3073,20 @@ def reassign_speaker_from_segment():
 
 
 @frappe.whitelist(allow_guest=False)
-def rescan_meeting_from_current_labels():
+def rescan_meeting_from_current_labels(**kwargs):
     """
     Dùng nhãn speaker hiện tại trong transcript (sau khi user sửa ở phần dưới)
     làm manual/source assignments, enroll những tên chưa có trong DB, rồi quét
     lại toàn bộ meeting đúng một lần.
     """
-    data = frappe.request.get_data()
-    payload = json.loads(data)
-    meeting_name = payload.get("meeting_name")
+    meeting_name = kwargs.get("meeting_name")
+    if not meeting_name:
+        try:
+            data = frappe.request.get_data()
+            payload = json.loads(data)
+            meeting_name = payload.get("meeting_name")
+        except Exception:
+            pass
 
     if not meeting_name:
         return {"status": "error", "message": "Thiếu meeting_name"}

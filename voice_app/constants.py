@@ -117,12 +117,12 @@ def get_gemini_stt_max_output_tokens():
     """Maximum Gemini output tokens per STT chunk."""
     default = 64000
     try:
-        if frappe.db:
+        if hasattr(frappe, "db") and frappe.db:
             val = frappe.db.get_single_value("Voice App Settings", "gemini_stt_max_output_tokens")
             if val:
                 return max(4000, int(val))
-    except Exception as exc:
-        _log_config_error("Voice App Gemini STT token cap lookup failed", exc)
+    except Exception:
+        pass
     try:
         return max(4000, int(os.getenv("GEMINI_STT_MAX_OUTPUT_TOKENS", default)))
     except (TypeError, ValueError):
