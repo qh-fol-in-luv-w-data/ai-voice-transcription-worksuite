@@ -43,7 +43,10 @@ def _get_embedding_api_url():
         except Exception as exc:
             print(f"Embedding API URL lookup failed: {exc}")
     if not url:
-        url = "https://service.ctpai.vn/embedding"
+        # SpeechBrain, vector 192 chiều. Phải khớp với số chiều đã lưu trong
+        # Voice Speaker: đổi sang dịch vụ trả 512 chiều thì mọi phép so giọng
+        # đều vô nghĩa, mà lỗi không hiện ra ngay — chỉ thấy nhận diện sai.
+        url = "http://192.168.90.245:8015"
     if not url.startswith(("https://", "http://")):
         url = f"https://{url}"
     parsed = urlparse(url)

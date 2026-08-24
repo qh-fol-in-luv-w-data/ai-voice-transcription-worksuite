@@ -12,9 +12,14 @@ function _getSocket() {
   // Standalone Vite dev mode — tự kết nối socket.io
   if (!_socket) {
     // Add site namespace for Frappe
+    // Lúc dev thì đi qua chính dev server: đường /socket.io đã được proxy
+    // chuyển tiếp sang dịch vụ realtime. Trước đây chỗ này ghi cứng cổng
+    // 9000, đến khi cổng đổi thì socket im lặng không kết nối được, mà lỗi
+    // chỉ hiện trong console nên rất dễ bỏ qua.
+    const site = window.frappe ? window.frappe.boot.sitename : window.location.hostname
     const origin = import.meta.env.DEV
-      ? 'http://ct-datalake.localhost:9000/ct-datalake.localhost'
-      : window.location.origin + '/' + (window.frappe ? window.frappe.boot.sitename : window.location.hostname)
+      ? window.location.origin + '/ct-datalake.localhost'
+      : window.location.origin + '/' + site
 
     _socket = io(origin, {
       withCredentials: true,
