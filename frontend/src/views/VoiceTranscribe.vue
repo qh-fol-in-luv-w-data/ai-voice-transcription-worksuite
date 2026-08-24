@@ -8,7 +8,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, enrollMappedSpeakers, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx } from '../api'
+import { transcribeAudio, extractTasks, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx } from '../api'
 import { currentMeetingName, currentMeeting, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -101,7 +101,6 @@ const isAdmin = computed(() => {
 
 // ── STRANGER MAPPING ─────────────────────────────────────────────────────────
 const speakerMapping = ref({})
-const isEnrollingMapped = ref(false)
 const hasSelectedMapping = computed(() => {
   return Object.values(speakerMapping.value).some(val => !!val)
 })
@@ -196,6 +195,39 @@ const rescanFromEditedTranscript = async () => {
   }
 }
 
+const normalizeTranscript = async () => {
+  if (!currentMeetingName.value) {
+    alert('Vui lòng transcribe trước khi chuẩn hoá hội thoại!')
+    return
+  }
+  if (editingSpeaker.value !== null || editingIdx.value !== null) {
+    alert('Lưu hoặc hủy phần đang chỉnh trước khi chuẩn hoá hội thoại')
+    return
+  }
+
+  isNormalizingTranscript.value = true
+  rescanMessage.value = 'Đang chuẩn hoá hội thoại...'
+
+  try {
+    saveState()
+    const res = await normalizeMeetingTranscript(currentMeetingName.value)
+    if (res && res.status === 'success') {
+      transcriptResults.value = res.results || transcriptResults.value
+      originalTranscriptResults.value = JSON.parse(JSON.stringify(transcriptResults.value))
+      rescanMessage.value = res.message || 'Chuẩn hoá hội thoại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 4000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isNormalizingTranscript.value = false
+  }
+}
+
 const saveAndRescanSpeaker = async (idx) => {
   const finalName = newSpeakerEmployee.value
   if (!finalName.trim()) { editingSpeaker.value = null; return }
@@ -229,43 +261,6 @@ const saveAndRescanSpeaker = async (idx) => {
     rescanMessage.value = ''
   } finally {
     isRescanning.value = false
-  }
-}
-
-const normalizeTranscript = async () => {
-  if (!currentMeetingName.value) {
-    alert('Vui lòng transcribe trước khi chuẩn hoá hội thoại!')
-    return
-  }
-  if (!canNormalizeTranscript.value) {
-    alert('Vẫn còn người lạ trong transcript, gán hết tên rồi hãy chuẩn hoá hội thoại.')
-    return
-  }
-  if (editingSpeaker.value !== null || editingIdx.value !== null) {
-    alert('Lưu hoặc hủy phần đang chỉnh trước khi chuẩn hoá hội thoại')
-    return
-  }
-
-  isNormalizingTranscript.value = true
-  rescanMessage.value = 'Đang chuẩn hoá hội thoại...'
-
-  try {
-    saveState()
-    const res = await normalizeMeetingTranscript(currentMeetingName.value)
-    if (res && res.status === 'success') {
-      transcriptResults.value = res.results || transcriptResults.value
-      originalTranscriptResults.value = JSON.parse(JSON.stringify(transcriptResults.value))
-      rescanMessage.value = res.message || 'Chuẩn hoá hội thoại thành công!'
-      setTimeout(() => { rescanMessage.value = '' }, 3000)
-    } else {
-      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
-      rescanMessage.value = ''
-    }
-  } catch (e) {
-    alert('❌ Lỗi kết nối: ' + e.message)
-    rescanMessage.value = ''
-  } finally {
-    isNormalizingTranscript.value = false
   }
 }
 
@@ -392,10 +387,6 @@ const speakerStats = computed(() => {
   }
 })
 
-const canNormalizeTranscript = computed(() =>
-  transcriptResults.value.length > 0 && speakerStats.value.unknownSegments === 0
-)
-
 const formatEmployeeOption = (emp) => {
   const name = emp.employee_name || emp.user_id || ''
   const isVoiceSpeaker = emp.designation === 'Voice Speaker'
@@ -431,39 +422,6 @@ const assignStrangerNames = async () => {
 }
 
 // Enroll giọng — CHỈ ADMIN
-const enrollMapped = async () => {
-  const validMappings = {}
-  for (const [spk, name] of Object.entries(speakerMapping.value)) {
-    if (name) validMappings[spk] = name
-  }
-  if (Object.keys(validMappings).length === 0) { alert('Chưa chọn tên cho người lạ nào!'); return }
-  isEnrollingMapped.value = true
-  try {
-    if (currentMeetingName.value) {
-      const res = await enrollMappedSpeakers(currentMeetingName.value, validMappings)
-      const enrolled = res?.enrolled || [], errors = res?.errors || [], skipped = res?.skipped || []
-      let msg = '✅ Đã cập nhật tên.'
-      if (enrolled.length) msg += ` Đăng ký giọng: ${enrolled.join(', ')}.`
-      if (skipped.length) msg += ` Đã có sẵn: ${skipped.join(', ')}.`
-      if (res?.reassigned_count !== undefined) msg += ` Quét lại: ${res.reassigned_count} đoạn.`
-      if (errors.length) msg += ` Lỗi: ${errors.join(', ')}.`
-      alert(msg)
-      if (res?.results) {
-        saveState()
-        transcriptResults.value = res.results
-        speakerMapping.value = {}
-        return
-      }
-    }
-    saveState()
-    for (const seg of transcriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
-    for (const seg of originalTranscriptResults.value) { if (validMappings[seg[2]]) seg[2] = validMappings[seg[2]] }
-    if (currentMeetingName.value) await updateMeetingResults(currentMeetingName.value, transcriptResults.value)
-    speakerMapping.value = {}
-  } catch(e) { alert('❌ Lỗi: ' + e.message) }
-  finally { isEnrollingMapped.value = false }
-}
-
 const handleFileChange = (e) => { if (e.target.files.length > 0) audioFile.value = e.target.files[0] }
 const audioUrl = computed(() => audioFile.value ? URL.createObjectURL(audioFile.value) : null)
 
@@ -807,19 +765,14 @@ const startExtractTasks = async () => {
         <button @click="addNewSegment" class="font-medium py-2 px-4 rounded-lg transition-all flex items-center gap-2 text-sm bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 border-dashed hover:border-primary/60 mr-auto">
           <span class="material-symbols-outlined text-[18px]">person_add</span> Thêm người lạ
         </button>
-        <!-- Ai cũng thấy: chỉ gán tên, không enroll giọng -->
+        <!-- Chỉ còn một đường: chọn tên xong bấm Quét lại AI ở phần transcript.
+             Trước đây chỗ này có thêm nút "Gán tên" và "Gán tên & Quét lại AI",
+             ba nút làm ba việc chồng nhau nên phải nhớ bấm cái nào trước. -->
         <button :disabled="!hasSelectedMapping" @click="assignStrangerNames"
           class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm"
-          :class="hasSelectedMapping ? 'bg-orange-500 text-white hover:bg-orange-600 shadow-sm active:scale-[0.98]' : 'bg-gray-200 text-gray-400 cursor-not-allowed'">
+          :class="hasSelectedMapping ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-gray-200 text-gray-400 cursor-not-allowed'">
           <span class="material-symbols-outlined text-[18px]">label</span>
-          Gán tên
-        </button>
-        <!-- CHỈ ADMIN thấy: gán tên + enroll giọng vào database -->
-        <button v-if="isAdmin" :disabled="!hasSelectedMapping || isEnrollingMapped || !canRunAudioRescan" @click="enrollMapped"
-          class="font-medium py-2 px-5 rounded-lg transition-all flex items-center gap-2 text-sm"
-          :class="hasSelectedMapping && !isEnrollingMapped && canRunAudioRescan ? 'bg-primary text-white hover:bg-primary/90 shadow-sm active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
-          <span class="material-symbols-outlined text-[18px]">{{ isEnrollingMapped ? 'autorenew' : 'how_to_reg' }}</span>
-          {{ isEnrollingMapped ? 'Đang xử lý...' : 'Gán tên & Quét lại AI' }}
+          Áp tên vào transcript
         </button>
       </div>
     </div>
@@ -838,18 +791,18 @@ const startExtractTasks = async () => {
       <div class="flex flex-wrap gap-sm">
          <button
            @click="rescanFromEditedTranscript"
-           :disabled="isRescanning || isNormalizingTranscript || !canRunAudioRescan"
+           :disabled="isRescanning || !canRunAudioRescan"
            class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border transition-colors text-body-sm"
-           :class="(isRescanning || isNormalizingTranscript || !canRunAudioRescan) ? 'bg-primary/20 text-primary/50 border-primary/20 cursor-not-allowed' : 'bg-primary text-white border-primary hover:bg-primary/90'"
+           :class="(isRescanning || !canRunAudioRescan) ? 'bg-primary/20 text-primary/50 border-primary/20 cursor-not-allowed' : 'bg-primary text-white border-primary hover:bg-primary/90'"
          >
            <span class="material-symbols-outlined text-[18px]">{{ isRescanning ? 'autorenew' : 'manage_search' }}</span>
-           {{ isRescanning ? 'Đang quét lại...' : 'Quét lại AI theo tên đã sửa' }}
+           {{ isRescanning ? 'Đang quét lại...' : 'Quét lại AI' }}
          </button>
          <button
            @click="normalizeTranscript"
-           :disabled="isRescanning || isNormalizingTranscript || !canNormalizeTranscript"
+           :disabled="isRescanning || isNormalizingTranscript || transcriptResults.length === 0"
            class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border transition-colors text-body-sm"
-           :class="(isRescanning || isNormalizingTranscript || !canNormalizeTranscript) ? 'bg-orange-200 text-orange-400 border-orange-200 cursor-not-allowed' : 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'"
+           :class="(isRescanning || isNormalizingTranscript || transcriptResults.length === 0) ? 'bg-orange-200 text-orange-400 border-orange-200 cursor-not-allowed' : 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'"
          >
            <span class="material-symbols-outlined text-[18px]">{{ isNormalizingTranscript ? 'autorenew' : 'format_line_spacing' }}</span>
            {{ isNormalizingTranscript ? 'Đang chuẩn hoá...' : 'Chuẩn hoá hội thoại' }}

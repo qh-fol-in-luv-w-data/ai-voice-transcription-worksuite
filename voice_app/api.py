@@ -3258,22 +3258,26 @@ def rescan_meeting_from_current_labels(**kwargs):
         # một lần vì mỗi lần gom cụm tốn vài trăm lượt trích embedding. Mẫu lấy
         # từ cụm chứ không cắt theo start/end của segment: mốc thời gian có thể
         # lệch hàng trăm giây nên cắt theo đó dễ ra giọng người bên cạnh.
-        cluster_samples = {}
-        if sample_indexes:
+        cluster_samples, cluster_of_sid = {}, {}
+        if candidate_sample_indexes:
             try:
                 from voice_app.speaker_manager import build_voice_samples_by_clustering
 
-                cluster_samples = build_voice_samples_by_clustering(
+                cluster_samples, cluster_of_sid = build_voice_samples_by_clustering(
                     _ensure_wav(),
                     original_results,
                     task="Đăng ký giọng theo cụm khi quét lại",
                 )
             except Exception as exc:
-                cluster_samples = {}
+                cluster_samples, cluster_of_sid = {}, {}
                 print(f"[Rescan] gom cụm giọng lỗi, dùng cách cũ: {exc!r}")
 
+        # speaker_id đại diện cho từng tên user vừa gõ — tính cho MỌI tên, kể
+        # cả tên đã có giọng trong DB, vì bước gán nhãn phía dưới cần đủ.
+        dominant_sid_by_name = {}
+
         used_samples = set()
-        for speaker_name, idx in sample_indexes.items():
+        for speaker_name, idx in candidate_sample_indexes.items():
             # Tên do user gán nằm ở bản hiển thị; muốn biết lấy mẫu giọng nào
             # thì phải lần về speaker_id thô của Gemini. Lấy speaker_id chiếm
             # nhiều lời nhất trong số đoạn user đã gán tên này.
@@ -3302,6 +3306,14 @@ def rescan_meeting_from_current_labels(**kwargs):
             concat_wav_path = None
 
             dominant_sid = sid_weight.most_common(1)[0][0] if sid_weight else None
+            if dominant_sid:
+                dominant_sid_by_name[speaker_name] = dominant_sid
+
+            # Tên đã có giọng trong DB thì không học lại, nhưng vẫn phải ghi
+            # nhận speaker_id ở trên để bước gán nhãn biết đường lan tên.
+            if speaker_name not in sample_indexes:
+                continue
+
             if dominant_sid and dominant_sid in cluster_samples:
                 concat_wav_path = cluster_samples[dominant_sid]
                 used_samples.add(dominant_sid)
@@ -3390,59 +3402,70 @@ def rescan_meeting_from_current_labels(**kwargs):
         restored_raw_count = _restore_result_speakers_from_original(results, original_results)
         matched_indexes = set()
 
-        # Gán tên theo CỤM GIỌNG trước. Cách bên dưới so embedding của từng
-        # đoạn, mà embedding đó lấy từ audio cắt theo start/end của đoạn —
-        # trong khi mốc thời gian chỉ là ước lượng theo vùng có tiếng, không
-        # phải đo từng chữ. Cắt lệch một nhịp là dính giọng người bên cạnh,
-        # đúng thứ từng làm một người biến mất khỏi biên bản. Gom cụm không
-        # đụng tới mốc thời gian nên không dính lỗi đó.
-        clustered_names = {}
-        try:
-            from voice_app.speaker_manager import identify_speakers_by_voice_clustering
+        # Gán tên theo đúng nhãn người dùng vừa gõ, lan sang các speaker_id
+        # cùng một giọng.
+        #
+        # Trước đây bước này còn dò lại cả file: lấy embedding từng đoạn rồi so
+        # với DB xem giống ai nhất. Nhưng người dùng đã tự tai nghe và gõ tên
+        # rồi — để máy đoán lại là mở đường cho nó ghi đè bằng phán đoán sai,
+        # trong khi tên gõ tay mới là thứ đáng tin nhất ở đây. Nay chỉ dùng
+        # gom cụm để biết speaker_id nào thật ra cùng một người (Gemini hay
+        # tách một giọng thành nhiều id), rồi chép tên đó sang.
+        name_by_sid = {}
+        for speaker_name, dom_sid in dominant_sid_by_name.items():
+            name_by_sid[dom_sid] = speaker_name
+            cluster_id = cluster_of_sid.get(dom_sid)
+            if cluster_id is None:
+                continue
+            for sid, cid in cluster_of_sid.items():
+                if cid == cluster_id:
+                    name_by_sid[sid] = speaker_name
 
-            clustered_names = identify_speakers_by_voice_clustering(
-                _ensure_wav(),
-                original_results,
-                db,
-                task="Quét lại theo cụm giọng",
-            )
-        except Exception as exc:
-            print(f"[Rescan] gom cụm giọng lỗi, dùng so từng đoạn: {exc!r}")
+        # Giọng nào không lần ra được người thì trả về Speaker N, không giữ
+        # lại tên cũ. Tên cũ vốn do lần nhận diện trước đoán ra, mà đã đoán
+        # thì có thể sai — để nguyên là người đọc biên bản tưởng đã xác minh.
+        # Cũng không dựa vào mốc thời gian để đoán bù, vì mốc chỉ là ước lượng
+        # rải chữ lên vùng có tiếng chứ không đo từng chữ.
+        def _gemini_speaker_label(speaker_id, fallback_index):
+            """Lấy lại đúng nhãn Gemini đã đặt, ví dụ c0_speaker_2 -> Speaker 2.
 
-        if clustered_names:
-            for i, seg in enumerate(original_results):
-                sid = seg.get("speaker_id") if isinstance(seg, dict) else None
-                hit = clustered_names.get(sid)
-                if not hit or i >= len(results):
-                    continue
-                matched_name = hit[0]
+            Không tự đánh số lại: người dùng đối chiếu biên bản với thứ tự
+            Gemini chia, đánh lại từ đầu là hai bên lệch nhau.
+            """
+            match = re.search(r"speaker[_\s-]*(\d+)", str(speaker_id or ""), re.IGNORECASE)
+            if match:
+                return f"Speaker {int(match.group(1))}"
+            return f"Speaker {fallback_index}"
+
+        unknown_ids = {}
+        for i, seg in enumerate(original_results):
+            if i >= len(results):
+                continue
+            sid = seg.get("speaker_id") if isinstance(seg, dict) else None
+            matched_name = name_by_sid.get(sid)
+            if matched_name:
                 _seg_set_speaker_value(results[i], matched_name)
                 matched_indexes.add(i)
                 matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
                 reassigned_count += 1
-        else:
-            for i, seg in enumerate(original_results):
-                emb = _seg_get(seg, "embedding", 4, None)
-                if not _has_embedding(emb):
-                    continue
-                top_match, _ranked = _top_db_match(
-                    db,
-                    _normalize_embedding(emb),
-                    aliases=speaker_aliases,
-                )
-                if not top_match:
-                    continue
-                matched_name, similarity, email, user_info = top_match
-                if i < len(results):
-                    _seg_set_speaker_value(results[i], matched_name)
-                    matched_indexes.add(i)
-                matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
-                reassigned_count += 1
+                continue
+            if sid not in unknown_ids:
+                unknown_ids[sid] = _gemini_speaker_label(sid, len(unknown_ids) + 1)
+            _seg_set_speaker_value(results[i], unknown_ids[sid])
+        if unknown_ids:
+            print(f"[Rescan] chưa lần ra người cho: {unknown_ids}")
 
         source_assigned = _assign_by_source_winners(results, original_results, matched_indexes)
         manual_assigned = _apply_manual_speaker_assignments(results, original_results, manual_assignments)
 
-        merged_adjacent_count = 0
+        # Gộp luôn các đoạn liền kề của cùng một người. Trước đây phải bấm
+        # thêm nút "Chuẩn hoá hội thoại" mới làm việc này, nhưng nó chỉ có
+        # nghĩa sau khi tên đã chốt — tức là ngay đây. Để riêng một nút chỉ
+        # khiến người dùng phải nhớ bấm đúng thứ tự.
+        results, original_results, merged_adjacent_count = _merge_adjacent_same_speaker_segments(
+            results,
+            original_results,
+        )
         final_text = _build_plain_transcript(results)
         frappe.db.set_value("Voice Meeting", meeting_name, {
             "raw_results": json.dumps(results, ensure_ascii=False),
@@ -3522,19 +3545,15 @@ def normalize_meeting_transcript():
             for seg in results
         ]
 
-    unknown_labels = []
-    for seg in results:
-        label = str(_seg_get(seg, "speaker", 2, "") or "").strip()
-        if _is_unknown_label_text(label):
-            unknown_labels.append(label or "Không tên")
-    if unknown_labels:
-        remaining = sorted(set(unknown_labels))
-        return {
-            "status": "error",
-            "message": "Vẫn còn người lạ trong transcript. Hãy gán hết tên trước khi chuẩn hoá hội thoại.",
-            "remaining_unknown_labels": remaining,
-            "remaining_unknown_count": len(remaining),
-        }
+    # Không bắt phải gán hết tên mới cho gộp. Việc gộp chỉ nối các đoạn liền
+    # kề đã cùng một nhãn, nên Speaker 1 gộp với Speaker 1 vẫn đúng — chưa
+    # biết tên thật thì cũng không sao. Bắt gán hết trước chỉ khiến người dùng
+    # phải làm xong việc khó mới được làm việc dễ.
+    unknown_labels = sorted({
+        str(_seg_get(seg, "speaker", 2, "") or "").strip() or "Không tên"
+        for seg in results
+        if _is_unknown_label_text(str(_seg_get(seg, "speaker", 2, "") or "").strip())
+    })
 
     merged_results, merged_original_results, merged_adjacent_count = _merge_adjacent_same_speaker_segments(
         results,
@@ -3548,15 +3567,23 @@ def normalize_meeting_transcript():
     })
     frappe.db.commit()
 
+    message = (
+        f"Đã chuẩn hoá hội thoại, gộp {merged_adjacent_count} đoạn liền kề cùng người nói."
+        if merged_adjacent_count
+        else "Đã chuẩn hoá hội thoại, không có đoạn nào cần gộp thêm."
+    )
+    if unknown_labels:
+        # Nhắc thôi, không chặn: còn ai chưa có tên thì người dùng tự quyết
+        # gán tiếp hay để vậy.
+        message += f" Còn {len(unknown_labels)} giọng chưa đặt tên: {', '.join(unknown_labels[:5])}."
+
     return {
         "status": "success",
         "results": merged_results,
         "merged_adjacent_count": merged_adjacent_count,
-        "message": (
-            f"Đã chuẩn hoá hội thoại, gộp {merged_adjacent_count} đoạn liền kề cùng người nói."
-            if merged_adjacent_count
-            else "Đã chuẩn hoá hội thoại, không có đoạn nào cần gộp thêm."
-        ),
+        "remaining_unknown_labels": unknown_labels,
+        "remaining_unknown_count": len(unknown_labels),
+        "message": message,
     }
 
 @frappe.whitelist(allow_guest=False)
@@ -3753,7 +3780,7 @@ def enroll_speaker_from_segment():
             if wav_path and raw_speaker_id:
                 from .speaker_manager import build_voice_samples_by_clustering
 
-                samples = build_voice_samples_by_clustering(
+                samples, _cluster_of = build_voice_samples_by_clustering(
                     wav_path,
                     original_results,
                     task="Đăng ký giọng theo cụm",
