@@ -1,6 +1,7 @@
 import json
 import frappe
 import os
+import re
 import time
 import traceback
 import pandas as pd
@@ -50,6 +51,13 @@ def _get_speaker_alias_map():
 
 def _normalize_requested_speaker_name(value, aliases=None):
     text = str(value or "").strip()
+    if not text:
+        return ""
+    # Bóc icon người ở đầu nhãn. Giao diện luôn hiển thị "👤 Tên", nên nếu giữ
+    # nguyên icon thì "👤 chị Thuỷ" bị coi là người khác với "chị Thuỷ" — đã
+    # tái hiện: một lần quét lại tạo thêm bản ghi "👤 chị Thuỷ" nằm song song
+    # với bản ghi thật trong Voice Speaker.
+    text = re.sub(r"^[\U0001F464\U0001F465\U0001F466-\U0001F469‍️\s]+", "", text).strip()
     if not text:
         return ""
     aliases = aliases or _get_speaker_alias_map()
@@ -3381,23 +3389,55 @@ def rescan_meeting_from_current_labels(**kwargs):
 
         restored_raw_count = _restore_result_speakers_from_original(results, original_results)
         matched_indexes = set()
-        for i, seg in enumerate(original_results):
-            emb = _seg_get(seg, "embedding", 4, None)
-            if not _has_embedding(emb):
-                continue
-            top_match, _ranked = _top_db_match(
+
+        # Gán tên theo CỤM GIỌNG trước. Cách bên dưới so embedding của từng
+        # đoạn, mà embedding đó lấy từ audio cắt theo start/end của đoạn —
+        # trong khi mốc thời gian chỉ là ước lượng theo vùng có tiếng, không
+        # phải đo từng chữ. Cắt lệch một nhịp là dính giọng người bên cạnh,
+        # đúng thứ từng làm một người biến mất khỏi biên bản. Gom cụm không
+        # đụng tới mốc thời gian nên không dính lỗi đó.
+        clustered_names = {}
+        try:
+            from voice_app.speaker_manager import identify_speakers_by_voice_clustering
+
+            clustered_names = identify_speakers_by_voice_clustering(
+                _ensure_wav(),
+                original_results,
                 db,
-                _normalize_embedding(emb),
-                aliases=speaker_aliases,
+                task="Quét lại theo cụm giọng",
             )
-            if not top_match:
-                continue
-            matched_name, similarity, email, user_info = top_match
-            if i < len(results):
+        except Exception as exc:
+            print(f"[Rescan] gom cụm giọng lỗi, dùng so từng đoạn: {exc!r}")
+
+        if clustered_names:
+            for i, seg in enumerate(original_results):
+                sid = seg.get("speaker_id") if isinstance(seg, dict) else None
+                hit = clustered_names.get(sid)
+                if not hit or i >= len(results):
+                    continue
+                matched_name = hit[0]
                 _seg_set_speaker_value(results[i], matched_name)
                 matched_indexes.add(i)
-            matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
-            reassigned_count += 1
+                matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
+                reassigned_count += 1
+        else:
+            for i, seg in enumerate(original_results):
+                emb = _seg_get(seg, "embedding", 4, None)
+                if not _has_embedding(emb):
+                    continue
+                top_match, _ranked = _top_db_match(
+                    db,
+                    _normalize_embedding(emb),
+                    aliases=speaker_aliases,
+                )
+                if not top_match:
+                    continue
+                matched_name, similarity, email, user_info = top_match
+                if i < len(results):
+                    _seg_set_speaker_value(results[i], matched_name)
+                    matched_indexes.add(i)
+                matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
+                reassigned_count += 1
 
         source_assigned = _assign_by_source_winners(results, original_results, matched_indexes)
         manual_assigned = _apply_manual_speaker_assignments(results, original_results, manual_assignments)

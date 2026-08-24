@@ -51,12 +51,13 @@ export async function initSession(contextUrl) {
 
     if (res.status === 401 || res.status === 403 || res.status === 307 || res.redirected || res.url.includes('/login')) {
       removeSplash()
+      // Đi qua đường dẫn tương đối cho cả lúc chạy thật lẫn lúc dev: trang
+      // đăng nhập do máy chủ Frappe phục vụ, và ở chế độ dev thì proxy đã
+      // chuyển tiếp sẵn. Trước đây chỗ này ghi cứng cổng 8001, đến khi bench
+      // đổi sang cổng khác thì màn hình dev chỉ còn một trang trắng vì bị đá
+      // sang cổng không có ai phục vụ.
       const redirectTarget = encodeURIComponent(import.meta.env.DEV ? window.location.href : window.location.pathname)
-      if (import.meta.env.DEV) {
-        window.location.href = `http://${window.location.hostname}:8001/login?redirect-to=${redirectTarget}`
-      } else {
-        window.location.href = `/login?redirect-to=${redirectTarget}`
-      }
+      window.location.href = `/login?redirect-to=${redirectTarget}`
       return
     }
 
