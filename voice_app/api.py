@@ -3545,19 +3545,15 @@ def normalize_meeting_transcript():
             for seg in results
         ]
 
-    unknown_labels = []
-    for seg in results:
-        label = str(_seg_get(seg, "speaker", 2, "") or "").strip()
-        if _is_unknown_label_text(label):
-            unknown_labels.append(label or "Không tên")
-    if unknown_labels:
-        remaining = sorted(set(unknown_labels))
-        return {
-            "status": "error",
-            "message": "Vẫn còn người lạ trong transcript. Hãy gán hết tên trước khi chuẩn hoá hội thoại.",
-            "remaining_unknown_labels": remaining,
-            "remaining_unknown_count": len(remaining),
-        }
+    # Không bắt phải gán hết tên mới cho gộp. Việc gộp chỉ nối các đoạn liền
+    # kề đã cùng một nhãn, nên Speaker 1 gộp với Speaker 1 vẫn đúng — chưa
+    # biết tên thật thì cũng không sao. Bắt gán hết trước chỉ khiến người dùng
+    # phải làm xong việc khó mới được làm việc dễ.
+    unknown_labels = sorted({
+        str(_seg_get(seg, "speaker", 2, "") or "").strip() or "Không tên"
+        for seg in results
+        if _is_unknown_label_text(str(_seg_get(seg, "speaker", 2, "") or "").strip())
+    })
 
     merged_results, merged_original_results, merged_adjacent_count = _merge_adjacent_same_speaker_segments(
         results,
@@ -3571,15 +3567,23 @@ def normalize_meeting_transcript():
     })
     frappe.db.commit()
 
+    message = (
+        f"Đã chuẩn hoá hội thoại, gộp {merged_adjacent_count} đoạn liền kề cùng người nói."
+        if merged_adjacent_count
+        else "Đã chuẩn hoá hội thoại, không có đoạn nào cần gộp thêm."
+    )
+    if unknown_labels:
+        # Nhắc thôi, không chặn: còn ai chưa có tên thì người dùng tự quyết
+        # gán tiếp hay để vậy.
+        message += f" Còn {len(unknown_labels)} giọng chưa đặt tên: {', '.join(unknown_labels[:5])}."
+
     return {
         "status": "success",
         "results": merged_results,
         "merged_adjacent_count": merged_adjacent_count,
-        "message": (
-            f"Đã chuẩn hoá hội thoại, gộp {merged_adjacent_count} đoạn liền kề cùng người nói."
-            if merged_adjacent_count
-            else "Đã chuẩn hoá hội thoại, không có đoạn nào cần gộp thêm."
-        ),
+        "remaining_unknown_labels": unknown_labels,
+        "remaining_unknown_count": len(unknown_labels),
+        "message": message,
     }
 
 @frappe.whitelist(allow_guest=False)

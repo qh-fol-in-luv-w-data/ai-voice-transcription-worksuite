@@ -8,7 +8,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, exportDynamicDocx } from '../api'
+import { transcribeAudio, extractTasks, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx } from '../api'
 import { currentMeetingName, currentMeeting, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -112,6 +112,7 @@ const editingSpeaker = ref(null)
 const editingSpeakerName = ref('')
 const newSpeakerEmployee = ref('')
 const isRescanning = ref(false)
+const isNormalizingTranscript = ref(false)
 const rescanMessage = ref('')
 const canRunAudioRescan = computed(() =>
   !!audioFile.value || !!currentMeeting.value?.audio_file
@@ -191,6 +192,39 @@ const rescanFromEditedTranscript = async () => {
     rescanMessage.value = ''
   } finally {
     isRescanning.value = false
+  }
+}
+
+const normalizeTranscript = async () => {
+  if (!currentMeetingName.value) {
+    alert('Vui lòng transcribe trước khi chuẩn hoá hội thoại!')
+    return
+  }
+  if (editingSpeaker.value !== null || editingIdx.value !== null) {
+    alert('Lưu hoặc hủy phần đang chỉnh trước khi chuẩn hoá hội thoại')
+    return
+  }
+
+  isNormalizingTranscript.value = true
+  rescanMessage.value = 'Đang chuẩn hoá hội thoại...'
+
+  try {
+    saveState()
+    const res = await normalizeMeetingTranscript(currentMeetingName.value)
+    if (res && res.status === 'success') {
+      transcriptResults.value = res.results || transcriptResults.value
+      originalTranscriptResults.value = JSON.parse(JSON.stringify(transcriptResults.value))
+      rescanMessage.value = res.message || 'Chuẩn hoá hội thoại thành công!'
+      setTimeout(() => { rescanMessage.value = '' }, 4000)
+    } else {
+      alert('❌ Lỗi: ' + (res?.message || 'Không xác định'))
+      rescanMessage.value = ''
+    }
+  } catch (e) {
+    alert('❌ Lỗi kết nối: ' + e.message)
+    rescanMessage.value = ''
+  } finally {
+    isNormalizingTranscript.value = false
   }
 }
 
@@ -763,6 +797,15 @@ const startExtractTasks = async () => {
          >
            <span class="material-symbols-outlined text-[18px]">{{ isRescanning ? 'autorenew' : 'manage_search' }}</span>
            {{ isRescanning ? 'Đang quét lại...' : 'Quét lại AI' }}
+         </button>
+         <button
+           @click="normalizeTranscript"
+           :disabled="isRescanning || isNormalizingTranscript || transcriptResults.length === 0"
+           class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border transition-colors text-body-sm"
+           :class="(isRescanning || isNormalizingTranscript || transcriptResults.length === 0) ? 'bg-orange-200 text-orange-400 border-orange-200 cursor-not-allowed' : 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'"
+         >
+           <span class="material-symbols-outlined text-[18px]">{{ isNormalizingTranscript ? 'autorenew' : 'format_line_spacing' }}</span>
+           {{ isNormalizingTranscript ? 'Đang chuẩn hoá...' : 'Chuẩn hoá hội thoại' }}
          </button>
          <button @click="undoAction" :disabled="undoStack.length === 0" class="px-4 py-2 rounded-md font-medium flex items-center gap-sm border border-gray-300 dark:border-outline-variant hover:bg-gray-100 dark:hover:bg-surface-variant transition-colors text-body-sm" :class="undoStack.length === 0 ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-gray-900 dark:text-on-surface'">
            <span class="material-symbols-outlined text-[18px]">undo</span>
