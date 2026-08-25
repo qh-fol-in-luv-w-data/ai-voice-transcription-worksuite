@@ -881,7 +881,7 @@ const removeTask = (idx) => {
               </template>
               <template v-else>
                 <span class="font-bold text-sm tracking-wide cursor-pointer hover:underline" @click="startEditSpeaker(idx)" :class="seg[2] && seg[2].includes('Người lạ') ? 'text-red-600' : ''" :style="seg[2] && !seg[2].includes('Người lạ') ? { color: stringToColor(seg[2]) } : {}">{{ seg[2] || 'Không tên' }}</span>
-                <span class="text-xs text-gray-500 dark:text-on-surface-variant font-label-caps">[{{ formatTime(seg[0]) }}]</span>
+                <!-- Ẩn mốc giờ từng đoạn: đó chỉ là ước lượng, không phải đo thật. -->
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-primary ml-0.5" @click="startEditSpeaker(idx)" title="Đổi tên">edit</span>
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-green-500 ml-1" @click="insertSegmentAfter(idx)" title="Chèn đoạn hội thoại mới xuống dưới">add_circle</span>
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-error ml-1" @click="deleteSegment(idx)" title="Xóa đoạn hội thoại này">delete</span>

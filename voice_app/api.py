@@ -4424,11 +4424,16 @@ def save_global_vocabulary(vocabulary):
 
 @frappe.whitelist(allow_guest=False)
 def export_dynamic_docx(meeting_name):
-    from voice_app.docx_utils import save_to_docx
-    from frappe.utils.file_manager import save_file
+    # Nạp thư viện bên trong khối bắt lỗi. Trước đây mấy dòng này nằm ngoài,
+    # nên nếu máy chủ thiếu python-docx hoặc bản Frappe khác không còn
+    # save_file ở chỗ cũ thì hàm ném thẳng ra ngoài: trình duyệt nhận 500 mà
+    # Error Log trống trơn, không lần được nguyên nhân.
     import os
     import time
     try:
+        from voice_app.docx_utils import save_to_docx
+        from frappe.utils.file_manager import save_file
+
         meeting = frappe.get_doc("Voice Meeting", meeting_name)
         if not _can_access_meeting(meeting.owner):
             return {"status": "error", "message": "Không có quyền xuất meeting này"}

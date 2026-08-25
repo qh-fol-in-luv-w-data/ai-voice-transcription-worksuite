@@ -903,7 +903,9 @@ const startExtractTasks = async () => {
               <span class="font-bold text-[12px] cursor-pointer hover:underline hover:opacity-80 transition-all"
                 :class="seg[2] && seg[2].includes('Người lạ') ? 'text-orange-500' : 'text-primary'"
                 @click="startEditSpeaker(idx)" title="Click để đổi tên">{{ seg[2] || 'Không tên' }}</span>
-              <span class="text-[11px] text-gray-500 dark:text-on-surface-variant/60 bg-gray-100 dark:bg-surface px-1.5 py-0.5 rounded border border-gray-200 dark:border-outline-variant/30">{{ seg[0]?.toFixed ? seg[0].toFixed(2) : seg[0] }}s</span>
+              <!-- Không hiện mốc giờ của từng đoạn nữa. Mốc này chỉ là ước
+                   lượng rải chữ lên vùng có tiếng, không đo từng chữ, nên bày
+                   ra chỉ khiến người đọc tưởng đã đo chính xác rồi tin theo. -->
               <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-primary ml-0.5" @click="startEditSpeaker(idx)" title="Đổi tên">edit</span>
               <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-green-500 ml-1" @click="insertSegmentAfter(idx)" title="Chèn đoạn hội thoại mới xuống dưới">add_circle</span>
               <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-error ml-1" @click="deleteSegment(idx)" title="Xóa đoạn hội thoại này">delete</span>
