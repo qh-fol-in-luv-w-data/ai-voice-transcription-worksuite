@@ -751,6 +751,50 @@ def _apply_manual_speaker_assignments(results, original_results, assignments):
     return {"count": count, "by_speaker": dict(sorted(by_speaker.items(), key=lambda item: item[1], reverse=True))}
 
 
+def _apply_source_name_overrides_preserving_existing(results, original_results, name_by_sid):
+    """Apply confirmed source-level names without clearing other speakers."""
+    matched_indexes = set()
+    by_speaker = {}
+    preserved_source_ids = set()
+
+    for idx, original_seg in enumerate(original_results or []):
+        if idx >= len(results or []):
+            continue
+        sid = original_seg.get("speaker_id") if isinstance(original_seg, dict) else None
+        matched_name = (name_by_sid or {}).get(sid)
+        if not matched_name:
+            preserved_source_ids.add(sid or f"segment:{idx}")
+            continue
+        _seg_set_speaker_value(results[idx], matched_name)
+        matched_indexes.add(idx)
+        by_speaker[matched_name] = by_speaker.get(matched_name, 0) + 1
+
+    return {
+        "count": len(matched_indexes),
+        "matched_indexes": matched_indexes,
+        "by_speaker": by_speaker,
+        "preserved_source_ids": preserved_source_ids,
+    }
+
+
+def _restore_known_labels_after_raw_reset(results, labels_before_rescan):
+    """Put back confirmed display names after resetting raw speaker labels.
+
+    ``_restore_result_speakers_from_original`` intentionally restores Gemini's
+    raw labels. A rescan must not therefore erase already-confirmed names from
+    sources the user did not edit in this request.
+    """
+    restored = 0
+    for idx, label in enumerate(labels_before_rescan or []):
+        if idx >= len(results or []) or _is_unknown_label_text(label):
+            continue
+        if str(_seg_get(results[idx], "speaker", 2, "") or "").strip() == label:
+            continue
+        _seg_set_speaker_value(results[idx], label)
+        restored += 1
+    return restored
+
+
 def _assign_by_source_winners(results, original_results, matched_indexes):
     """
     If Gemini/chunk diarization already groups several segments under the same
@@ -1232,7 +1276,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                         chunks_info=chunks_to_process, chunk_update_cb=chunk_update_cb,
                         language=language, num_speakers=auto_num_speakers, 
                         custom_vocabulary=global_vocabulary, progress_callback=stt_cb,
-                        parse_log_cb=lambda c_name, lines: _append_stt_parse_log("Voice Meeting", meeting_name, lines)
+                        parse_log_cb=lambda c_name, lines: _append_stt_parse_log("Voice Meeting", meeting_name, lines),
+                        model_name=kwargs.get("gemini_model"),
                     )
                     frappe.log_error(
                         title="Transcribe Debug",
@@ -1374,14 +1419,13 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 for idx, emb in enumerate(emb_results):
                     if emb is not None:
                         spk_embeddings[spk_list[idx]] = emb
-            except Exception as e:
-                print(f"Lỗi extract embeddings remote API: {e}")
-                
-            # Cleanup temp wavs
-            for item in files_list:
-                if item["wav_path"] != wav and os.path.exists(item["wav_path"]):
-                    with suppress(FileNotFoundError):
-                        os.remove(item["wav_path"])
+            finally:
+                # Service lỗi vẫn dọn file tạm, sau đó exception tiếp tục nổi
+                # lên outer handler để meeting/UI nhận trạng thái Error.
+                for item in files_list:
+                    if item["wav_path"] != wav and os.path.exists(item["wav_path"]):
+                        with suppress(FileNotFoundError):
+                            os.remove(item["wav_path"])
 
             update_progress(100, "Đã dịch xong văn bản!", 95, "Đang đối chiếu dữ liệu nhân sự...")
             # Greedy assignment: score cao nhất được xử lý trước.
@@ -1474,28 +1518,42 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                     "[Speaker] Stranger DB rematch before merge: " + ", ".join(rematched_strangers),
                 )
     
-            # ── Ưu tiên kết quả gom cụm giọng (không dùng timestamp) ─────────
-            # Phần greedy phía trên lấy mẫu giọng bằng cách cắt audio theo
-            # start/end của từng segment. Mốc đó do Gemini đoán hoặc
-            # forced-align suy ra, đo thực tế trên file 80 phút thì lệch tới
-            # hàng trăm giây — cắt trúng lời người khác, mẫu giọng bị lai, rồi
-            # hai speaker_id cùng nhận một tên và người còn lại biến mất khỏi
-            # biên bản. Gom cụm theo VAD không đụng tới timestamp nên không
-            # dính lỗi đó, và ràng buộc 1-1 khiến mỗi người chỉ về một nhóm.
-            # Chỉ ghi đè khi nó đủ cơ sở kết luận, còn lại giữ nguyên cách cũ.
+            # ── Ưu tiên VAD + clustering độc lập ────────────────────────────
+            # Timestamp ↔ speaker_id của Gemini có thể bị trộn dù timestamp
+            # nhìn vẫn hợp lệ. VAD lấy vùng có giọng trực tiếp từ sóng âm rồi
+            # cluster embedding nên không dùng timeline Gemini để tạo mẫu.
+            # Timestamp-centroid chỉ còn là fallback và có guard từ chối nếu
+            # centroid các speaker gần như trùng nhau.
             try:
-                from voice_app.speaker_manager import identify_speakers_by_voice_clustering
+                from voice_app.speaker_manager import (
+                    EmbeddingServiceError,
+                    identify_speakers_by_timestamp_centroids,
+                    identify_speakers_by_voice_clustering,
+                )
 
                 clustered = identify_speakers_by_voice_clustering(
                     wav,
                     segments,
                     spk_db,
-                    task="Nhận diện người nói bằng gom cụm giọng",
+                    task="Nhận diện người nói bằng VAD clustering",
                     log_cb=lambda message: _append_stt_parse_log("Voice Meeting", meeting_name, message),
                 )
+                identification_source = "VoiceCluster"
+                if not clustered:
+                    clustered = identify_speakers_by_timestamp_centroids(
+                        wav,
+                        segments,
+                        spk_db,
+                        task="Nhận diện người nói bằng timestamp centroid fallback",
+                        log_cb=lambda message: _append_stt_parse_log("Voice Meeting", meeting_name, message),
+                    )
+                    identification_source = "TimestampCentroid"
+            except EmbeddingServiceError:
+                raise
             except Exception as exc:
                 clustered = {}
-                _append_stt_parse_log("Voice Meeting", meeting_name, f"[VoiceCluster] lỗi: {exc!r}")
+                identification_source = "TimestampCentroid"
+                _append_stt_parse_log("Voice Meeting", meeting_name, f"[SpeakerID] lỗi: {exc!r}")
 
             if clustered:
                 previous = {spk: info[0] for spk, info in spk_identified.items()}
@@ -1511,7 +1569,7 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 _append_stt_parse_log(
                     "Voice Meeting",
                     meeting_name,
-                    f"[VoiceCluster] áp dụng cho {len(clustered)} speaker"
+                    f"[{identification_source}] áp dụng cho {len(clustered)} speaker"
                     + (f"; đổi: {', '.join(changed)}" if changed else "; trùng kết quả cũ"),
                 )
             else:
@@ -1524,7 +1582,8 @@ def _transcribe_audio_async(file_path=None, file_url=None, filter_speakers=None,
                 _append_stt_parse_log(
                     "Voice Meeting",
                     meeting_name,
-                    "[VoiceCluster] không đủ cơ sở — giữ transcript thô, tất cả để Speaker.",
+                    "[SpeakerID] timestamp centroid và VoiceCluster đều không đủ cơ sở — "
+                    "giữ transcript thô, tất cả để Speaker.",
                 )
 
             # Log kết quả greedy assignment
@@ -1888,6 +1947,49 @@ def check_extract_status(meeting_name):
         return result
     return {"status": "processing"}
 
+def _parse_user_datetime(value):
+    """Đổi ngày giờ người dùng nhập sang datetime để lưu vào Voice Meeting.
+
+    Trình duyệt gửi lên nhiều dạng khác nhau (ISO có 'Z'/offset, hoặc chuỗi
+    'DD/MM/YYYY HH:mm' theo locale vi-VN). Với chuỗi ISO có múi giờ, phải đổi
+    về giờ ĐỊA PHƯƠNG rồi mới bỏ tzinfo — lưu thẳng giờ UTC vào là nguyên
+    nhân biên bản hiện lệch mấy tiếng so với giờ người dùng chọn.
+    """
+    from datetime import datetime as _dt
+
+    if not value:
+        return None
+    if isinstance(value, _dt):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    iso_text = text.replace("Z", "+00:00")
+    try:
+        parsed = _dt.fromisoformat(iso_text)
+        if parsed.tzinfo:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        pass
+
+    for fmt in (
+        "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+        "%H:%M:%S %d/%m/%Y", "%H:%M %d/%m/%Y",
+    ):
+        try:
+            return _dt.strptime(text, fmt)
+        except ValueError:
+            continue
+
+    with suppress(Exception):
+        return frappe.utils.get_datetime(text)
+    return None
+
+
 def _extract_tasks_async(payload, user, session_id_header):
     frappe.session.user = user
     results = payload.get("results", [])
@@ -1897,19 +1999,38 @@ def _extract_tasks_async(payload, user, session_id_header):
     end_time = payload.get("end_time")
     location = payload.get("location")
     chairperson = payload.get("chairperson")
+    department = payload.get("department")
+    meeting_subject = payload.get("meeting_subject")
 
     if meeting_name and frappe.db.exists("Voice Meeting", meeting_name):
         if location:
             frappe.db.set_value("Voice Meeting", meeting_name, "location", location)
         else:
             location = frappe.db.get_value("Voice Meeting", meeting_name, "location")
-            
+
         if chairperson:
             frappe.db.set_value("Voice Meeting", meeting_name, "chairperson", chairperson)
         else:
             chairperson = frappe.db.get_value("Voice Meeting", meeting_name, "chairperson")
 
-        if not start_time:
+        if department:
+            frappe.db.set_value("Voice Meeting", meeting_name, "department", department)
+        else:
+            department = frappe.db.get_value("Voice Meeting", meeting_name, "department")
+
+        if meeting_subject:
+            frappe.db.set_value("Voice Meeting", meeting_name, "meeting_subject", meeting_subject)
+        else:
+            meeting_subject = frappe.db.get_value("Voice Meeting", meeting_name, "meeting_subject")
+
+        # Ngày giờ người dùng nhập PHẢI được ghi đè vào meeting, nếu không thì
+        # lúc xuất biên bản nó đọc lại `date` (được set bằng giờ hệ thống lúc
+        # upload) và hiện sai hoàn toàn so với những gì người dùng đã điền.
+        if start_time:
+            parsed_start = _parse_user_datetime(start_time)
+            if parsed_start:
+                frappe.db.set_value("Voice Meeting", meeting_name, "date", parsed_start)
+        else:
             meeting_date = frappe.db.get_value("Voice Meeting", meeting_name, "date")
             if meeting_date:
                 # Format datetime if it is a datetime object
@@ -1917,6 +2038,19 @@ def _extract_tasks_async(payload, user, session_id_header):
                     start_time = meeting_date.strftime("%d/%m/%Y %H:%M:%S")
                 else:
                     start_time = str(meeting_date)
+
+        if end_time:
+            parsed_end = _parse_user_datetime(end_time)
+            if parsed_end:
+                frappe.db.set_value("Voice Meeting", meeting_name, "end_time", parsed_end)
+        else:
+            stored_end = frappe.db.get_value("Voice Meeting", meeting_name, "end_time")
+            if stored_end:
+                end_time = (
+                    stored_end.strftime("%d/%m/%Y %H:%M:%S")
+                    if hasattr(stored_end, "strftime") else str(stored_end)
+                )
+        frappe.db.commit()
 
     cache_key = f"extract_result_{meeting_name}"
 
@@ -3101,6 +3235,10 @@ def rescan_meeting_from_current_labels(**kwargs):
 
     results = json.loads(meeting.raw_results)
     original_results = json.loads(meeting.original_raw_results) if meeting.original_raw_results else []
+    labels_before_rescan = [
+        str(_seg_get(seg, "speaker", 2, "") or "").strip()
+        for seg in results
+    ]
 
     def _seg_set_embedding(seg, value):
         emb_list = value.tolist() if hasattr(value, "tolist") else value
@@ -3196,7 +3334,11 @@ def rescan_meeting_from_current_labels(**kwargs):
     new_sample_audio = {}
 
     try:
-        from voice_app.speaker_manager import _extract_embeddings_from_files_remote
+        from voice_app.speaker_manager import (
+            EmbeddingServiceError,
+            _extract_embeddings_from_files_remote,
+            _ts_robust_centroid,
+        )
         from voice_app.audio_utils import concat_speaker_segments, get_duration
 
         def _save_sample_audio_from_file(speaker_name, src_path):
@@ -3268,6 +3410,8 @@ def rescan_meeting_from_current_labels(**kwargs):
                     original_results,
                     task="Đăng ký giọng theo cụm khi quét lại",
                 )
+            except EmbeddingServiceError:
+                raise
             except Exception as exc:
                 cluster_samples, cluster_of_sid = {}, {}
                 print(f"[Rescan] gom cụm giọng lỗi, dùng cách cũ: {exc!r}")
@@ -3314,15 +3458,57 @@ def rescan_meeting_from_current_labels(**kwargs):
             if speaker_name not in sample_indexes:
                 continue
 
+            # Ưu tiên mẫu đã gom bằng VAD độc lập. Đây là mẫu sạch theo cụm
+            # giọng thật, không phụ thuộc timestamp của từng segment Gemini.
             if dominant_sid and dominant_sid in cluster_samples:
                 concat_wav_path = cluster_samples[dominant_sid]
                 used_samples.add(dominant_sid)
-            elif len(matching_segs) > 1:
+                dur = get_duration(concat_wav_path)
+                emb_results_c = _extract_embeddings_from_files_remote(
+                    [{"wav_path": concat_wav_path, "start": 0.0, "end": dur}],
+                    task="Enroll speaker khi quét lại (VAD cluster)",
+                )
+                if emb_results_c and emb_results_c[0] is not None:
+                    clean_emb = _normalize_embedding(emb_results_c[0])
+
+            # Fallback khi VAD không gom được: dùng centroid mọi lượt thuộc
+            # speaker_id, có lọc outlier. Nhánh này vẫn phụ thuộc timestamp nên
+            # chỉ chạy khi không có mẫu VAD.
+            if clean_emb is None and dominant_sid:
+                source_embeddings = []
+                representative = None
+                representative_duration = -1.0
+                for source_seg in original_results:
+                    if not isinstance(source_seg, dict):
+                        continue
+                    if source_seg.get("speaker_id") != dominant_sid:
+                        continue
+                    source_emb = source_seg.get("embedding")
+                    if _has_embedding(source_emb):
+                        source_embeddings.append(source_emb)
+                    source_start = float(source_seg.get("start") or 0.0)
+                    source_end = float(source_seg.get("end") or source_start)
+                    source_duration = max(0.0, source_end - source_start)
+                    if source_duration > representative_duration:
+                        representative = (source_start, source_end)
+                        representative_duration = source_duration
+
+                source_centroid, kept_source_embeddings = _ts_robust_centroid(source_embeddings)
+                if source_centroid is not None:
+                    clean_emb = source_centroid
+                    if representative:
+                        group_start, group_end = representative
+                    print(
+                        f"[Rescan] {speaker_name}/{dominant_sid}: giữ "
+                        f"{kept_source_embeddings}/{len(source_embeddings)} segment sạch để enroll centroid"
+                    )
+
+            if clean_emb is None and len(matching_segs) > 1:
                 concat_wav_path = concat_speaker_segments(_ensure_wav(), matching_segs, max_total_sec=25.0, min_seg_sec=1.5)
                 if concat_wav_path is None:
                     concat_wav_path = concat_speaker_segments(_ensure_wav(), matching_segs, max_total_sec=25.0, min_seg_sec=0.0)
 
-            if concat_wav_path:
+            if clean_emb is None and concat_wav_path:
                 dur = get_duration(concat_wav_path)
                 emb_results_c = _extract_embeddings_from_files_remote(
                     [{"wav_path": concat_wav_path, "start": 0.0, "end": dur}],
@@ -3400,6 +3586,10 @@ def rescan_meeting_from_current_labels(**kwargs):
                     _seg_set_embedding(original_results[idx], emb)
 
         restored_raw_count = _restore_result_speakers_from_original(results, original_results)
+        restored_confirmed_count = _restore_known_labels_after_raw_reset(
+            results,
+            labels_before_rescan,
+        )
         matched_indexes = set()
 
         # Gán tên theo đúng nhãn người dùng vừa gõ, lan sang các speaker_id
@@ -3421,39 +3611,25 @@ def rescan_meeting_from_current_labels(**kwargs):
                 if cid == cluster_id:
                     name_by_sid[sid] = speaker_name
 
-        # Giọng nào không lần ra được người thì trả về Speaker N, không giữ
-        # lại tên cũ. Tên cũ vốn do lần nhận diện trước đoán ra, mà đã đoán
-        # thì có thể sai — để nguyên là người đọc biên bản tưởng đã xác minh.
-        # Cũng không dựa vào mốc thời gian để đoán bù, vì mốc chỉ là ước lượng
-        # rải chữ lên vùng có tiếng chứ không đo từng chữ.
-        def _gemini_speaker_label(speaker_id, fallback_index):
-            """Lấy lại đúng nhãn Gemini đã đặt, ví dụ c0_speaker_2 -> Speaker 2.
-
-            Không tự đánh số lại: người dùng đối chiếu biên bản với thứ tự
-            Gemini chia, đánh lại từ đầu là hai bên lệch nhau.
-            """
-            match = re.search(r"speaker[_\s-]*(\d+)", str(speaker_id or ""), re.IGNORECASE)
-            if match:
-                return f"Speaker {int(match.group(1))}"
-            return f"Speaker {fallback_index}"
-
-        unknown_ids = {}
-        for i, seg in enumerate(original_results):
-            if i >= len(results):
-                continue
-            sid = seg.get("speaker_id") if isinstance(seg, dict) else None
-            matched_name = name_by_sid.get(sid)
-            if matched_name:
-                _seg_set_speaker_value(results[i], matched_name)
-                matched_indexes.add(i)
-                matched_by_speaker[matched_name] = matched_by_speaker.get(matched_name, 0) + 1
-                reassigned_count += 1
-                continue
-            if sid not in unknown_ids:
-                unknown_ids[sid] = _gemini_speaker_label(sid, len(unknown_ids) + 1)
-            _seg_set_speaker_value(results[i], unknown_ids[sid])
-        if unknown_ids:
-            print(f"[Rescan] chưa lần ra người cho: {unknown_ids}")
+        # Chỉ thay source mà người dùng vừa sửa. ``_restore...`` ở trên đã
+        # phục hồi nhãn đã lưu của mọi source từ original_raw_results; nếu một
+        # source không nằm trong name_by_sid thì phải giữ nguyên nhãn đó.
+        # Trước đây nhánh này ép tất cả source còn lại về "Speaker N", nên sửa
+        # riêng một người (ví dụ Quân) lại làm mất tên của toàn bộ người khác.
+        override_result = _apply_source_name_overrides_preserving_existing(
+            results,
+            original_results,
+            name_by_sid,
+        )
+        matched_indexes = override_result["matched_indexes"]
+        matched_by_speaker = override_result["by_speaker"]
+        reassigned_count = override_result["count"]
+        preserved_source_ids = override_result["preserved_source_ids"]
+        if preserved_source_ids:
+            print(
+                "[Rescan] giữ nguyên nhãn hiện có cho source không được sửa: "
+                f"{sorted(str(value) for value in preserved_source_ids)}"
+            )
 
         source_assigned = _assign_by_source_winners(results, original_results, matched_indexes)
         manual_assigned = _apply_manual_speaker_assignments(results, original_results, manual_assignments)
@@ -3481,6 +3657,7 @@ def rescan_meeting_from_current_labels(**kwargs):
             "skipped": skipped,
             "errors": errors,
             "restored_raw_count": restored_raw_count,
+            "restored_confirmed_count": restored_confirmed_count,
             "reassigned_count": reassigned_count,
             "source_assigned_count": source_assigned["count"],
             "source_assigned_by_speaker": source_assigned["by_speaker"],
@@ -4397,6 +4574,58 @@ def save_global_vocabulary(vocabulary):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+def _format_vn_datetime(value):
+    """'DD/MM/YYYY HH:MM' — rỗng nếu không có giá trị."""
+    if not value:
+        return ""
+    dt = value if hasattr(value, "strftime") else _parse_user_datetime(value)
+    return dt.strftime("%d/%m/%Y %H:%M") if dt else str(value)
+
+
+def _format_vn_date(value):
+    if not value:
+        return ""
+    dt = value if hasattr(value, "strftime") else _parse_user_datetime(value)
+    return dt.strftime("%d/%m/%Y") if dt else ""
+
+
+def _format_vn_time(value):
+    if not value:
+        return ""
+    dt = value if hasattr(value, "strftime") else _parse_user_datetime(value)
+    return dt.strftime("%H giờ %M") if dt else ""
+
+
+def _build_minute_filename(department, subject, meeting_dt, fallback_name):
+    """Tên file biên bản theo chuẩn: 'PAI - BBH - Nội dung - 21.8.2026'.
+
+    Bỏ các ký tự Windows/Frappe không cho phép trong tên file, và cắt bớt nếu
+    quá dài để không vượt giới hạn tên file của hệ điều hành.
+    """
+    import re as _re
+
+    def clean(text):
+        text = _re.sub(r'[\\/:*?"<>|]+', " ", str(text or ""))
+        return " ".join(text.split()).strip(" -")
+
+    parts = []
+    dept = clean(department)
+    if dept:
+        parts.append(dept)
+    parts.append("BBH")
+    subj = clean(subject)
+    if subj:
+        parts.append(subj)
+    if meeting_dt and hasattr(meeting_dt, "strftime"):
+        # Đúng mẫu người dùng đưa: 21.8.2026 (không đệm số 0)
+        parts.append(f"{meeting_dt.day}.{meeting_dt.month}.{meeting_dt.year}")
+
+    name = " - ".join(parts) if len(parts) > 1 else f"{fallback_name} - BBH"
+    if len(name) > 180:
+        name = name[:180].rstrip(" -")
+    return f"{name}.docx"
+
+
 @frappe.whitelist(allow_guest=False)
 def export_dynamic_docx(meeting_name):
     from voice_app.docx_utils import save_to_docx
@@ -4436,23 +4665,37 @@ def export_dynamic_docx(meeting_name):
         except Exception as exc:
             frappe.log_error(str(exc), "Export DOCX Speaker Roles Error")
 
-        start_time = meeting.date if meeting.date else ""
-        
+        # Ngày giờ hiển thị trong biên bản phải là thứ NGƯỜI DÙNG đã điền
+        # (đã được _extract_tasks_async ghi vào meeting), không phải giờ hệ
+        # thống lúc upload file.
+        meeting_dt = meeting.date if meeting.date else None
+        end_dt = meeting.get("end_time") or None
+        start_time = _format_vn_datetime(meeting_dt)
+        end_time = _format_vn_datetime(end_dt)
+
+        subject = (meeting.get("meeting_subject") or "").strip() or (meeting.title or "").strip()
+        department = (meeting.get("department") or "").strip()
+
         docx_filename = save_to_docx(
             results,
-            title=meeting.title,
+            title=subject or "Biên bản họp",
             speaker_roles=speaker_roles,
             start_time=start_time,
-            end_time="",
+            end_time=end_time,
             location=meeting.location or "",
             chairperson=meeting.chairperson or "",
             meeting_summary=meeting.meeting_summary,
             conclusion=meeting.conclusion,
-            tasks=tasks
+            tasks=tasks,
+            # Ngày ban hành là metadata cố định của biểu mẫu; ngày họp vẫn
+            # hiển thị riêng ở phần Thời gian bắt đầu/kết thúc.
+            header_date="17/11/2025",
+            end_note_time=_format_vn_time(end_dt),
+            subject=subject,
         )
-        
+
         with open(docx_filename, "rb") as f:
-            filename = f"{meeting.name}_Minute_{int(time.time())}.docx"
+            filename = _build_minute_filename(department, subject, meeting_dt, meeting.name)
             file_doc = save_file(filename, f.read(), "Voice Meeting", meeting.name, is_private=0)
             file_doc = _ensure_file_attachment(file_doc.file_url, "Voice Meeting", meeting.name, file_name=filename, is_private=0) or file_doc
             
@@ -4463,6 +4706,49 @@ def export_dynamic_docx(meeting_name):
     except Exception as e:
         frappe.log_error(traceback.format_exc(), "export_dynamic_docx Error")
         return {"status": "error", "message": str(e)}
+
+@frappe.whitelist(allow_guest=False)
+def save_meeting_info(meeting_name, start_time=None, end_time=None, location=None,
+                      chairperson=None, department=None, meeting_subject=None):
+    """Lưu phần thông tin đầu biên bản (giờ, địa điểm, phòng ban, nội dung).
+
+    Tách riêng khỏi extract_tasks: mấy trường này thuộc về biên bản, phải được
+    lưu ngay khi người dùng nhập — không bắt họ phải bấm "Trích xuất Task"
+    (việc đó chỉ để sinh bảng task + tóm tắt) thì thông tin mới xuống được DB.
+    """
+    if not meeting_name:
+        frappe.throw("Thiếu meeting_name")
+    if not frappe.db.exists("Voice Meeting", meeting_name):
+        frappe.throw(f"Không tìm thấy cuộc họp {meeting_name}")
+
+    doc = frappe.get_doc("Voice Meeting", meeting_name)
+    if not _can_access_meeting(doc.owner):
+        frappe.throw("Không có quyền chỉnh sửa meeting này", frappe.PermissionError)
+
+    update_dict = {}
+    if start_time:
+        parsed = _parse_user_datetime(start_time)
+        if parsed:
+            update_dict["date"] = parsed
+    if end_time:
+        parsed = _parse_user_datetime(end_time)
+        if parsed:
+            update_dict["end_time"] = parsed
+    for field, value in (
+        ("location", location),
+        ("chairperson", chairperson),
+        ("department", department),
+        ("meeting_subject", meeting_subject),
+    ):
+        if value is not None:
+            update_dict[field] = str(value).strip()
+
+    if update_dict:
+        frappe.db.set_value("Voice Meeting", meeting_name, update_dict, update_modified=False)
+        frappe.db.commit()
+
+    return {"status": "success", "saved": list(update_dict)}
+
 
 @frappe.whitelist(allow_guest=False)
 def save_meeting_draft(meeting_name, summary=None, conclusion=None, tasks_json_str=None):

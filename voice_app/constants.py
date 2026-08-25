@@ -190,7 +190,9 @@ MAX_SPEAKERS = 8
 DEFAULT_LANG = "vi"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SPEAKER_DB_PATH = os.path.join(BASE_DIR, "speaker_db.json")
-SIMILARITY_THRESHOLD = 0.30  # Nhận diện speaker từ DB khi similarity >= 0.30
+# Ngưỡng chấp nhận người có cosine similarity cao nhất trong Voice DB.
+# Dưới 0.50 giữ là Speaker/Người lạ, không đoán tên.
+SIMILARITY_THRESHOLD = 0.50
 # ==============================================================================
 # NGƯỠNG GỘP NHÓM (CLUSTERING THRESHOLD)
 # - Dùng khi gộp các Speaker không có trong DB (Speaker) thành các cụm.

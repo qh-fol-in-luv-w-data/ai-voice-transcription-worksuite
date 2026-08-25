@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   audioFile, language, modelType, isTranscribing, transcribeStatus, transcriptResults,
@@ -8,7 +8,7 @@ import {
   hrProjectsMap, dbEmployees, docxUrl, excelUrl, isTaskModalOpen
 } from '../composables/useVoiceApp'
 
-import { transcribeAudio, extractTasks, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx } from '../api'
+import { transcribeAudio, extractTasks, updateMeetingResults, checkMeetingStatus, checkExtractStatus, getGlobalVocabulary, saveGlobalVocabulary, reassignSpeakerFromSegment, rescanMeetingFromCurrentLabels, normalizeMeetingTranscript, exportDynamicDocx, saveMeetingInfo } from '../api'
 import { currentMeetingName, currentMeeting, originalTranscriptResults, loadHistory } from '../composables/useVoiceApp'
 
 const t = (key) => dict[uiLang.value][key] || key
@@ -46,6 +46,9 @@ const handleExportMinutes = async () => {
   if (!currentMeetingName.value) return
   isExportingMinutes.value = true
   try {
+    // Lưu ngay trước khi xuất: nếu người dùng vừa gõ xong đã bấm xuất luôn
+    // thì bộ đếm auto-save (800ms) có thể chưa kịp chạy.
+    await persistMeetingInfo()
     const res = await exportDynamicDocx(currentMeetingName.value)
     if (res.status === 'success' && res.file_url) {
       downloadFile(res.file_url)
@@ -62,8 +65,55 @@ const handleExportMinutes = async () => {
 
 const globalVocabulary = ref('')
 const meetingDate = ref(new Date().toLocaleString('vi-VN', { hour12: false }))
-const meetingLocation = ref('')
+const meetingEndDate = ref('')
+// Mặc định F6 để khỏi phải sửa lại mỗi lần xuất biên bản; người dùng vẫn đổi được.
+const meetingLocation = ref('F6')
+const meetingDepartment = ref('')
+const meetingSubject = ref('')
 const hostId = ref('')
+
+// Gửi 'DD/MM/YYYY HH:mm:ss' theo giờ ĐỊA PHƯƠNG (không dùng ISO/UTC) để biên
+// bản in ra đúng giờ người dùng chọn, không bị lệch múi giờ.
+const toLocalStamp = (val) => {
+  if (!val) return null
+  const d = new Date(val)
+  if (Number.isNaN(d.getTime())) return null
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+const resolveHostName = () => {
+  if (!hostId.value) return null
+  const emp = (dbEmployees.value || []).find(e => e.user_id === hostId.value)
+  return emp ? (emp.employee_name || emp.user_id) : hostId.value
+}
+
+// Thông tin đầu biên bản tự lưu ngay khi sửa — không phụ thuộc nút Trích xuất
+// Task (nút đó chỉ sinh bảng task + tóm tắt).
+let saveInfoTimer = null
+const persistMeetingInfo = async () => {
+  if (!currentMeetingName.value) return
+  try {
+    await saveMeetingInfo(currentMeetingName.value, {
+      startTime: toLocalStamp(meetingDate.value),
+      endTime: toLocalStamp(meetingEndDate.value),
+      location: meetingLocation.value,
+      chairperson: resolveHostName(),
+      department: meetingDepartment.value,
+      meetingSubject: meetingSubject.value,
+    })
+  } catch (e) {
+    console.error('Không lưu được thông tin cuộc họp', e)
+  }
+}
+
+watch(
+  [meetingDate, meetingEndDate, meetingLocation, meetingDepartment, meetingSubject, hostId, currentMeetingName],
+  () => {
+    if (saveInfoTimer) clearTimeout(saveInfoTimer)
+    saveInfoTimer = setTimeout(persistMeetingInfo, 800)
+  }
+)
 
 const defaultVocab = `Tập đoàn: CT Group, CT Corp, CTM, CTEC, CT UAV, CT Semiconductor, CT Modulex, Modulex, GASCO, DAIT, VGCT, CCTPA, Carbondo, Airbility
 Dự án/tòa nhà: M1, M2, M3, Metrostar, Simland, Minh Hưng Quảng Trị
@@ -529,13 +579,8 @@ const startExtractTasks = async () => {
     hostName = emp ? (emp.employee_name || emp.user_id) : hostId.value;
   }
   
-  let startTime = null;
-  if (meetingDate.value) {
-    const d = new Date(meetingDate.value);
-    if (!Number.isNaN(d.getTime())) {
-      startTime = d.toLocaleString('vi-VN');
-    }
-  }
+  const startTime = toLocalStamp(meetingDate.value);
+  const endTime = toLocalStamp(meetingEndDate.value);
 
   const handleProgress = (data) => {
     if (data.msg) extractStatus.value = `${data.progress}% - ${data.msg}`;
@@ -561,7 +606,7 @@ const startExtractTasks = async () => {
   onSocketEvent("v2t_result", handleResult);
 
   try {
-    const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value, startTime, null, meetingLocation.value, hostName)
+    const res = await extractTasks(transcriptResults.value, modelType.value, currentMeetingName.value, startTime, endTime, meetingLocation.value, hostName, meetingDepartment.value, meetingSubject.value)
     if (res.status === 'processing') {
       if (res.meeting_name) currentMeetingName.value = res.meeting_name
       extractStatus.value = '⏳ Đang chờ máy chủ xử lý...';
@@ -689,7 +734,7 @@ const startExtractTasks = async () => {
       
       <button @click="startTranscribe" :disabled="!audioFile || isTranscribing" class="mt-4 w-full font-bold py-2.5 px-6 rounded-xl transition-all flex justify-center items-center gap-2" :class="audioFile && !isTranscribing ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:opacity-90 active:scale-[0.98]' : 'bg-primary/30 text-white/50 cursor-not-allowed'">
         <span class="material-symbols-outlined text-[20px]" :class="{ 'animate-spin': isTranscribing }">{{ isTranscribing ? 'autorenew' : 'graphic_eq' }}</span>
-        {{ isTranscribing ? 'Analyzing...' : 'Start Transcribe' }}
+        {{ isTranscribing ? 'Đang xử lý...' : 'Bắt đầu phiên âm' }}
       </button>
     </div>
 
@@ -697,10 +742,24 @@ const startExtractTasks = async () => {
     <div class="bg-white dark:bg-surface border border-gray-200 dark:border-outline-variant/30 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-y-auto">
       <h2 class="text-xl font-bold text-gray-900 dark:text-on-surface mb-4 font-headline-md">Meeting Details</h2>
       <div class="space-y-1 mb-4">
-         <label for="meeting-date-input" class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Date</label>
+         <label for="meeting-date-input" class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Giờ bắt đầu</label>
          <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
             <el-date-picker id="meeting-date-input" v-model="meetingDate" type="datetime" format="DD/MM/YYYY HH:mm" placeholder="08/07/2026 17:51" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;" />
          </div>
+      </div>
+      <div class="space-y-1 mb-4">
+         <label for="meeting-end-date-input" class="text-[11px] font-bold text-gray-500 dark:text-on-surface-variant uppercase">Giờ kết thúc</label>
+         <div class="w-full bg-white dark:bg-surface border border-gray-300 dark:border-outline-variant/30 rounded-lg px-1 py-0.5 text-sm focus-within:border-primary transition-colors overflow-hidden">
+            <el-date-picker id="meeting-end-date-input" v-model="meetingEndDate" type="datetime" format="DD/MM/YYYY HH:mm" placeholder="08/07/2026 18:30" class="w-full custom-el-override" style="width: 100%; --el-fill-color-blank: transparent; --el-input-bg-color: transparent; --el-input-border-color: transparent; --el-input-hover-border-color: transparent; --el-input-focus-border-color: transparent;" />
+         </div>
+      </div>
+      <div class="mb-3">
+         <label for="meeting-department-input" class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Phòng ban</label>
+         <input id="meeting-department-input" v-model="meetingDepartment" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="VD: PAI" type="text">
+      </div>
+      <div class="mb-3">
+         <label for="meeting-subject-input" class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Nội dung biên bản họp</label>
+         <input id="meeting-subject-input" v-model="meetingSubject" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="VD: Demo nghiệm thu Hệ thống quản lý tài sản" type="text">
       </div>
       <div class="mb-3">
          <label for="meeting-host-input" class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Host</label>
@@ -713,7 +772,7 @@ const startExtractTasks = async () => {
          </div>
       </div>
       <div class="mb-3">
-         <label for="meeting-location-input" class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Location</label>
+         <label for="meeting-location-input" class="text-[12px] font-bold text-gray-500 dark:text-on-surface-variant/70 mb-1 block">Địa điểm</label>
          <input id="meeting-location-input" v-model="meetingLocation" class="w-full bg-gray-50 dark:bg-surface-container-highest/30 border border-gray-300 dark:border-outline-variant/30 rounded-xl px-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-primary/70 transition-colors" placeholder="Nhập địa điểm..." type="text">
       </div>
       <div class="flex flex-col flex-1">

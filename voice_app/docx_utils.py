@@ -38,6 +38,12 @@ def set_font_times(run, size_pt=12):
     rFonts.set(qn('w:cs'),      'Times New Roman')
 
 
+def set_paragraph_justified(paragraph):
+    """Căn đều 2 bên cho đoạn văn (căn trái nhìn xấu trong biên bản)."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+
 def apply_font_to_cell(cell, size_pt=12, bold=False):
     """Áp dụng font Times New Roman lên toàn bộ paragraph/run trong một cell."""
     for p in cell.paragraphs:
@@ -104,15 +110,23 @@ def _clean_speaker(raw):
 
 # ── MAIN FUNCTION ──────────────────────────────────────────────────────────────
 
+# Đây là ngày ban hành phiên bản biểu mẫu, không phải ngày diễn ra cuộc họp.
+# Vì vậy nó phải cố định cho mọi biên bản tạo từ template_v2.docx.
+TEMPLATE_ISSUE_DATE = "17/11/2025"
+
 def get_template_path():
     return frappe.get_app_path("voice_app", "public", "files", "template_v2.docx")
 
 
-def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_time=None, end_time=None, location=None, chairperson=None, meeting_summary=None, conclusion=None, tasks=None):
+def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_time=None, end_time=None, location=None, chairperson=None, meeting_summary=None, conclusion=None, tasks=None, header_date=None, end_note_time=None, subject=None):
     """
     results: list of tuples (start, end, speaker_label, text)
     speaker_roles: dict { speaker_name: designation }
     tasks: list of dict representing tasks
+    header_date: giữ lại để tương thích API cũ; header luôn dùng ngày ban hành
+        cố định của phiên bản biểu mẫu (TEMPLATE_ISSUE_DATE).
+    end_note_time: giờ kết thúc dạng 'HH giờ MM', dùng cho dòng chốt cuối
+        biên bản "Cuộc họp kết thúc lúc ... cùng ngày./."
     """
     if speaker_roles is None:
         speaker_roles = {}
@@ -124,7 +138,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
         attendee_table = doc.tables[0] if len(doc.tables) > 0 else None
 
         # ── Giữ header trong section để Word lặp header trên mọi trang ───────
-        current_date = "17/11/2025"
+        current_date = TEMPLATE_ISSUE_DATE
         for section in doc.sections:
             section.different_first_page_header_footer = False
             if section.header:
@@ -144,9 +158,14 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                                         set_font_times(run, 10)
 
 
-        # ── Chèn thông tin cuộc họp (Thời gian, Địa điểm, Chủ trì) ───────────
+        # ── Chèn thông tin cuộc họp (Nội dung, Thời gian, Địa điểm, Chủ trì) ──
         for p in doc.paragraphs:
             if "Thành phần tham dự" in p.text or "THÀNH PHẦN THAM DỰ" in p.text:
+                if subject:
+                    p0 = p.insert_paragraph_before(f"Nội dung cuộc họp: {subject}")
+                    if p0.runs:
+                        p0.runs[0].bold = True
+                        set_font_times(p0.runs[0], 12)
                 if start_time:
                     p1 = p.insert_paragraph_before(f"Thời gian bắt đầu: {start_time}")
                     if p1.runs: set_font_times(p1.runs[0], 12)
@@ -259,6 +278,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 clean_spk = _clean_speaker(spk)
 
                 p = old_transcript_start_p.insert_paragraph_before("")
+                set_paragraph_justified(p)
                 r_spk = p.add_run(f"{clean_spk}: ")
                 r_spk.bold = True
                 set_font_times(r_spk, 12)
@@ -275,6 +295,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                     p_sum_head.runs[0].bold = True
                     set_font_times(p_sum_head.runs[0], 12)
                 p_sum = old_transcript_start_p.insert_paragraph_before(meeting_summary)
+                set_paragraph_justified(p_sum)
                 if p_sum.runs: set_font_times(p_sum.runs[0], 12)
                 old_transcript_start_p.insert_paragraph_before("") # spacing
                 
@@ -285,6 +306,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                     p_con_head.runs[0].bold = True
                     set_font_times(p_con_head.runs[0], 12)
                 p_con = old_transcript_start_p.insert_paragraph_before(conclusion)
+                set_paragraph_justified(p_con)
                 if p_con.runs: set_font_times(p_con.runs[0], 12)
                 old_transcript_start_p.insert_paragraph_before("") # spacing
                 
@@ -328,7 +350,16 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
                 tbl_element.getparent().remove(tbl_element)
                 old_transcript_start_p._element.addprevious(tbl_element)
                 old_transcript_start_p.insert_paragraph_before("") # spacing
-            
+
+            # 4b. Dòng chốt cuối biên bản
+            if end_note_time:
+                p_end = old_transcript_start_p.insert_paragraph_before(
+                    f"Cuộc họp kết thúc lúc {end_note_time} cùng ngày./."
+                )
+                set_paragraph_justified(p_end)
+                if p_end.runs:
+                    set_font_times(p_end.runs[0], 12)
+
             # 5. Remove old template transcript paragraphs. Keeping them as empty
             # paragraphs can leave a trailing blank page in the exported DOCX.
             current_idx = -1
@@ -344,7 +375,7 @@ def save_to_docx(results, title="Biên bản họp", speaker_roles=None, start_t
     else:
         # ── Fallback nếu không tìm thấy template ─────────────────────────────
         doc = docx.Document()
-        current_date = "17/11/2025"
+        current_date = header_date or datetime.now().strftime("%d/%m/%Y")
         doc.add_heading(title, 0)
         doc.add_paragraph(f"Ngày họp: {current_date}")
         doc.add_paragraph(f"Tổng số lượt phát biểu: {len(results)}")

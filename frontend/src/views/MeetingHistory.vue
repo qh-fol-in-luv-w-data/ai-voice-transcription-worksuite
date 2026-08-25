@@ -557,7 +557,6 @@ const removeTask = (idx) => {
         <h2 class="font-headline-lg text-headline-lg text-gray-900 dark:text-on-surface">{{ meeting.title }}</h2>
         <div class="flex items-center gap-2 mt-2 text-body-sm text-gray-500 dark:text-on-surface-variant font-body-sm">
           <span>{{ meeting.date }}</span>
-          <span>•</span>
           <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-primary inline-block"></span> {{ meeting.status || 'Analyzed' }}</span>
         </div>
       </div>

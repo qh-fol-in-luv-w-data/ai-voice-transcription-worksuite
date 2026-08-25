@@ -15,12 +15,16 @@ import numpy as np
 if not hasattr(np, 'NaN'):
     np.NaN = np.nan
 
-# Note: We completely removed `torch` and `torchaudio` from this file!
-# All embedding extraction runs in a completely separate subprocess (extract_embedding.py)
-# This prevents the fatal PyTorch C++ runtime "could not create a primitive" error when Gunicorn forks workers.
+# `torch`/`torchaudio` không được load trong web/worker. Mọi voice embedding
+# bắt buộc đi qua service; service lỗi thì raise để API/UI báo lỗi, tuyệt đối
+# không âm thầm chạy model local khác.
 
 from scipy.spatial.distance import cosine
-from .constants import get_hf_token, SPEAKER_DB_PATH, SIMILARITY_THRESHOLD
+from .constants import SPEAKER_DB_PATH, SIMILARITY_THRESHOLD
+
+
+class EmbeddingServiceError(RuntimeError):
+    """Embedding service unavailable or returned an invalid response."""
 
 def _get_embedding_api_url():
     url = (
@@ -199,101 +203,52 @@ class SpeakerDB:
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores
 
-# ── EMBEDDING CACHE (process-level, tránh gọi subprocess trùng lặp) ─────────
+# ── EMBEDDING CACHE (process-level, tránh gọi service trùng lặp) ────────────
 _embedding_cache: dict = {}   # key: (wav_path, start_rounded, end_rounded)
 _CACHE_MAX = 64               # giới hạn tối đa số entry để tránh OOM
 
 def get_segment_embedding(wav_path: str, start: float, end: float):
-    """Trích xuất embedding có cache: cùng file+segment thì không gọi subprocess lại."""
+    """Trích xuất qua embedding service, có cache theo file và timestamp."""
     # Key = (path, start làm tròn 2 chữ số, end làm tròn 2 chữ số)
     cache_key = (wav_path, round(start, 2), round(end, 2))
 
     if cache_key in _embedding_cache:
         return _embedding_cache[cache_key]
 
-    try:
-        emb = _extract_embedding_subprocess(wav_path, start, end)
-        if emb is not None:
-            # L2 normalize về unit vector (cosine sim cần embedding normalized)
-            norm = np.linalg.norm(emb)
-            if norm > 0:
-                emb = emb / norm
-            # Giới hạn cache size (FIFO đơn giản)
-            if len(_embedding_cache) >= _CACHE_MAX:
-                oldest = next(iter(_embedding_cache))
-                del _embedding_cache[oldest]
-            _embedding_cache[cache_key] = emb
-        return emb
-    except Exception as e:
-        print(f"Lỗi trích xuất embedding segment: {e}")
-        return None
-
-def _extract_embedding_subprocess(wav_path: str, start: float = None, end: float = None) -> "np.ndarray":
-    """
-    Chạy trích xuất embedding trong một subprocess hoàn toàn mới.
-    Giải pháp dứt khoát cho lỗi 'could not create a primitive' của DNNL/NNPACK
-    khi PyTorch bị fork bởi Gunicorn.
-    """
-    import sys
-    from voice_app.constants import get_hf_token
-
-    script_path = os.path.join(os.path.dirname(__file__), "extract_embedding.py")
-    hf_token = get_hf_token() or ""
-    python_exe = sys.executable
-
-    args = [python_exe, script_path, wav_path, hf_token]
-    if start is not None and end is not None:
-        args.extend([str(start), str(end)])
-
-    try:
-        result = subprocess.run(  # nosec B603
-            args,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except subprocess.TimeoutExpired as e:
-        stderr_log = e.stderr[-2000:] if e.stderr else "None"
-        stdout_log = e.stdout[-2000:] if e.stdout else "None"
-        raise RuntimeError(f"Subprocess embedding timed out after 60s.\nSTDOUT:\n{stdout_log}\nSTDERR:\n{stderr_log}")
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Subprocess embedding thất bại (exit={result.returncode}):\n{result.stderr[-2000:]}"
-        )
-
-    stdout = result.stdout.strip()
-    if not stdout:
-        raise RuntimeError(f"Subprocess không trả về kết quả. stderr:\n{result.stderr[-2000:]}")
-
-    # stdout có thể chứa cả warning text lẫn JSON — tìm dòng JSON cuối cùng
-    json_line = None
-    for line in reversed(stdout.splitlines()):
-        line = line.strip()
-        if line.startswith('['):
-            json_line = line
-            break
-    if json_line is None:
-        raise RuntimeError(f"Không tìm thấy JSON trong stdout:\n{stdout[:500]}")
-
-    embedding_list = json.loads(json_line)
-    return np.array(embedding_list)
+    results = _extract_embeddings_from_files_remote(
+        [{"wav_path": wav_path, "start": start, "end": end}],
+        task="Trích xuất embedding segment",
+    )
+    emb = results[0]
+    norm = np.linalg.norm(emb)
+    if norm > 0:
+        emb = emb / norm
+    if len(_embedding_cache) >= _CACHE_MAX:
+        oldest = next(iter(_embedding_cache))
+        del _embedding_cache[oldest]
+    _embedding_cache[cache_key] = emb
+    return emb
 
 def _extract_embeddings_from_files_remote(files_list: list, task: str = None) -> list:
     """
     Trích xuất embedding cho danh sách các file bằng cách gọi API external.
     files_list: list of dict [{"wav_path": str, "start": float, "end": float}, ...]
-    Trả về: list các np.ndarray hoặc None
+    Trả về list np.ndarray. Bất kỳ request nào lỗi đều raise
+    ``EmbeddingServiceError`` để caller báo lên UI; không có local fallback.
     """
     import requests
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from threading import Lock
     from contextlib import suppress
 
-    api_url = _get_embedding_api_url()
+    if not files_list:
+        return []
+    try:
+        api_url = _get_embedding_api_url()
+    except Exception as exc:
+        raise EmbeddingServiceError(f"Cấu hình embedding service không hợp lệ: {exc}") from exc
     if not api_url:
-        print("Chưa cấu hình embedding service, không có local fallback")
-        return [None] * len(files_list)
+        raise EmbeddingServiceError("Chưa cấu hình embedding service.")
     endpoint_url = f"{api_url}/extract"
     failure_notes = []
     failure_lock = Lock()
@@ -350,7 +305,19 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
                     emb_data = result_json.get("embedding") if isinstance(result_json, dict) else result_json
                     
                     if isinstance(emb_data, list):
-                        return index, np.array(emb_data)
+                        embedding = np.asarray(emb_data, dtype=np.float32)
+                        if embedding.ndim != 1 or embedding.size != 192:
+                            msg = (
+                                f"Embedding service trả sai dimension index={index}: "
+                                f"nhận {embedding.shape}, cần vector 192 chiều"
+                            )
+                            _remember_failure(msg)
+                            return index, None
+                        if not np.all(np.isfinite(embedding)):
+                            msg = f"Embedding service trả NaN/Inf index={index}"
+                            _remember_failure(msg)
+                            return index, None
+                        return index, embedding
                     msg = f"API không trả về embedding hợp lệ index={index}: {result_json}"
                     print(msg)
                     _remember_failure(msg)
@@ -402,19 +369,19 @@ def _extract_embeddings_from_files_remote(files_list: list, task: str = None) ->
                     print(f"Lỗi parallel embedding index={idx}: {e}")
                     final_results[idx] = None
             
-    if files_list and not any(emb is not None for emb in final_results):
-        print("Embedding API không trả về embedding nào, không có local fallback")
-        if failure_notes:
-            try:
-                import frappe
-
-                frappe.log_error(
-                    "\n".join(failure_notes),
-                    "Embedding API returned no embeddings",
-                )
-            except Exception:
-                pass
-        return final_results
+    failed_count = sum(emb is None for emb in final_results)
+    if failed_count:
+        detail = " | ".join(failure_notes) if failure_notes else "Không có chi tiết từ service"
+        message = (
+            f"Embedding service lỗi {failed_count}/{len(files_list)} mẫu tại {endpoint_url}. "
+            f"{detail}"
+        )
+        try:
+            import frappe
+            frappe.log_error(message, "Embedding Service Error")
+        except Exception:
+            pass
+        raise EmbeddingServiceError(message)
 
     return final_results
 
@@ -561,7 +528,194 @@ def enroll_new_speaker(name, wav_path, email="", user_info=None):
     return True
 
 
-# ── Nhận diện người nói KHÔNG dựa vào timestamp ────────────────────────────
+# ── Nhận diện trực tiếp theo timestamp Gemini ─────────────────────────────
+
+_TS_MIN_WINDOW_SEC = 1.6
+_TS_WINDOW_SEC = 4.0
+# Hai speaker_id khác nhau mà centroid gần như cùng một giọng thì timeline /
+# nhãn diarization của Gemini đã bị trộn. Không được dùng kết quả đó để nhận
+# diện; trả rỗng để caller chuyển sang VAD + clustering độc lập.
+_TS_MAX_CROSS_SPEAKER_SIMILARITY = 0.92
+
+
+def _ts_robust_centroid(embeddings):
+    """Build a normalized centroid after dropping self-inconsistent samples."""
+    if not embeddings:
+        return None, 0
+    matrix = np.stack([
+        np.asarray(emb, dtype=float) / (np.linalg.norm(emb) or 1.0)
+        for emb in embeddings
+    ])
+    if len(matrix) == 1:
+        return matrix[0], 1
+
+    similarity = matrix @ matrix.T
+    medoid_index = int(np.argmax(np.median(similarity, axis=1)))
+    to_medoid = similarity[medoid_index]
+    cutoff = max(0.45, float(np.percentile(to_medoid, 25)))
+    kept = matrix[to_medoid >= cutoff]
+    if len(kept) < min(2, len(matrix)):
+        kept = matrix
+    centroid = kept.mean(axis=0)
+    return centroid / (np.linalg.norm(centroid) or 1.0), len(kept)
+
+
+def _ts_build_windows(segments, speech_intervals=None):
+    """Return one clean embedding window for every usable Gemini turn.
+
+    A long turn must not outweigh ten short turns merely because it can be
+    split into many four-second pieces.  Conversely, globally capping a
+    speaker at a small number of windows throws away most of their evidence
+    and makes the centroid unstable.  Pick the cleanest voiced part of every
+    turn, then let ``_ts_robust_centroid`` reject acoustic outliers across the
+    complete meeting.
+    """
+    grouped = {}
+    for seg in segments or []:
+        if seg.get("timestamp_source") != "gemini" or seg.get("timestamp_overlap"):
+            continue
+        speaker_id = seg.get("speaker_id") or seg.get("speaker")
+        start = float(seg.get("start") or 0.0)
+        end = float(seg.get("end") or start)
+        if not speaker_id or end - start < _TS_MIN_WINDOW_SEC:
+            continue
+
+        # Timestamp quyết định speaker; VAD chỉ gọt khoảng lặng nằm bên trong
+        # lượt đó. Nhờ vậy dòng cuối không kéo sample xuyên hết phần im lặng
+        # còn lại của file.
+        voiced_parts = []
+        for vad_start, vad_end in speech_intervals or [(start, end)]:
+            part_start = max(start, float(vad_start))
+            part_end = min(end, float(vad_end))
+            if part_end > part_start:
+                voiced_parts.append((part_start, part_end))
+        # Mỗi lượt chỉ góp một phiếu cho centroid. Chọn phần có tiếng dài nhất
+        # rồi lấy tối đa 4 giây ở giữa để tránh mép đổi người nói.
+        clean_parts = []
+        for part_start, part_end in voiced_parts:
+            clean_start = part_start + 0.12
+            clean_end = part_end - 0.18
+            if clean_end - clean_start >= _TS_MIN_WINDOW_SEC:
+                clean_parts.append((clean_start, clean_end))
+        if not clean_parts:
+            continue
+
+        part_start, part_end = max(clean_parts, key=lambda item: item[1] - item[0])
+        duration = min(_TS_WINDOW_SEC, part_end - part_start)
+        midpoint = (part_start + part_end) / 2.0
+        window_start = max(part_start, midpoint - duration / 2.0)
+        window_end = min(part_end, window_start + duration)
+        window_start = max(part_start, window_end - duration)
+        grouped.setdefault(speaker_id, []).append(
+            (round(window_start, 2), round(window_end, 2))
+        )
+
+    return grouped
+
+
+def identify_speakers_by_timestamp_centroids(wav_path, segments, db, task=None, log_cb=None):
+    """Identify Gemini speaker IDs from robust centroids of timestamped turns.
+
+    Every usable turn is embedded separately. Outliers are removed by
+    self-consistency before comparing one centroid per speaker to Voice DB.
+    Hungarian assignment prevents two acoustically different speakers from
+    greedily taking the same enrolled name.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    if not wav_path or not os.path.exists(wav_path) or not db or not db.speakers:
+        return {}
+    try:
+        from voice_app.gemini_stt_client import _vad_speech_intervals
+        speech_intervals = _vad_speech_intervals(wav_path)
+    except Exception as exc:
+        _vc_log(f"[TimestampCentroid] VAD gọt khoảng lặng lỗi: {exc!r}", log_cb)
+        speech_intervals = None
+    grouped = _ts_build_windows(segments, speech_intervals=speech_intervals)
+    if not grouped:
+        _vc_log("[TimestampCentroid] không có timestamp Gemini đủ sạch", log_cb)
+        return {}
+
+    items, owners = [], []
+    for speaker_id, windows in grouped.items():
+        for start, end in windows:
+            items.append({"wav_path": wav_path, "start": start, "end": end})
+            owners.append(speaker_id)
+    embeddings = _extract_embeddings_from_files_remote(items, task=task or "Timestamp speaker centroid")
+
+    per_speaker = {speaker_id: [] for speaker_id in grouped}
+    for speaker_id, embedding in zip(owners, embeddings):
+        if embedding is not None:
+            per_speaker[speaker_id].append(embedding)
+
+    centroids = {}
+    for speaker_id, values in per_speaker.items():
+        centroid, kept = _ts_robust_centroid(values)
+        if centroid is None:
+            continue
+        centroids[speaker_id] = centroid
+        _vc_log(
+            f"[TimestampCentroid] {speaker_id}: giữ {kept}/{len(values)} cửa sổ sạch",
+            log_cb,
+        )
+    if not centroids:
+        return {}
+
+    # Guard chống timeline-speaker bị lệch. Trong file lỗi thực tế hai nhóm
+    # c0_speaker_1/c0_speaker_2 có cosine 0.9835, dù Gemini báo là hai người.
+    # Khi đó việc so từng centroid với DB vẫn có thể ra điểm cao nhưng cả hai
+    # thực chất đang lấy cùng một giọng, nên phải bỏ toàn bộ nhánh timestamp.
+    centroid_ids = list(centroids)
+    contaminated_pairs = []
+    for left_index, left_id in enumerate(centroid_ids):
+        for right_id in centroid_ids[left_index + 1:]:
+            similarity = float(np.dot(centroids[left_id], centroids[right_id]))
+            _vc_log(
+                f"[TimestampCentroid] cross {left_id} ↔ {right_id} = {similarity:.4f}",
+                log_cb,
+            )
+            if similarity >= _TS_MAX_CROSS_SPEAKER_SIMILARITY:
+                contaminated_pairs.append((left_id, right_id, similarity))
+    if contaminated_pairs:
+        detail = ", ".join(
+            f"{left}↔{right}={score:.4f}" for left, right, score in contaminated_pairs
+        )
+        _vc_log(
+            "[TimestampCentroid] speaker bị trộn theo timeline "
+            f"({detail}) — chuyển sang VAD clustering.",
+            log_cb,
+        )
+        return {}
+
+    speaker_ids = list(centroids)
+    names = list(db.speakers)
+    scores = np.asarray([
+        [1 - cosine(centroids[speaker_id], np.asarray(db.speakers[name]["embedding"], dtype=float))
+         for name in names]
+        for speaker_id in speaker_ids
+    ])
+    rows, cols = linear_sum_assignment(-scores)
+    result = {}
+    for row, col in zip(rows, cols):
+        speaker_id, name = speaker_ids[row], names[col]
+        score = float(scores[row, col])
+        preview = sorted(
+            ((names[index], float(scores[row, index])) for index in range(len(names))),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:3]
+        _vc_log(
+            f"[TimestampCentroid] {speaker_id} → {name} ({score:.3f}); top3: "
+            + ", ".join(f"{candidate}={value:.3f}" for candidate, value in preview),
+            log_cb,
+        )
+        if score >= _VC_MIN_SIMILARITY:
+            info = db.speakers[name]
+            result[speaker_id] = (name, score, info.get("email", ""), info.get("user_info"))
+    return result
+
+
+# ── Fallback nhận diện người nói KHÔNG dựa vào timestamp ──────────────────
 # Cách cũ cắt mẫu giọng theo start/end của từng segment. Mà start/end thì do
 # Gemini đoán hoặc forced-align suy ra — đo thực tế trên 1 file 80 phút, mốc
 # này lệch tới hàng trăm giây, nên đoạn cắt ra chứa giọng người khác và mẫu
@@ -578,10 +732,9 @@ _VC_MIN_WIN_SEC = 1.6        # ngắn hơn thì embedding không ổn định
 _VC_MAX_WINDOWS = 240        # trần số lần gọi API embedding cho mỗi file
 _VC_MIN_CLUSTER_WINDOWS = 5  # cụm nhỏ hơn coi là nhiễu, không phải người
 # Dưới ngưỡng này thì để Speaker, không đoán bừa. Đo trên dữ liệu thật: giọng
-# khớp đúng người rơi vào khoảng 0.78-0.84, còn cụm nhiễu ghép nhầm chỉ quanh
-# 0.62-0.67 — để 0.6 là tách được hai loại đó, mà vẫn còn dư địa cho giọng thu
-# ở điều kiện khác đôi chút.
-_VC_MIN_SIMILARITY = 0.60
+# Luôn dùng cùng ngưỡng chung: mỗi cụm vẫn chọn người có điểm cao nhất, nhưng
+# chỉ chấp nhận tên đó khi đạt tối thiểu 0.50.
+_VC_MIN_SIMILARITY = SIMILARITY_THRESHOLD
 
 
 def _vc_log(message, log_cb=None):
@@ -803,6 +956,8 @@ def _vc_analyze(wav_path, segments, task=None, log_cb=None):
             _vc_log("[VoiceCluster] các dấu hiệu không thống nhất", log_cb)
             return clusters, {}
         return clusters, mapping
+    except EmbeddingServiceError:
+        raise
     except Exception as exc:
         _vc_log(f"[VoiceCluster] lỗi khi gom cụm: {exc!r}", log_cb)
         return {}, {}

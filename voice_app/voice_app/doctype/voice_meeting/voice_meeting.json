@@ -9,6 +9,9 @@
  "field_order": [
   "title",
   "date",
+  "end_time",
+  "department",
+  "meeting_subject",
   "location",
   "chairperson",
   "status",
@@ -161,7 +164,22 @@
    "fieldtype": "Code",
    "label": "Tasks (JSON)",
    "options": "JSON",
-   "description": "To\u00e0n b\u1ed9 danh s\u00e1ch task tr\u00edch xu\u1ea5t \u0111\u01b0\u1ee3c (JSON array) \u0111\u1ec3 xem l\u1ea1i"
+   "description": "Toàn bộ danh sách task trích xuất được (JSON array) để xem lại"
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Datetime",
+   "label": "Giờ kết thúc"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Phòng ban"
+  },
+  {
+   "fieldname": "meeting_subject",
+   "fieldtype": "Data",
+   "label": "Nội dung cuộc họp"
   }
  ],
  "grid_page_length": 50,

@@ -29,7 +29,7 @@ export async function transcribeAudio(file, filterSpeakers = null, sttMode = 'go
   return res.data.message
 }
 
-export async function extractTasks(results, modelType, meetingName, startTime = null, endTime = null, location = null, chairperson = null) {
+export async function extractTasks(results, modelType, meetingName, startTime = null, endTime = null, location = null, chairperson = null, department = null, meetingSubject = null) {
   const res = await api.post('/api/method/voice_app.api.extract_tasks', {
     results: results,
     model_type: modelType,
@@ -37,7 +37,9 @@ export async function extractTasks(results, modelType, meetingName, startTime = 
     start_time: startTime,
     end_time: endTime,
     location: location,
-    chairperson: chairperson
+    chairperson: chairperson,
+    department: department,
+    meeting_subject: meetingSubject
   })
   return res.data.message
 }
@@ -204,6 +206,19 @@ export async function enrollSpeakerFromSegment(meetingName, segmentIndex, newSpe
 }
 
 export default api
+
+export async function saveMeetingInfo(meetingName, info = {}) {
+  const res = await api.post('/api/method/voice_app.api.save_meeting_info', {
+    meeting_name: meetingName,
+    start_time: info.startTime ?? null,
+    end_time: info.endTime ?? null,
+    location: info.location ?? null,
+    chairperson: info.chairperson ?? null,
+    department: info.department ?? null,
+    meeting_subject: info.meetingSubject ?? null
+  })
+  return res.data.message
+}
 
 export async function saveMeetingDraft(meetingName, summary, conclusion, tasksJsonStr) {
   const res = await api.post('/api/method/voice_app.api.save_meeting_draft', {
