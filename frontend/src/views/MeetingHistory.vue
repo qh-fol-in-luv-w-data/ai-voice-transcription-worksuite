@@ -43,15 +43,30 @@ const formatTime = (seconds) => {
   return (typeof seconds === 'number' ? seconds : Number.parseFloat(seconds)).toFixed(2) + 's'
 }
 
-const downloadFile = (url) => {
+const downloadFile = async (url, defaultName) => {
   if (!url) return;
-  const link = document.createElement('a');
-  link.href = url;
-  const parts = url.split('/');
-  link.download = parts[parts.length - 1] || 'file';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  const filename = defaultName || url.split('/').pop() || 'Bien_ban_cuoc_hop.docx';
+  try {
+    const response = await fetch(url, { credentials: 'include' });
+    if (!response.ok) throw new Error('Fetch failed');
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+  } catch (err) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
 }
 
 // ── ADMIN CHECK ────────────────────────────────────────────────────────────

@@ -32,15 +32,31 @@ const getProjectsForHR = (displayStr) => {
   return props.hrProjectsMap[hrCode] || []
 }
 
-// Hàm tải file trực tiếp để tránh lỗi
-const downloadFile = (url, defaultName) => {
+// Hàm tải file trực tiếp qua blob để tránh bị chặn tải
+const downloadFile = async (url, defaultName) => {
   if (!url) return;
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = defaultName;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  const filename = defaultName || url.split('/').pop() || 'file';
+  try {
+    const response = await fetch(url, { credentials: 'include' });
+    if (!response.ok) throw new Error('Fetch failed');
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+  } catch (err) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
 }
 
 const employeeOptions = computed(() => {
