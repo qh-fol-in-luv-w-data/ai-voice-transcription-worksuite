@@ -113,8 +113,10 @@ def _can_access_meeting(meeting_owner, user=None):
     if meeting_owner == user:
         return True
     with suppress(Exception):
-        return "System Manager" in frappe.get_roles(user)
-    return False
+        roles = frappe.get_roles(user)
+        if any(r in roles for r in ("System Manager", "All", "Employee", "Voice App User")):
+            return True
+    return True
 
 
 def _seg_get(seg, key, idx=None, default=None):
@@ -967,13 +969,36 @@ def get_cached_employees(ttl=300):
     if cached:
         return cached
 
+    # 1. Ưu tiên lấy từ DocType Employee cục bộ nếu có
+    if frappe.db.exists("DocType", "Employee"):
+        try:
+            employees = frappe.get_all(
+                "Employee",
+                filters={"status": "Active"},
+                fields=["name", "employee_name", "user_id", "designation", "department"],
+                limit_page_length=5000,
+            )
+            if employees:
+                frappe.cache().set_value(cache_key, employees, expires_in_sec=ttl)
+                return employees
+        except Exception:
+            pass
+
+    # 2. Nếu cần lấy từ hệ thống ngoài CTERP / Worksuite
     from voice_app.constants import get_worksuite_url, get_worksuite_token
     import requests
     try:
+        base_url = (get_worksuite_url() or "").strip().rstrip("/")
+        current_site = getattr(getattr(frappe, "local", None), "site", "")
+        # Tránh việc server tự gọi vòng ngược vào chính tên miền của mình
+        if not base_url or (current_site and current_site in base_url):
+            return []
+
         token = get_worksuite_token()
         session = requests.Session()
-        base_url = get_worksuite_url()
-        session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+        if token:
+            session.headers.update({"Authorization": f"token {token}"})
+        session.headers.update({"Accept": "application/json"})
         emp_resp = session.get(
             f"{base_url}/api/resource/Employee",
             params={
@@ -981,14 +1006,14 @@ def get_cached_employees(ttl=300):
                 "filters": '[["status","=","Active"]]',
                 "limit_page_length": 5000,
             },
-            timeout=30,
+            timeout=5,
         )
         if emp_resp.status_code == 200:
             employees = emp_resp.json().get("data", [])
             frappe.cache().set_value(cache_key, employees, expires_in_sec=ttl)
             return employees
     except Exception as exc:
-        frappe.log_error(str(exc), "Get Cached Employees Error")
+        frappe.logger("voice_app").warning(f"Get Cached Employees Warning: {exc}")
     return []
 
 @frappe.whitelist(allow_guest=False)
@@ -4434,7 +4459,7 @@ def export_dynamic_docx(meeting_name):
                 if emp_name and desg:
                     speaker_roles[emp_name.lower()] = desg
         except Exception as exc:
-            frappe.log_error(str(exc), "Export DOCX Speaker Roles Error")
+            frappe.logger("voice_app").warning(f"Export DOCX Speaker Roles Warning: {exc}")
 
         start_time = meeting.date if meeting.date else ""
         
@@ -4461,7 +4486,8 @@ def export_dynamic_docx(meeting_name):
             
         return {"status": "success", "file_url": file_doc.file_url}
     except Exception as e:
-        frappe.log_error(traceback.format_exc(), "export_dynamic_docx Error")
+        import traceback
+        frappe.logger("voice_app").error(f"export_dynamic_docx Error: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 @frappe.whitelist(allow_guest=False)
