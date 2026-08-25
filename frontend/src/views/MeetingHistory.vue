@@ -43,16 +43,59 @@ const formatTime = (seconds) => {
   return (typeof seconds === 'number' ? seconds : Number.parseFloat(seconds)).toFixed(2) + 's'
 }
 
-const downloadFile = (url) => {
+const downloadFile = (fileOrUrl, defaultName) => {
+  if (!fileOrUrl) return;
+  if (typeof fileOrUrl === 'object' && fileOrUrl.base64_data) {
+    try {
+      const byteCharacters = atob(fileOrUrl.base64_data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileOrUrl.file_name || defaultName || 'Bien_ban_cuoc_hop.docx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+      return;
+    } catch (e) {
+      console.error('Base64 download error:', e);
+    }
+  }
+
+  const url = typeof fileOrUrl === 'string' ? fileOrUrl : fileOrUrl?.file_url;
   if (!url) return;
-  const link = document.createElement('a');
-  link.href = url;
-  const parts = url.split('/');
-  link.download = parts[parts.length - 1] || 'file';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
+  const filename = defaultName || (typeof fileOrUrl === 'object' && fileOrUrl.file_name) || url.split('/').pop() || 'Bien_ban_cuoc_hop.docx';
+
+  fetch(url, { credentials: 'include' })
+    .then(res => res.blob())
+    .then(blob => {
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+    })
+    .catch(() => {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+};
 
 // ── ADMIN CHECK ────────────────────────────────────────────────────────────
 const isAdmin = computed(() => {
@@ -418,8 +461,8 @@ const handleExportDocx = async () => {
       JSON.stringify(tasks.value)
     )
     const res = await exportDynamicDocx(props.meeting.name)
-    if (res.status === 'success' && res.file_url) {
-      downloadFile(res.file_url)
+    if (res.status === 'success') {
+      downloadFile(res, 'Bien_ban_cuoc_hop.docx')
     } else {
       ElMessage.error(res.message || "Không thể xuất DOCX")
     }
@@ -837,7 +880,7 @@ const removeTask = (idx) => {
               </template>
               <template v-else>
                 <span class="font-bold text-sm tracking-wide cursor-pointer hover:underline" @click="startEditSpeaker(idx)" :class="seg[2] && seg[2].includes('Người lạ') ? 'text-red-600' : ''" :style="seg[2] && !seg[2].includes('Người lạ') ? { color: stringToColor(seg[2]) } : {}">{{ seg[2] || 'Không tên' }}</span>
-                <span class="text-xs text-gray-500 dark:text-on-surface-variant font-label-caps">[{{ formatTime(seg[0]) }}]</span>
+                <!-- Ẩn mốc giờ từng đoạn: đó chỉ là ước lượng, không phải đo thật. -->
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-primary ml-0.5" @click="startEditSpeaker(idx)" title="Đổi tên">edit</span>
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-green-500 ml-1" @click="insertSegmentAfter(idx)" title="Chèn đoạn hội thoại mới xuống dưới">add_circle</span>
                 <span class="material-symbols-outlined text-[13px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:text-error ml-1" @click="deleteSegment(idx)" title="Xóa đoạn hội thoại này">delete</span>

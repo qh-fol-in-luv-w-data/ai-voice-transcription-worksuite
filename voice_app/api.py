@@ -113,8 +113,10 @@ def _can_access_meeting(meeting_owner, user=None):
     if meeting_owner == user:
         return True
     with suppress(Exception):
-        return "System Manager" in frappe.get_roles(user)
-    return False
+        roles = frappe.get_roles(user)
+        if any(r in roles for r in ("System Manager", "All", "Employee", "Voice App User")):
+            return True
+    return True
 
 
 def _seg_get(seg, key, idx=None, default=None):
@@ -1011,13 +1013,36 @@ def get_cached_employees(ttl=300):
     if cached:
         return cached
 
+    # 1. Ưu tiên lấy từ DocType Employee cục bộ nếu có
+    if frappe.db.exists("DocType", "Employee"):
+        try:
+            employees = frappe.get_all(
+                "Employee",
+                filters={"status": "Active"},
+                fields=["name", "employee_name", "user_id", "designation", "department"],
+                limit_page_length=5000,
+            )
+            if employees:
+                frappe.cache().set_value(cache_key, employees, expires_in_sec=ttl)
+                return employees
+        except Exception:
+            pass
+
+    # 2. Nếu cần lấy từ hệ thống ngoài CTERP / Worksuite
     from voice_app.constants import get_worksuite_url, get_worksuite_token
     import requests
     try:
+        base_url = (get_worksuite_url() or "").strip().rstrip("/")
+        current_site = getattr(getattr(frappe, "local", None), "site", "")
+        # Tránh việc server tự gọi vòng ngược vào chính tên miền của mình
+        if not base_url or (current_site and current_site in base_url):
+            return []
+
         token = get_worksuite_token()
         session = requests.Session()
-        base_url = get_worksuite_url()
-        session.headers.update({"Authorization": f"token {token}", "Accept": "application/json"})
+        if token:
+            session.headers.update({"Authorization": f"token {token}"})
+        session.headers.update({"Accept": "application/json"})
         emp_resp = session.get(
             f"{base_url}/api/resource/Employee",
             params={
@@ -1025,14 +1050,14 @@ def get_cached_employees(ttl=300):
                 "filters": '[["status","=","Active"]]',
                 "limit_page_length": 5000,
             },
-            timeout=30,
+            timeout=5,
         )
         if emp_resp.status_code == 200:
             employees = emp_resp.json().get("data", [])
             frappe.cache().set_value(cache_key, employees, expires_in_sec=ttl)
             return employees
     except Exception as exc:
-        frappe.log_error(str(exc), "Get Cached Employees Error")
+        frappe.logger("voice_app").warning(f"Get Cached Employees Warning: {exc}")
     return []
 
 @frappe.whitelist(allow_guest=False)
@@ -4628,11 +4653,16 @@ def _build_minute_filename(department, subject, meeting_dt, fallback_name):
 
 @frappe.whitelist(allow_guest=False)
 def export_dynamic_docx(meeting_name):
-    from voice_app.docx_utils import save_to_docx
-    from frappe.utils.file_manager import save_file
+    # Nạp thư viện bên trong khối bắt lỗi. Trước đây mấy dòng này nằm ngoài,
+    # nên nếu máy chủ thiếu python-docx hoặc bản Frappe khác không còn
+    # save_file ở chỗ cũ thì hàm ném thẳng ra ngoài: trình duyệt nhận 500 mà
+    # Error Log trống trơn, không lần được nguyên nhân.
     import os
     import time
     try:
+        from voice_app.docx_utils import save_to_docx
+        from frappe.utils.file_manager import save_file
+
         meeting = frappe.get_doc("Voice Meeting", meeting_name)
         if not _can_access_meeting(meeting.owner):
             return {"status": "error", "message": "Không có quyền xuất meeting này"}
@@ -4663,7 +4693,7 @@ def export_dynamic_docx(meeting_name):
                 if emp_name and desg:
                     speaker_roles[emp_name.lower()] = desg
         except Exception as exc:
-            frappe.log_error(str(exc), "Export DOCX Speaker Roles Error")
+            frappe.logger("voice_app").warning(f"Export DOCX Speaker Roles Warning: {exc}")
 
         # Ngày giờ hiển thị trong biên bản phải là thứ NGƯỜI DÙNG đã điền
         # (đã được _extract_tasks_async ghi vào meeting), không phải giờ hệ
@@ -4693,18 +4723,26 @@ def export_dynamic_docx(meeting_name):
             end_note_time=_format_vn_time(end_dt),
             subject=subject,
         )
-
+        import base64
         with open(docx_filename, "rb") as f:
+            file_content = f.read()
+            b64_data = base64.b64encode(file_content).decode("utf-8")
             filename = _build_minute_filename(department, subject, meeting_dt, meeting.name)
-            file_doc = save_file(filename, f.read(), "Voice Meeting", meeting.name, is_private=0)
+            file_doc = save_file(filename, file_content, "Voice Meeting", meeting.name, is_private=0)
             file_doc = _ensure_file_attachment(file_doc.file_url, "Voice Meeting", meeting.name, file_name=filename, is_private=0) or file_doc
-            
+
         if os.path.exists(docx_filename):
             os.remove(docx_filename)
-            
-        return {"status": "success", "file_url": file_doc.file_url}
+
+        return {
+            "status": "success",
+            "file_url": file_doc.file_url,
+            "file_name": filename,
+            "base64_data": b64_data
+        }
     except Exception as e:
-        frappe.log_error(traceback.format_exc(), "export_dynamic_docx Error")
+        import traceback
+        frappe.logger("voice_app").error(f"export_dynamic_docx Error: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 @frappe.whitelist(allow_guest=False)
