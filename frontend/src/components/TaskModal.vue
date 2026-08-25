@@ -33,31 +33,59 @@ const getProjectsForHR = (displayStr) => {
 }
 
 // Hàm tải file trực tiếp qua blob để tránh bị chặn tải
-const downloadFile = async (url, defaultName) => {
-  if (!url) return;
-  const filename = defaultName || url.split('/').pop() || 'file';
-  try {
-    const response = await fetch(url, { credentials: 'include' });
-    if (!response.ok) throw new Error('Fetch failed');
-    const blob = await response.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
-  } catch (err) {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+const downloadFile = (fileOrUrl, defaultName) => {
+  if (!fileOrUrl) return;
+  if (typeof fileOrUrl === 'object' && fileOrUrl.base64_data) {
+    try {
+      const byteCharacters = atob(fileOrUrl.base64_data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileOrUrl.file_name || defaultName || 'Bien_ban_cuoc_hop.docx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+      return;
+    } catch (e) {
+      console.error('Base64 download error:', e);
+    }
   }
-}
+
+  const url = typeof fileOrUrl === 'string' ? fileOrUrl : fileOrUrl?.file_url;
+  if (!url) return;
+  const filename = defaultName || (typeof fileOrUrl === 'object' && fileOrUrl.file_name) || url.split('/').pop() || 'file';
+  
+  fetch(url, { credentials: 'include' })
+    .then(res => res.blob())
+    .then(blob => {
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+    })
+    .catch(() => {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+};
 
 const employeeOptions = computed(() => {
   return props.dbEmployees.map(emp => ({
@@ -132,8 +160,8 @@ const downloadDynamicDocx = async () => {
       JSON.stringify(tasks.value)
     )
     const res = await exportDynamicDocx(currentMeetingName.value)
-    if (res.status === 'success' && res.file_url) {
-      downloadFile(res.file_url, 'Biên bản họp ngày ' + props.currentLocalDate() + '.docx')
+    if (res.status === 'success') {
+      downloadFile(res, 'Biên bản họp ngày ' + props.currentLocalDate() + '.docx')
     } else {
       ElMessage.error(res.message || "Không thể xuất DOCX")
     }

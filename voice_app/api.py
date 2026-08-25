@@ -4476,15 +4476,23 @@ def export_dynamic_docx(meeting_name):
             tasks=tasks
         )
         
+        import base64
         with open(docx_filename, "rb") as f:
+            file_content = f.read()
+            b64_data = base64.b64encode(file_content).decode("utf-8")
             filename = f"{meeting.name}_Minute_{int(time.time())}.docx"
-            file_doc = save_file(filename, f.read(), "Voice Meeting", meeting.name, is_private=0)
+            file_doc = save_file(filename, file_content, "Voice Meeting", meeting.name, is_private=0)
             file_doc = _ensure_file_attachment(file_doc.file_url, "Voice Meeting", meeting.name, file_name=filename, is_private=0) or file_doc
             
         if os.path.exists(docx_filename):
             os.remove(docx_filename)
             
-        return {"status": "success", "file_url": file_doc.file_url}
+        return {
+            "status": "success", 
+            "file_url": file_doc.file_url, 
+            "file_name": filename,
+            "base64_data": b64_data
+        }
     except Exception as e:
         import traceback
         frappe.logger("voice_app").error(f"export_dynamic_docx Error: {traceback.format_exc()}")
