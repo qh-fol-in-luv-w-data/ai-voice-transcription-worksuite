@@ -1118,8 +1118,13 @@ def _append_stt_parse_log(doctype, docname, lines, max_chars=200000):
 
 
 def _gemini_stt_cost(prompt_tokens=0, completion_tokens=0):
-    price_in = 1.50 / 1_000_000
-    price_out = 9.00 / 1_000_000
+    # Giá gemini-3.7-flash thật, xác nhận từ ai.google.dev/gemini-api/docs/pricing
+    # lúc 2026-09-03 (giá khuyến mãi tới hết 31/12/2026; từ 1/1/2027 tăng lên
+    # $1.50 input / $7.50 output). Giá cũ $1.50/$9.00 ở đây SAI, cao hơn thật
+    # 2-2.4 lần — cùng lỗi với PRICE_IN/PRICE_OUT trong gemini_stt_client.py,
+    # phải sửa đồng bộ cả 2 chỗ khi giá đổi hoặc model đổi.
+    price_in = 0.75 / 1_000_000
+    price_out = 3.75 / 1_000_000
     return (int(prompt_tokens or 0) * price_in) + (int(completion_tokens or 0) * price_out)
 
 

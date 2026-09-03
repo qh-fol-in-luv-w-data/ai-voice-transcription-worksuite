@@ -406,8 +406,15 @@ def _call_gemini_stream(file_uri, api_key, prompt, model_name=None, max_tokens=1
         "model":             f"google/{model_name}",
     }
 
-    PRICE_IN  = 1.50 / 1_000_000
-    PRICE_OUT = 9.00 / 1_000_000
+    # Giá gemini-3.7-flash (model đang cấu hình trong Voice App Settings),
+    # xác nhận trực tiếp từ ai.google.dev/gemini-api/docs/pricing lúc
+    # 2026-09-03. Giá cũ hardcode ở đây ($1.50/$9.00) là SAI — cao gấp
+    # 2-2.4 lần giá thật, khiến mọi log chi phí từ trước tới giờ bị thổi
+    # phồng. Đây là giá khuyến mãi có hiệu lực tới hết 31/12/2026; từ
+    # 1/1/2027 tăng lên $1.50 input / $7.50 output — nhớ cập nhật lại khi
+    # qua mốc đó, và cập nhật lại bất cứ khi nào đổi model khác.
+    PRICE_IN  = 0.75 / 1_000_000
+    PRICE_OUT = 3.75 / 1_000_000
     cost = total_in * PRICE_IN + billable_out * PRICE_OUT
     usage_result["cost_usd"] = cost
     usage_result["input_cost_usd"] = total_in * PRICE_IN
@@ -1154,8 +1161,11 @@ def call_gemini_stt(chunks_info: list, chunk_update_cb=None, language: str = "vi
                 spk_set.add(s_spk)
         n_spk = len(spk_set)
         
-        PRICE_IN  = 1.50 / 1_000_000
-        PRICE_OUT = 9.00 / 1_000_000
+        # Giá gemini-3.7-flash thật (xem chú thích chi tiết ở PRICE_IN/OUT
+        # phía trên trong _call_gemini_stream) — giá cũ $1.50/$9.00 ở đây
+        # sai, cao hơn thật 2-2.4 lần.
+        PRICE_IN  = 0.75 / 1_000_000
+        PRICE_OUT = 3.75 / 1_000_000
         total_cost = total_in_all * PRICE_IN + total_out_all * PRICE_OUT
         total_log = (
             f"[Gemini STT] ✅ DONE: {len(all_segments)} segments, {n_spk} speakers, {len(chunks_info)} chunks\n"
